@@ -144,7 +144,7 @@ Newest messages appear directly below the input; older ones scroll down."
                  (start (point)))
             (insert text "\n")
             (when ts-str
-              (let ((ov (make-overlay start (1+ start))))
+              (let ((ov (make-overlay start (1+ start) nil t)))
                 (overlay-put ov 'before-string
                              (propertize " " 'display
                                          `((margin right-margin)
