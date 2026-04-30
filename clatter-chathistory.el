@@ -107,12 +107,15 @@ Used on reconnect to fill in gaps."
 
 ;; --- Automatic fetch hooks ---
 
-(defun clatter-chathistory--on-join (conn _channel target _account _realname)
-  "Fetch chathistory when joining TARGET on CONN."
+(defun clatter-chathistory--on-join (conn nick channel _account _realname)
+  "Fetch chathistory when we join CHANNEL on CONN.
+NICK is who joined; we only fetch if it's our own nick."
   (when (and clatter-chathistory-enabled
              clatter-chathistory-on-join
+             (string-equal nick (clatter-connection-nick conn))
              (clatter-chathistory--available-p conn))
-    (let* ((network (clatter-connection-network-id conn))
+    (let* ((target channel)
+           (network (clatter-connection-network-id conn))
            (buf (clatter-get-buffer network target)))
       (if (and buf
                (buffer-local-value 'clatter-chathistory--last-timestamp buf))
