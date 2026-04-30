@@ -84,14 +84,15 @@
 
 (defun clatter-url-preview--fetch (url buffer)
   "Asynchronously fetch URL and display its title in BUFFER."
-  (puthash url t clatter-url-preview--pending)
-  (let ((url-request-extra-headers
-         '(("User-Agent" . "Mozilla/5.0 (compatible; clatter.el)")))
-        (url-mime-accept-string "text/html")
-        (url-show-status nil))
-    (condition-case nil
-        (url-retrieve
-         url
+  (let ((clean-url (substring-no-properties url)))
+    (puthash clean-url t clatter-url-preview--pending)
+    (let ((url-request-extra-headers
+           '(("User-Agent" . "Mozilla/5.0 (compatible; clatter.el)")))
+          (url-mime-accept-string "text/html")
+          (url-show-status nil))
+      (condition-case nil
+          (url-retrieve
+           clean-url
          (lambda (status url buf)
            (remhash url clatter-url-preview--pending)
            (unless (plist-get status :error)
@@ -121,7 +122,7 @@
          t  ; silent
          t) ; inhibit cookies
       (error
-       (remhash url clatter-url-preview--pending)))))
+       (remhash clean-url clatter-url-preview--pending))))))
 
 ;; --- Hook Handler ---
 

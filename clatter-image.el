@@ -51,7 +51,7 @@ Images larger than this are skipped.  Default: 5 MB."
 
 (defun clatter-image--url-p (url)
   "Return non-nil if URL looks like a direct image link."
-  (let ((path (downcase (or (url-filename (url-generic-parse-url url)) ""))))
+  (let ((path (downcase (or (url-filename (url-generic-parse-url (substring-no-properties url))) ""))))
     ;; Strip query string for extension check
     (let ((base (car (split-string path "?"))))
       (cl-some (lambda (ext)
@@ -66,7 +66,7 @@ Images larger than this are skipped.  Default: 5 MB."
              (display-graphic-p)
              (clatter-image--url-p url))
     (url-retrieve
-     url
+     (substring-no-properties url)
      (lambda (status buf marker url-str)
        (unless (plist-get status :error)
          (condition-case nil
