@@ -547,8 +547,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
 (defun clatter--handle-ctcp (conn sender-nick target raw-text)
   "Handle CTCP request on CONN from SENDER-NICK to TARGET with RAW-TEXT."
   ;; Don't respond to our own CTCP
-  (when (string-equal sender-nick (clatter-connection-nick conn))
-    (cl-return-from clatter--handle-ctcp nil))
+  (unless (string-equal sender-nick (clatter-connection-nick conn))
   (let* ((ctcp-content (substring raw-text 1 (1- (length raw-text))))
          (space-pos (cl-position ?\s ctcp-content))
          (ctcp-cmd (upcase (if space-pos
@@ -579,7 +578,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
                            (format "CTCP TIME from %s" sender-nick)))
       (_
        (run-hook-with-args 'clatter-ctcp-hook
-                           conn sender-nick target ctcp-cmd ctcp-args)))))
+                           conn sender-nick target ctcp-cmd ctcp-args))))))
 
 ;; --- Batch Handling ---
 
