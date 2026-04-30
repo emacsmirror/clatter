@@ -1,0 +1,151 @@
+;;; clatter-nicklist.el --- Channel member sidebar for clatter -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Provides a side window displaying channel members with nick colors
+;; and mode prefixes. Toggle with `clatter-nicklist-toggle' or SPC i n.
+
+;;; Code:
+
+(require 'clatter-model)
+(require 'clatter-config)
+
+(defcustom clatter-nicklist-width 20
+  "Width of the nicklist sidebar window."
+  :type 'integer
+  :group 'clatter)
+
+(defcustom clatter-nicklist-side 'right
+  "Side of the frame for the nicklist window."
+  :type '(choice (const left) (const right))
+  :group 'clatter)
+
+(defvar-local clatter-nicklist--source-buffer nil
+  "The channel buffer this nicklist is associated with.")
+
+(defvar clatter-nicklist-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "q") #'clatter-nicklist-close)
+    (define-key map (kbd "g") #'clatter-nicklist-refresh)
+    (define-key map (kbd "RET") #'clatter-nicklist-query)
+    map)
+  "Keymap for `clatter-nicklist-mode'.")
+
+(define-derived-mode clatter-nicklist-mode special-mode "NickList"
+  "Major mode for the clatter nicklist sidebar."
+  (setq-local revert-buffer-function #'clatter-nicklist--revert)
+  (setq buffer-read-only t))
+
+(defun clatter-nicklist--revert (_ignore-auto _noconfirm)
+  "Revert function for nicklist buffer."
+  (clatter-nicklist-refresh))
+
+(defun clatter-nicklist--buffer-name (channel)
+  "Return nicklist buffer name for CHANNEL."
+  (format "*clatter-nicks: %s*" channel))
+
+(defun clatter-nicklist--render (buf)
+  "Render the nicklist for source buffer BUF into the current buffer."
+  (let ((inhibit-read-only t)
+        (nicks (clatter-nick-list buf))
+        (conn (when (buffer-live-p buf)
+                (with-current-buffer buf
+                  (when clatter--network
+                    (clatter-get-connection clatter--network))))))
+    (erase-buffer)
+    (insert (propertize (format " %d members\n"
+                                (length nicks))
+                        'face 'bold))
+    (insert (propertize (make-string (1- clatter-nicklist-width) ?-) 'face 'shadow)
+            "\n")
+    ;; Group by prefix: ops (@), voiced (+), regular
+    (let ((ops (cl-remove-if-not (lambda (n) (string-equal (cdr n) "@")) nicks))
+          (voiced (cl-remove-if-not (lambda (n) (string-equal (cdr n) "+")) nicks))
+          (regular (cl-remove-if-not (lambda (n) (string-equal (cdr n) "")) nicks)))
+      (when ops
+        (dolist (n ops)
+          (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
+      (when voiced
+        (dolist (n voiced)
+          (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
+      (when regular
+        (dolist (n regular)
+          (clatter-nicklist--insert-nick (car n) (cdr n) conn))))
+    (goto-char (point-min))))
+
+(defun clatter-nicklist--insert-nick (nick prefix conn)
+  "Insert NICK with PREFIX into the nicklist buffer.
+CONN is used for nick colorization."
+  (let* ((color (clatter-hl-nick-color nick))
+         (prefix-face (cond
+                       ((string-equal prefix "@") 'clatter-system)
+                       ((string-equal prefix "+") 'clatter-notice)
+                       (t nil)))
+         (prefix-str (if (string-empty-p prefix) " " prefix)))
+    (insert (if prefix-face
+                (propertize prefix-str 'face prefix-face)
+              prefix-str)
+            " "
+            (propertize nick 'face (list :foreground color)
+                        'clatter-nick nick)
+            "\n")))
+
+(defun clatter-nicklist-refresh ()
+  "Refresh the nicklist sidebar."
+  (interactive)
+  (let ((buf clatter-nicklist--source-buffer))
+    (when (and buf (buffer-live-p buf))
+      (clatter-nicklist--render buf))))
+
+(defun clatter-nicklist-close ()
+  "Close the nicklist sidebar."
+  (interactive)
+  (let ((win (get-buffer-window (current-buffer))))
+    (when win (delete-window win)))
+  (kill-buffer (current-buffer)))
+
+(defun clatter-nicklist-query ()
+  "Open a query (DM) with the nick at point."
+  (interactive)
+  (let ((nick (get-text-property (point) 'clatter-nick)))
+    (when nick
+      (let ((source clatter-nicklist--source-buffer))
+        (when (and source (buffer-live-p source))
+          (with-current-buffer source
+            (when (and clatter--network
+                       (clatter-get-connection clatter--network))
+              (let ((conn (clatter-get-connection clatter--network)))
+                (clatter-get-or-create-buffer
+                 clatter--network nick 'query conn)
+                (pop-to-buffer
+                 (clatter-get-buffer clatter--network nick))))))))))
+
+(defun clatter-nicklist-toggle ()
+  "Toggle the nicklist sidebar for the current channel."
+  (interactive)
+  (unless (and clatter--target clatter--nick-list)
+    (user-error "Not in a channel buffer"))
+  (let* ((target clatter--target)
+         (nl-name (clatter-nicklist--buffer-name target))
+         (existing (get-buffer nl-name)))
+    (if (and existing (get-buffer-window existing))
+        ;; Close it
+        (progn
+          (delete-window (get-buffer-window existing))
+          (kill-buffer existing))
+      ;; Open it
+      (let ((source (current-buffer))
+            (nl-buf (get-buffer-create nl-name)))
+        (with-current-buffer nl-buf
+          (clatter-nicklist-mode)
+          (setq clatter-nicklist--source-buffer source)
+          (clatter-nicklist--render source))
+        (display-buffer-in-side-window
+         nl-buf
+         `((side . ,clatter-nicklist-side)
+           (window-width . ,clatter-nicklist-width)
+           (slot . 0)
+           (dedicated . t)))))))
+
+(provide 'clatter-nicklist)
+
+;;; clatter-nicklist.el ends here

@@ -1,0 +1,381 @@
+;;; clatter-notify.el --- Desktop notifications -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Glenn Thompson
+;; Author: Glenn Thompson
+;; License: MIT
+
+;;; Commentary:
+
+;; Desktop notifications for clatter.el with IRC-specific rules.
+;; Supports mentions, DMs, keyword matching, muted channels,
+;; and current-buffer suppression.
+;; Uses notify-send on Linux, terminal-notifier on macOS,
+;; or Emacs built-in notifications as fallback.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'clatter-config)
+(require 'clatter-connection)
+(require 'clatter-model)
+
+;; --- Configuration ---
+
+(defcustom clatter-notify-enabled t
+  "Enable desktop notifications."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-notify-on-mention t
+  "Send notification when your nick is mentioned."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-notify-on-dm t
+  "Send notification for private messages."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-notify-on-keyword t
+  "Send notification when a keyword from `clatter-notify-keywords' matches."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-notify-keywords nil
+  "List of keywords that trigger notifications.
+Case-insensitive matching.
+Example: (\"parenworks\" \"fluxion\" \"lattice\" \"sextant\")"
+  :type '(repeat string)
+  :group 'clatter)
+
+(defcustom clatter-notify-muted-channels nil
+  "List of channels that never trigger notifications.
+Example: (\"#spam\" \"#bots\")"
+  :type '(repeat string)
+  :group 'clatter)
+
+(defcustom clatter-notify-muted-nicks nil
+  "List of nicks that never trigger notifications.
+Useful for bots.
+Example: (\"ChanServ\" \"NickServ\" \"github-bot\")"
+  :type '(repeat string)
+  :group 'clatter)
+
+(defcustom clatter-notify-current-buffer nil
+  "If nil, suppress notifications for the currently visible buffer.
+Most users do not want notifications for messages they can already see."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-notify-timeout 5000
+  "Notification timeout in milliseconds."
+  :type 'integer
+  :group 'clatter)
+
+(defcustom clatter-notify-icon nil
+  "Path to icon for notifications, or nil for default."
+  :type '(choice (const nil) string)
+  :group 'clatter)
+
+(defcustom clatter-notify-urgency 'normal
+  "Notification urgency level."
+  :type '(choice (const :tag "Low" low)
+                 (const :tag "Normal" normal)
+                 (const :tag "Critical" critical))
+  :group 'clatter)
+
+(defcustom clatter-notify-sound nil
+  "If non-nil, play this sound file with notifications.
+Set to t for system default, or a path to a specific sound."
+  :type '(choice (const :tag "None" nil)
+                 (const :tag "System default" t)
+                 string)
+  :group 'clatter)
+
+(defcustom clatter-notify-max-length 80
+  "Maximum length of message text in notifications."
+  :type 'integer
+  :group 'clatter)
+
+;; --- Smart notification rules ---
+
+(defcustom clatter-notify-rules nil
+  "Per-channel/nick notification rules.
+Each entry is a plist with:
+  :target   - channel or nick name (string, case-insensitive)
+  :level    - notification level: all, mentions, dms, none
+  :schedule - optional (START-HOUR . END-HOUR) for active hours (24h)
+              Notifications only fire during these hours.
+              nil means always active.
+
+Example:
+  \\='((:target \"#emacs\" :level mentions :schedule (9 . 22))
+    (:target \"#bots\" :level none)
+    (:target \"#systemcrafters\" :level all)
+    (:target \"friend\" :level all))"
+  :type '(repeat plist)
+  :group 'clatter)
+
+(defcustom clatter-notify-dm-priority 'always
+  "Priority for DM notifications.
+  always - always notify for DMs regardless of rules
+  rules  - apply rules to DMs as well
+  never  - never notify for DMs"
+  :type '(choice (const :tag "Always notify" always)
+                 (const :tag "Follow rules" rules)
+                 (const :tag "Never" never))
+  :group 'clatter)
+
+(defun clatter-notify--find-rule (target)
+  "Find the notification rule matching TARGET."
+  (cl-find-if (lambda (rule)
+                (string-equal-ignore-case
+                 (plist-get rule :target) target))
+              clatter-notify-rules))
+
+(defun clatter-notify--schedule-active-p (schedule)
+  "Return non-nil if SCHEDULE is currently active.
+SCHEDULE is (START-HOUR . END-HOUR) or nil (always active)."
+  (if (null schedule)
+      t
+    (let* ((hour (string-to-number (format-time-string "%H")))
+           (start (car schedule))
+           (end (cdr schedule)))
+      (if (<= start end)
+          (and (>= hour start) (< hour end))
+        ;; Wraps midnight (e.g. 22 . 8)
+        (or (>= hour start) (< hour end))))))
+
+(defun clatter-notify--rule-allows-p (target reason)
+  "Return non-nil if smart rules allow notification for TARGET and REASON."
+  (let ((rule (clatter-notify--find-rule target)))
+    (if (null rule)
+        t  ;; No rule = use default behavior
+      (let ((level (plist-get rule :level))
+            (schedule (plist-get rule :schedule)))
+        (and (clatter-notify--schedule-active-p schedule)
+             (pcase level
+               ('all t)
+               ('mentions (memq reason '(mention keyword)))
+               ('dms (eq reason 'dm))
+               ('none nil)
+               (_ t)))))))
+
+;; --- Rate limiting ---
+
+(defcustom clatter-notify-cooldown 3
+  "Minimum seconds between notifications from the same source.
+Prevents notification spam from rapid messages."
+  :type 'integer
+  :group 'clatter)
+
+(defvar clatter-notify--last-times (make-hash-table :test 'equal)
+  "Hash table of source -> last notification time for rate limiting.")
+
+(defun clatter-notify--rate-ok-p (source)
+  "Return non-nil if SOURCE has not been notified within the cooldown period."
+  (let* ((last (gethash source clatter-notify--last-times 0))
+         (now (float-time))
+         (elapsed (- now last)))
+    (when (>= elapsed clatter-notify-cooldown)
+      (puthash source now clatter-notify--last-times)
+      t)))
+
+;; --- Notification dispatch ---
+
+(defun clatter-notify--send (title body)
+  "Send a desktop notification with TITLE and BODY."
+  (let ((body-truncated (if (> (length body) clatter-notify-max-length)
+                            (concat (substring body 0 (- clatter-notify-max-length 3)) "...")
+                          body)))
+    (cond
+     ;; Linux: notify-send
+     ((executable-find "notify-send")
+      (let ((args (list "notify-send"
+                        "-t" (number-to-string clatter-notify-timeout)
+                        "-u" (symbol-name clatter-notify-urgency)
+                        "-a" "CLatter")))
+        (when clatter-notify-icon
+          (setq args (append args (list "-i" clatter-notify-icon))))
+        (setq args (append args (list title body-truncated)))
+        (apply #'start-process "clatter-notify" nil args)))
+     ;; macOS: terminal-notifier or osascript
+     ((executable-find "terminal-notifier")
+      (start-process "clatter-notify" nil
+                     "terminal-notifier"
+                     "-title" title
+                     "-message" body-truncated
+                     "-sender" "org.gnu.Emacs"
+                     "-group" "clatter"))
+     ;; Fallback: Emacs message
+     (t
+      (message "[CLatter] %s: %s" title body-truncated)))
+    ;; Optional sound
+    (when clatter-notify-sound
+      (clatter-notify--play-sound))))
+
+(defun clatter-notify--play-sound ()
+  "Play notification sound if configured."
+  (cond
+   ((and (stringp clatter-notify-sound)
+         (file-exists-p clatter-notify-sound))
+    (start-process "clatter-sound" nil "paplay" clatter-notify-sound))
+   ((eq clatter-notify-sound t)
+    (when (executable-find "paplay")
+      (start-process "clatter-sound" nil
+                     "paplay"
+                     "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga")))))
+
+;; --- Notification logic ---
+
+(defun clatter-notify--should-notify-p (sender target text conn)
+  "Determine if a notification should be sent.
+Returns a symbol indicating the reason: mention, dm, keyword, or nil."
+  (when clatter-notify-enabled
+    (let* ((my-nick (clatter-connection-nick conn))
+           (is-channel (and target (string-match-p "^[#&!+]" target)))
+           (is-dm (not is-channel))
+           (buf (clatter-get-buffer
+                 (clatter-connection-network-id conn)
+                 (if is-dm sender target)))
+           (is-current (and buf (eq buf (window-buffer (selected-window)))))
+           (is-muted-channel (and is-channel
+                                  (member target clatter-notify-muted-channels)))
+           (is-muted-nick (member sender clatter-notify-muted-nicks))
+           (text-lower (downcase (or text ""))))
+      (let ((reason
+             (cond
+              ;; Muted
+              (is-muted-channel nil)
+              (is-muted-nick nil)
+              ;; Current buffer suppression
+              ((and is-current (not clatter-notify-current-buffer)) nil)
+              ;; DM
+              ((and is-dm clatter-notify-on-dm) 'dm)
+              ;; Mention
+              ((and clatter-notify-on-mention
+                    my-nick
+                    (string-match-p (regexp-quote (downcase my-nick)) text-lower))
+               'mention)
+              ;; Keyword
+              ((and clatter-notify-on-keyword
+                    clatter-notify-keywords
+                    (cl-some (lambda (kw)
+                               (string-match-p (regexp-quote (downcase kw)) text-lower))
+                             clatter-notify-keywords))
+               'keyword)
+              (t nil))))
+        ;; Apply smart rules
+        (when reason
+          ;; DM priority override
+          (cond
+           ((and (eq reason 'dm) (eq clatter-notify-dm-priority 'never))
+            (setq reason nil))
+           ((and (eq reason 'dm) (eq clatter-notify-dm-priority 'always))
+            ;; Always notify for DMs, skip rule check
+            nil)
+           ;; Check per-target rules
+           (t
+            (unless (clatter-notify--rule-allows-p
+                     (if is-dm sender target) reason)
+              (setq reason nil)))))
+        reason))))
+
+(defun clatter-notify--format-title (reason sender target)
+  "Format notification title based on REASON, SENDER, and TARGET."
+  (pcase reason
+    ('dm (format "DM from %s" sender))
+    ('mention (format "Mentioned in %s" target))
+    ('keyword (format "Keyword in %s" target))
+    (_ (format "%s in %s" sender target))))
+
+;; --- Hooks ---
+
+(defun clatter-notify--on-privmsg (conn sender target text &rest _args)
+  "Handle PRIVMSG for notifications."
+  (let ((reason (clatter-notify--should-notify-p sender target text conn)))
+    (when reason
+      (let* ((is-channel (and target (string-match-p "^[#&!+]" target)))
+             (source (if is-channel target sender)))
+        (when (clatter-notify--rate-ok-p source)
+          (clatter-notify--send
+           (clatter-notify--format-title reason sender target)
+           (format "<%s> %s" sender text)))))))
+
+(defun clatter-notify--on-action (conn sender target text &rest _args)
+  "Handle ACTION for notifications."
+  (let ((reason (clatter-notify--should-notify-p sender target text conn)))
+    (when reason
+      (let* ((is-channel (and target (string-match-p "^[#&!+]" target)))
+             (source (if is-channel target sender)))
+        (when (clatter-notify--rate-ok-p source)
+          (clatter-notify--send
+           (clatter-notify--format-title reason sender target)
+           (format "* %s %s" sender text)))))))
+
+;; --- Interactive commands ---
+
+(defun clatter-notify-toggle ()
+  "Toggle desktop notifications on/off."
+  (interactive)
+  (setq clatter-notify-enabled (not clatter-notify-enabled))
+  (message "[clatter-notify] Notifications %s"
+           (if clatter-notify-enabled "enabled" "disabled")))
+
+(defun clatter-notify-add-keyword (keyword)
+  "Add KEYWORD to the notification keyword list."
+  (interactive "sKeyword to add: ")
+  (unless (member keyword clatter-notify-keywords)
+    (push keyword clatter-notify-keywords)
+    (message "Added keyword: %s" keyword)))
+
+(defun clatter-notify-remove-keyword (keyword)
+  "Remove KEYWORD from the notification keyword list."
+  (interactive
+   (list (completing-read "Remove keyword: " clatter-notify-keywords)))
+  (setq clatter-notify-keywords (delete keyword clatter-notify-keywords))
+  (message "Removed keyword: %s" keyword))
+
+(defun clatter-notify-test ()
+  "Send a test notification."
+  (interactive)
+  (clatter-notify--send "CLatter Test" "Notifications are working"))
+
+(defun clatter-notify-mute-nick (nick)
+  "Add NICK to the muted nicks list."
+  (interactive "sNick to mute: ")
+  (unless (member nick clatter-notify-muted-nicks)
+    (push nick clatter-notify-muted-nicks)
+    (message "Muted notifications from %s" nick)))
+
+(defun clatter-notify-unmute-nick (nick)
+  "Remove NICK from the muted nicks list."
+  (interactive
+   (list (completing-read "Unmute nick: " clatter-notify-muted-nicks)))
+  (setq clatter-notify-muted-nicks (delete nick clatter-notify-muted-nicks))
+  (message "Unmuted notifications from %s" nick))
+
+;; --- Enable/disable ---
+
+(defun clatter-notify-enable ()
+  "Enable notification hooks."
+  (interactive)
+  (add-hook 'clatter-privmsg-hook #'clatter-notify--on-privmsg)
+  (add-hook 'clatter-action-hook #'clatter-notify--on-action)
+  (message "[clatter-notify] Notification hooks enabled"))
+
+(defun clatter-notify-disable ()
+  "Disable notification hooks."
+  (interactive)
+  (remove-hook 'clatter-privmsg-hook #'clatter-notify--on-privmsg)
+  (remove-hook 'clatter-action-hook #'clatter-notify--on-action)
+  (message "[clatter-notify] Notification hooks disabled"))
+
+;; --- Auto-enable ---
+
+(when clatter-notify-enabled
+  (clatter-notify-enable))
+
+(provide 'clatter-notify)
+
+;;; clatter-notify.el ends here

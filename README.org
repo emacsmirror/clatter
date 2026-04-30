@@ -1,0 +1,290 @@
+#+TITLE: clatter.el
+#+AUTHOR: Glenn Thompson
+#+OPTIONS: toc:2
+
+* clatter.el - An IRCv3 Client for Emacs
+
+A dedicated, fully IRCv3-compliant IRC client for Emacs. Pure Elisp. No external dependencies beyond Emacs itself.
+
+Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Common Lisp TUI client), redesigned from scratch for Emacs.
+
+** Features
+
+*** Protocol
+- Full IRC protocol (RFC 1459/2812)
+- IRCv3 capability negotiation (CAP LS 302)
+- SASL authentication (PLAIN, SCRAM-SHA-256, EXTERNAL/certificate)
+- IRCv3 message tags (server-time, msgid, batch, etc.)
+- Batch message handling (chathistory)
+- Labeled responses
+- Standard Replies (FAIL/WARN/NOTE) with formatted display
+- Strict Transport Security (STS) - auto-upgrade plaintext to TLS
+- MONITOR (online/offline tracking)
+- Typing indicators (+typing)
+- CTCP (VERSION, TIME, PING, ACTION)
+- TLS/SSL with client certificate support
+- mIRC color/formatting codes (bold, italic, underline, colors, reverse)
+- BOT mode (draft/bot) - [bot] indicator on messages from bots
+- WHOX (extended WHO) - bulk account name fetching on channel join
+- Channel rename (draft/channel-rename) - auto-updates buffers
+- STATUSMSG - prefix-targeted messages with [ops]/[voiced] indicator
+- ISUPPORT (005) parameter parsing
+- Thread/reply support (draft/reply) - inline reply context display
+- Reactions (draft/react) - emoji reactions on messages via TAGMSG
+
+*** Interface
+- Buffer-per-channel (native Emacs buffers)
+- Newest-at-top message layout (input prompt at top, messages below)
+- =auth-source= integration for passwords (.authinfo.gpg, pass, etc.)
+- Multi-network support
+- Configurable message suppression (JOIN, PART, QUIT, NICK, etc.)
+- Buffer truncation (configurable =clatter-buffer-max-lines=, default 10000)
+- Flyspell spell-checking in input area (built-in, toggle with =clatter-flyspell-enable=)
+- Paste flood protection (warns before sending >3 lines, configurable threshold)
+- =/close= command to kill current buffer (PARTs from channels first)
+- Reconnect/disconnect status shown inline in channel buffers
+
+*** Nick Highlighting (clatter-hl-nicks)
+- 40-color palette optimized for dark themes
+- Hash-based stable colors (same nick = same color across sessions)
+- In-text nick highlighting (nicks colorized in message body, not just prefix)
+- Nick alias support for consistent colors across nick changes
+- URL detection with clickable links (=RET= or mouse click on any URL)
+- =clatter-hl-open-url-nearest= opens nearest URL on current line (bind in init.el)
+- =SPC i o= to browse all URLs from the buffer (completing-read picker)
+- =SPC i y= to copy a URL from the buffer to kill ring
+- Configurable skip-nicks and minimum length
+
+*** Ignore / Filter System
+- =/ignore NICK-OR-PATTERN= to hide all messages from a user
+- =/unignore NICK-OR-PATTERN= to remove from ignore list
+- =/ignore= with no args shows current ignore list
+- Glob wildcards (=*= and =?=) supported, case-insensitive
+- Filtering is UI-only; ignored messages still appear in logs
+- Toggle from action menu with =I=
+
+*** URL Title Preview (clatter-url-preview)
+- Async URL title fetching (displays inline as system message)
+- Cached titles to avoid re-fetching
+- Excludes binary/media URLs (.png, .jpg, .mp4, etc.)
+- Opt-in: set =clatter-url-preview-enable= to =t=
+- Configurable max title length and timeout
+
+*** Channel Logging (clatter-log)
+- Automatic logging to =~/.emacs.d/clatter/logs/=
+- Daily rotated log files (=network/target-YYYY-MM-DD.log=)
+- Buffered writes with configurable flush interval
+- Logs PRIVMSG, ACTION, NOTICE, JOIN, PART, QUIT, NICK, TOPIC, KICK, MODE
+- =M-x clatter-log-open= to open log for current channel
+- =M-x clatter-log-open-directory= to browse all logs
+- Per-channel exclusion via =clatter-log-exclude-targets=
+- Opt-in: set =clatter-log-enable= to =t=
+
+*** Message Actions (clatter-actions)
+- Context-aware action menu on message at point (=C-c C-a=)
+- Reply: insert nick at prompt
+- Copy: message text, nick, or URL
+- WHOIS: query sender info
+- Query: open DM with sender
+- Inspect: view raw message properties
+- Ignore: toggle sender ignore (messages hidden)
+- URL collection: list all URLs in buffer
+
+*** Activity Tracking (clatter-track)
+- Global mode-line activity indicator
+- Unread counts and mention detection per channel
+- Priority sorting: mentions > DMs > regular activity
+- Clickable mode-line entries (switch to buffer on click)
+- Channel mute/unmute support
+- Consult integration (narrow with =i= in =consult-buffer=)
+- =SPC i t= to jump to most urgent activity
+- =SPC i l= to list all activity
+
+*** Desktop Notifications (clatter-notify)
+- Mention, DM, and keyword-triggered notifications
+- Uses notify-send (Linux) or terminal-notifier (macOS)
+- Per-channel and per-nick muting
+- Smart notification rules: per-channel levels (all/mentions/dms/none) with schedule
+- DM priority override (always/rules/never)
+- Schedule support with 24h ranges, wraps midnight (e.g. 22-8)
+- Current-buffer suppression (no noise for what you already see)
+- Rate limiting (configurable cooldown per source)
+- Optional sound support
+- Custom keyword watchlist
+- =SPC i n= to toggle, =SPC i k= to add keywords
+- =M-x clatter-notify-test= to verify setup
+
+*** Completion (clatter-completion)
+- Completion-at-point for nicks, /commands, and #channels
+- Integrates with Corfu, Vertico, Orderless (standard Emacs CAPF)
+- Nick annotations show channel prefix (@, +, etc.)
+- /command annotations show descriptions
+- Auto ": " suffix when completing nick at start of input
+- TAB triggers completion in input area
+
+*** Raw Protocol Log (clatter-rawlog)
+- Full raw IRC traffic inspector
+- Color-coded incoming (<< green) and outgoing (>> blue)
+- Optional parsed message structure display
+- Filter by regex pattern
+- Send raw IRC commands directly
+- View CAP negotiation state
+- =SPC i r= to open rawlog
+
+*** Keyword Highlighting
+- Highlight custom words in message text (beyond nick mentions)
+- Case-insensitive, word-boundary matching
+- Configure with =clatter-hl-keywords= (list of strings)
+- Distinct face (=clatter-hl-keyword=) for easy visibility
+
+*** Full-Text Search (clatter-search)
+- Search across all IRC log history with =grep=
+- Two interfaces: dedicated results buffer and =completing-read=
+- Filter by network, search current channel with =/searchhere=
+- Jump directly to log file at matching line
+- Commands: =/search=, =/searchhere=, =/grep=, =/find=
+- Also available as =M-x clatter-search= / =M-x clatter-search-completing=
+
+*** Thread/Reply Support
+- Incoming replies show context: =↳ sender: preview of original message=
+- =/reply TEXT= sends a threaded reply to the message at point
+- Uses IRCv3 =+draft/reply= and =msgid= tags
+- Reply context is truncated to 60 chars for readability
+
+*** Reactions (draft/react)
+- =/react EMOJI= sends an emoji reaction to the message at point
+- Incoming reactions display as badges below the referenced message
+- Multiple reactions aggregate with counts (e.g. =👍 3 🎉 1=)
+- Uses IRCv3 =+draft/react= via TAGMSG
+
+*** Org-mode Integration (clatter-org)
+- =org-store-link= support: store links to IRC messages (=irc:network/channel#msgid=)
+- =org-capture= helpers: =%(clatter-org-capture-message)= and =%(clatter-org-capture-channel)=
+- Log export: =M-x clatter-org-export-log= converts logs to org format grouped by date
+
+*** Inline Image Preview (clatter-image)
+- Async inline image display for URLs in messages
+- Opt-in: disabled by default (=clatter-image-enable=)
+- GUI frames only, graceful no-op in terminal
+- Configurable max width/height and file size cap
+- No external dependencies (uses built-in =url-retrieve= and =create-image=)
+
+*** Channel List Browser (clatter-list)
+- Interactive =/list= command with tabulated display
+- Sorted by user count (descending)
+- Filter by regex (=f= or =/=)
+- Join channel with =RET=, refresh with =g=
+- Handles large networks efficiently
+
+*** Server Buffer & WHOIS
+- MOTD displayed in server buffer on connect
+- Formatted WHOIS output inline: nick, user@host, realname, account, server, channels, idle time, signon date, TLS, operator, away status
+- Uses IRCv3 server-time tag for accurate timestamps
+- Timestamps reflect when the message was sent, not received
+- Essential for bouncer and chathistory accuracy
+- Falls back to local time when server-time is unavailable
+
+*** Chat History (clatter-chathistory)
+- IRCv3 CHATHISTORY extension support
+- Auto-fetches backlog on channel join
+- Fetches gap messages on reconnect
+- Manual fetch commands for older messages
+- Configurable message limit per request
+- Works with soju, znc, and compliant servers
+
+*** Bouncer Playback Awareness
+- Visual separator for batch-delivered history (chathistory, ZNC playback)
+- Start/end markers with message count
+- Messages render normally with timestamps between separators
+- Works with any IRCv3 BATCH-based playback
+
+*** Channel Preview on Hover
+- Eldoc integration: hover over =#channel= names to see topic and user count
+- Message info on hover: sender and message ID shown in echo area
+- Automatic via =eldoc-mode= in clatter buffers
+
+*** Read Marker (clatter-read-marker)
+- IRCv3 read-marker (MARKREAD) protocol support
+- Syncs read position across clients via server
+- Visual marker line between read and unread messages
+- Auto-sends MARKREAD on buffer focus
+- Manual mark/query commands
+
+** Installation
+
+Clone this repository and add to your =load-path=:
+
+#+BEGIN_SRC emacs-lisp
+(add-to-list 'load-path "~/SourceCode/clatter.el")
+(require 'clatter)
+#+END_SRC
+
+** Quick Start
+
+#+BEGIN_SRC emacs-lisp
+;; Connect to a network
+(clatter-connect "libera"
+  :server "irc.libera.chat"
+  :port 6697
+  :tls t
+  :nick "yournick"
+  :autojoin '("#emacs" "#commonlisp"))
+#+END_SRC
+
+Or configure via =customize=:
+
+#+BEGIN_SRC emacs-lisp
+(setq clatter-networks
+  '(("libera"
+     :server "irc.libera.chat"
+     :port 6697
+     :tls t
+     :nick "yournick"
+     :sasl scram-sha-256  ;; or 'plain or 'external
+     :autojoin ("#emacs" "#commonlisp"))))
+#+END_SRC
+
+** File Structure
+
+| File                    | Description                                   |
+|-------------------------+-----------------------------------------------|
+| =clatter.el=            | Main entry point, autoloads                   |
+| =clatter-protocol.el=   | IRC message parsing/formatting, IRCv3 tags    |
+| =clatter-connection.el= | Network I/O, TLS, reconnection                |
+| =clatter-cap.el=        | CAP negotiation, SASL authentication          |
+| =clatter-handlers.el=   | IRC message dispatch and event handling        |
+| =clatter-model.el=      | Channel/nick/buffer state management           |
+| =clatter-ui.el=         | Buffer rendering, faces, mode-line, input      |
+| =clatter-commands.el=   | User commands (/join, /part, /msg, etc.)       |
+| =clatter-config.el=     | User configuration, defcustom, auth-source     |
+| =clatter-hl-nicks.el=   | Nick colorization, URL highlighting            |
+| =clatter-actions.el=    | Message actions at point                       |
+| =clatter-track.el=      | Buffer activity tracking, mode-line indicator  |
+| =clatter-notify.el=     | Desktop notifications with IRC rules           |
+| =clatter-completion.el= | Completion-at-point for nicks, commands, channels |
+| =clatter-rawlog.el=     | Raw IRC protocol inspector/devtools            |
+| =clatter-chathistory.el= | IRCv3 CHATHISTORY backlog fetching             |
+| =clatter-read-marker.el= | IRCv3 read-marker sync                        |
+| =clatter-nicklist.el=   | Channel member sidebar                         |
+| =clatter-log.el=        | Channel logging to file with daily rotation    |
+| =clatter-url-preview.el= | Async URL title preview                       |
+| =clatter-format.el=     | mIRC color/formatting code parser              |
+| =clatter-sasl-scram.el= | SASL SCRAM-SHA-256 (RFC 5802)                  |
+| =clatter-sts.el=        | IRCv3 Strict Transport Security                |
+| =clatter-list.el=       | Interactive channel list browser               |
+| =clatter-image.el=      | Inline image preview (opt-in, GUI only)        |
+| =clatter-search.el=     | Full-text search across IRC log history        |
+| =clatter-org.el=        | Org-mode integration (links, capture, export)  |
+
+** Companion Packages
+
+clatter.el has no external dependencies, but works well with:
+
+- [[https://github.com/iqbalansari/emacs-emojify][emojify]] - emoji rendering in messages (recommended)
+- [[https://github.com/minad/corfu][corfu]] / [[https://github.com/minad/vertico][vertico]] - completion UI for nick/command/channel completion
+- [[https://github.com/oantolin/orderless][orderless]] - flexible completion matching
+- [[https://github.com/minad/consult][consult]] - =consult-buffer= integration via =clatter-track=
+
+** License
+
+MIT

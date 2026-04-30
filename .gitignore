@@ -1,0 +1,6 @@
+*.elc
+*-autoloads.el
+*-pkg.el
+.cask/
+dist/
+.vorg.db
