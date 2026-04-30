@@ -395,7 +395,21 @@ If the input contains multiple lines and exceeds
       (set-keymap-parent map clatter-mode-map)
       (define-key map (kbd "RET") #'clatter-send-input)
       (define-key map (kbd "TAB") #'completion-at-point)
-      (use-local-map map))))
+      (use-local-map map))
+    ;; Ensure window margins are synced for timestamp display
+    (add-hook 'window-configuration-change-hook
+              #'clatter--sync-window-margins nil t)))
+
+(defun clatter--sync-window-margins ()
+  "Ensure the current window has correct margins for timestamp display.
+Emacs requires `set-window-margins' on the window, not just
+`right-margin-width' on the buffer."
+  (when (and (derived-mode-p 'clatter-mode)
+             (eq (current-buffer) (window-buffer)))
+    (let ((ts-width (1+ (length (format-time-string clatter-timestamp-format)))))
+      (set-window-margins (selected-window)
+                          (car (window-margins))
+                          ts-width))))
 
 ;; --- Nick completion ---
 
