@@ -51,8 +51,8 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Nick alias support for consistent colors across nick changes
 - URL detection with clickable links (=RET= or mouse click on any URL)
 - =clatter-hl-open-url-nearest= opens nearest URL on current line (bind in init.el)
-- =SPC i o= to browse all URLs from the buffer (completing-read picker)
-- =SPC i y= to copy a URL from the buffer to kill ring
+- =M-x clatter-hl-browse-urls= to browse all URLs from the buffer (completing-read picker)
+- =M-x clatter-hl-copy-url= to copy a URL from the buffer to kill ring
 - Configurable skip-nicks and minimum length
 
 *** Ignore / Filter System
@@ -97,8 +97,8 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Clickable mode-line entries (switch to buffer on click)
 - Channel mute/unmute support
 - Consult integration (narrow with =i= in =consult-buffer=)
-- =SPC i t= to jump to most urgent activity
-- =SPC i l= to list all activity
+- =M-x clatter-track-switch= to jump to most urgent activity
+- =M-x clatter-track-list= to list all activity
 
 *** Desktop Notifications (clatter-notify)
 - Mention, DM, and keyword-triggered notifications
@@ -111,7 +111,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Rate limiting (configurable cooldown per source)
 - Optional sound support
 - Custom keyword watchlist
-- =SPC i n= to toggle, =SPC i k= to add keywords
+- =M-x clatter-notify-toggle= to toggle, =M-x clatter-notify-add-keyword= to add keywords
 - =M-x clatter-notify-test= to verify setup
 
 *** Completion (clatter-completion)
@@ -129,7 +129,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Filter by regex pattern
 - Send raw IRC commands directly
 - View CAP negotiation state
-- =SPC i r= to open rawlog
+- =M-x clatter-rawlog-open= to open rawlog
 
 *** Keyword Highlighting
 - Highlight custom words in message text (beyond nick mentions)
@@ -242,6 +242,41 @@ Or configure via =customize=:
      :nick "yournick"
      :sasl scram-sha-256  ;; or 'plain or 'external
      :autojoin ("#emacs" "#commonlisp"))))
+#+END_SRC
+
+** Keybindings
+
+clatter does not impose any global keybindings. All commands are available via =M-x= and =/slash= commands in the input prompt.
+
+*** Example: Evil leader keys
+
+If you use Evil with a =SPC= leader (via general.el or similar), here is an example configuration:
+
+#+BEGIN_SRC emacs-lisp
+(my-leader  ;; replace with your leader definer
+  "i"   '(:ignore t :wk "IRC")
+  "ii"  '(clatter :wk "Connect to network")
+  "id"  '(clatter-disconnect :wk "Disconnect")
+  "is"  '(clatter-status :wk "Connection status")
+  "it"  '(clatter-track-switch :wk "Jump to activity")
+  "il"  '(clatter-track-list :wk "List activity")
+  "in"  '(clatter-notify-toggle :wk "Toggle notifications")
+  "ik"  '(clatter-notify-add-keyword :wk "Add notify keyword")
+  "ir"  '(clatter-rawlog-open :wk "Raw protocol log")
+  "io"  '(clatter-hl-browse-urls :wk "Browse URLs")
+  "iy"  '(clatter-hl-copy-url :wk "Copy URL")
+  "ip"  '(clatter-nicklist-toggle :wk "Toggle nick list"))
+#+END_SRC
+
+With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= to enter insert state at the prompt, =SPC= types a space character as expected.
+
+*** Example: Vanilla Emacs
+
+#+BEGIN_SRC emacs-lisp
+(global-set-key (kbd "C-c i i") #'clatter)
+(global-set-key (kbd "C-c i d") #'clatter-disconnect)
+(global-set-key (kbd "C-c i t") #'clatter-track-switch)
+(global-set-key (kbd "C-c i l") #'clatter-track-list)
 #+END_SRC
 
 ** File Structure

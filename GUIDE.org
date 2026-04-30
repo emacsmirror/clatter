@@ -466,7 +466,7 @@ Enable raw protocol logging to see all IRC traffic:
 (setq clatter-log-raw-protocol t)
 #+end_src
 
-Open the debug buffer: =M-x clatter-rawlog-open= or =SPC i r=.
+Open the debug buffer: =M-x clatter-rawlog-open=.
 Incoming lines are green (=<<=), outgoing are blue (=>>=).
 
 ** Direct Messages
@@ -501,3 +501,17 @@ If your buffer is too noisy with joins/parts/quits:
 Or at runtime: =/suppress join part quit away=
 
 To undo: =/unsuppress away= or =/suppress none=
+
+** Keybindings and SPC Leader
+
+clatter does not bind any global keys. All functionality is available
+via =M-x= commands and =/slash= commands in the input prompt.
+
+If you see references to =SPC i= key sequences, those are examples of
+user-configured Evil leader bindings (e.g. via general.el). They are
+not built into clatter. See the *Keybinding Examples* section above
+for how to set them up.
+
+With Evil, =SPC= only acts as a leader key in *normal state*. When
+you press =i= to enter insert state at the prompt, =SPC= types a
+space character as expected. There is no conflict.
