@@ -233,6 +233,7 @@ Prevents notification spam from rapid messages."
 Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (when clatter-notify-enabled
     (let* ((my-nick (clatter-connection-nick conn))
+           (is-self (and my-nick (string-equal-ignore-case sender my-nick)))
            (is-channel (and target (string-match-p "^[#&!+]" target)))
            (is-dm (not is-channel))
            (buf (clatter-get-buffer
@@ -245,6 +246,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (text-lower (downcase (or text ""))))
       (let ((reason
              (cond
+              ;; Own messages (echo-message)
+              (is-self nil)
               ;; Muted
               (is-muted-channel nil)
               (is-muted-nick nil)
