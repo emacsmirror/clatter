@@ -14,7 +14,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'url)
 
 ;; --- Configuration ---
 
@@ -50,13 +49,16 @@ Images larger than this are skipped.  Default: 5 MB."
 ;; --- URL detection ---
 
 (defun clatter-image--url-p (url)
-  "Return non-nil if URL looks like a direct image link."
-  (let ((path (downcase (or (url-filename (url-generic-parse-url (substring-no-properties url))) ""))))
-    ;; Strip query string for extension check
-    (let ((base (car (split-string path "?"))))
-      (cl-some (lambda (ext)
-                 (string-suffix-p (concat "." ext) base))
-               clatter-image-extensions))))
+  "Return non-nil if URL looks like a direct image link.
+Uses simple string parsing to avoid `url-generic-parse-url' which can block."
+  (let* ((clean (substring-no-properties url))
+         ;; Strip fragment
+         (no-frag (car (split-string clean "#")))
+         ;; Strip query string
+         (base (downcase (car (split-string no-frag "?")))))
+    (cl-some (lambda (ext)
+               (string-suffix-p (concat "." ext) base))
+             clatter-image-extensions)))
 
 ;; --- Async fetch and display ---
 
@@ -65,6 +67,7 @@ Images larger than this are skipped.  Default: 5 MB."
   (when (and clatter-image-enable
              (display-graphic-p)
              (clatter-image--url-p url))
+    (require 'url)
     (url-retrieve
      (substring-no-properties url)
      (lambda (status buf marker url-str)
