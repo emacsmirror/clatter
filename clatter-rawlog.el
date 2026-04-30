@@ -193,7 +193,7 @@ DIRECTION is :in or :out."
                                      clatter-connections)
                             ids)
                           nil t)))
-  (setq clatter-rawlog-enabled t)
+  (clatter-rawlog-enable)
   (switch-to-buffer (clatter-rawlog-get-buffer network)))
 
 (defun clatter-rawlog-clear ()
