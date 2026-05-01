@@ -202,9 +202,19 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
              (clatter-send conn (clatter-irc-privmsg
                                  "NickServ"
                                  (format "IDENTIFY %s" password)))))
-         ;; Autojoin
-         (dolist (ch (plist-get config :autojoin))
-           (clatter-send conn (clatter-irc-join ch))))
+         ;; Autojoin - stagger joins to avoid overwhelming Emacs with
+         ;; NAMES/WHOX responses for all channels at once
+         (let ((channels (plist-get config :autojoin))
+               (delay 0))
+           (dolist (ch channels)
+             (if (zerop delay)
+                 (clatter-send conn (clatter-irc-join ch))
+               (let ((channel ch))
+                 (run-at-time delay nil
+                              (lambda ()
+                                (when (eq (clatter-connection-state conn) :connected)
+                                  (clatter-send conn (clatter-irc-join channel)))))))
+             (setq delay (+ delay 2)))))
        (run-hook-with-args 'clatter-welcome-hook conn (clatter-connection-nick conn))
        (run-hook-with-args 'clatter-connect-hook (clatter-connection-network-id conn))
        (message "[clatter] Connected to %s as %s"
