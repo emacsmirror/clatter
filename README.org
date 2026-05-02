@@ -8,6 +8,9 @@ A dedicated, fully IRCv3-compliant IRC client for Emacs. Pure Elisp. No external
 
 Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Common Lisp TUI client), redesigned from scratch for Emacs.
 
+#+ATTR_ORG: :width 800
+[[file:images/screenshot.png]]
+
 ** Features
 
 *** Protocol
