@@ -330,7 +330,8 @@ If the input contains multiple lines and exceeds
             (dolist (line lines)
               (let ((trimmed (string-trim line)))
                 (when (> (length trimmed) 0)
-                  (clatter--send-message trimmed))))))))))
+                  (clatter--send-message trimmed)))))
+          (clatter--send-typing-done))))))
 
 (defun clatter--send-message (text)
   "Send TEXT as a PRIVMSG to the current target."
@@ -399,7 +400,9 @@ If the input contains multiple lines and exceeds
       (use-local-map map))
     ;; Ensure window margins are synced for timestamp display
     (add-hook 'window-configuration-change-hook
-              #'clatter--sync-window-margins nil t)))
+              #'clatter--sync-window-margins nil t)
+    ;; Outbound typing notifications
+    (clatter--setup-outbound-typing buffer)))
 
 (defun clatter--sync-window-margins ()
   "Ensure the current window has correct margins for timestamp display.
@@ -880,6 +883,61 @@ STATE is \"active\", \"paused\", or \"done\"."
                  (_ (format "%d people typing" (length nicks))))
                "...")
        'face 'shadow))))
+
+;; --- Outbound typing notifications ---
+
+(defcustom clatter-send-typing t
+  "Whether to send typing indicators to the server.
+Requires the server to support the message-tags capability."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-typing-throttle 3
+  "Minimum seconds between outbound typing notifications."
+  :type 'number
+  :group 'clatter)
+
+(defvar-local clatter--typing-last-sent nil
+  "Time (float) when the last typing notification was sent.")
+
+(defun clatter--typing-capable-p ()
+  "Return non-nil if we can send typing notifications."
+  (and clatter-send-typing
+       clatter--network
+       clatter--target
+       (not (string= clatter--target "*server*"))
+       (let ((conn (clatter-get-connection clatter--network)))
+         (and conn
+              (member "message-tags"
+                      (clatter-connection-cap-enabled conn))))))
+
+(defun clatter--maybe-send-typing (&rest _)
+  "Send a typing notification if in the input area and throttle allows."
+  (when (and clatter--input-marker
+             (>= (point) (marker-position clatter--input-marker))
+             (clatter--typing-capable-p))
+    (let ((now (float-time)))
+      (when (or (null clatter--typing-last-sent)
+                (> (- now clatter--typing-last-sent) clatter-typing-throttle))
+        (setq clatter--typing-last-sent now)
+        (let ((conn (clatter-get-connection clatter--network)))
+          (when conn
+            (clatter-send conn
+                          (clatter-irc-typing clatter--target "active"))))))))
+
+(defun clatter--send-typing-done ()
+  "Send typing=done notification after sending a message."
+  (when (clatter--typing-capable-p)
+    (let ((conn (clatter-get-connection clatter--network)))
+      (when conn
+        (clatter-send conn
+                      (clatter-irc-typing clatter--target "done"))))
+    (setq clatter--typing-last-sent nil)))
+
+(defun clatter--setup-outbound-typing (buffer)
+  "Set up outbound typing notifications for BUFFER."
+  (with-current-buffer buffer
+    (add-hook 'post-self-insert-hook #'clatter--maybe-send-typing nil t)))
 
 (defun clatter-ui-init ()
   "Register UI hooks.  Call this after loading clatter."
