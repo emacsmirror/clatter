@@ -90,26 +90,8 @@ Creates a transient network entry."
                      :port (or port 6697)
                      :tls (if (null tls) t tls))))
 
-;; --- Disconnect ---
-
-;;;###autoload
-(defun clatter-disconnect (network &optional quit-message)
-  "Disconnect from IRC NETWORK with optional QUIT-MESSAGE."
-  (interactive
-   (list (completing-read "Disconnect from: "
-                          (let (ids)
-                            (maphash (lambda (id _conn) (push id ids))
-                                     clatter-connections)
-                            ids)
-                          nil t)
-         (read-string "Quit message (empty for default): " nil nil "CLatter")))
-  (let ((conn (clatter-get-connection network)))
-    (when conn
-      (clatter-send conn (format "QUIT :%s" (or quit-message "CLatter")))
-      (when (clatter-connection-process conn)
-        (delete-process (clatter-connection-process conn)))
-      (setf (clatter-connection-state conn) :disconnected)
-      (message "[clatter] Disconnected from %s" network))))
+;; `clatter-disconnect' is defined in clatter-connection.el which properly
+;; disables auto-reconnect before killing the process.
 
 ;; --- Status ---
 
