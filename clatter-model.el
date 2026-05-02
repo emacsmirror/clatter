@@ -233,6 +233,30 @@ Handles prefixes like @nick, +nick, ~nick."
     map)
   "Keymap for `clatter-mode'.")
 
+(defvar clatter-mode-syntax-table
+  (let ((st (make-syntax-table)))
+    ;; Make channel prefixes part of symbol syntax so
+    ;; (thing-at-point 'symbol) picks up #channel names.
+    (modify-syntax-entry ?# "_" st)
+    (modify-syntax-entry ?& "_" st)
+    (modify-syntax-entry ?! "_" st)
+    (modify-syntax-entry ?+ "_" st)
+    ;; Common nick/channel chars
+    (modify-syntax-entry ?- "_" st)
+    (modify-syntax-entry ?_ "_" st)
+    (modify-syntax-entry ?. "_" st)
+    (modify-syntax-entry ?\[ "_" st)
+    (modify-syntax-entry ?\] "_" st)
+    (modify-syntax-entry ?\\ "_" st)
+    (modify-syntax-entry ?` "_" st)
+    (modify-syntax-entry ?^ "_" st)
+    (modify-syntax-entry ?{ "_" st)
+    (modify-syntax-entry ?} "_" st)
+    (modify-syntax-entry ?| "_" st)
+    st)
+  "Syntax table for `clatter-mode'.
+Makes IRC channel prefixes and nick characters part of symbol syntax.")
+
 (define-derived-mode clatter-mode fundamental-mode "CLatter"
   "Major mode for clatter.el IRC buffers."
   (setq-local scroll-conservatively 101)

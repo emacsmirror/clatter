@@ -799,14 +799,27 @@ Shows sender info when point is on a message."
     nil))
 
 (defun clatter-ui--channel-at-point ()
-  "Return channel name at point, or nil."
-  (let ((word (thing-at-point 'symbol t)))
-    (when (and word (string-match-p "\\`[#&!+]" word))
-      word)))
+  "Return channel name at point, or nil.
+Scans around point for a channel name starting with #, &, !, or +."
+  (save-excursion
+    (let ((orig (point)))
+      ;; Move backward over valid channel-name chars
+      (skip-chars-backward "a-zA-Z0-9_#&!+\\-\\[\\]\\\\`^{}|.")
+      ;; Check if we're now on a channel prefix
+      (when (memq (char-after) '(?# ?& ?! ?+))
+        (let ((start (point)))
+          (forward-char 1)
+          (skip-chars-forward "a-zA-Z0-9_\\-\\[\\]\\\\`^{}|.")
+          ;; Only return if original point was within the channel name
+          (when (and (> (point) start)
+                     (>= (point) orig)
+                     (<= start orig))
+            (buffer-substring-no-properties start (point))))))))
 
 (defun clatter-ui--setup-eldoc ()
   "Set up eldoc for clatter buffers."
-  (when (fboundp 'eldoc-documentation-functions)
+  (require 'eldoc)
+  (when (boundp 'eldoc-documentation-functions)
     (add-hook 'eldoc-documentation-functions
               #'clatter-ui--eldoc-function nil t)
     (eldoc-mode 1)))

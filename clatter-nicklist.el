@@ -176,7 +176,7 @@ CONN is used for nick colorization."
 (defun clatter-nicklist--on-quit (conn nick _message)
   "Refresh nicklist for all channels NICK was in."
   (let ((network (clatter-connection-network-id conn)))
-    (dolist (buf (clatter-buffer-list))
+    (dolist (buf (clatter-all-buffers))
       (when (buffer-live-p buf)
         (with-current-buffer buf
           (when (and (equal clatter--network network)
@@ -187,7 +187,7 @@ CONN is used for nick colorization."
 (defun clatter-nicklist--on-nick (conn _old-nick _new-nick)
   "Refresh nicklist when someone changes nick."
   (let ((network (clatter-connection-network-id conn)))
-    (dolist (buf (clatter-buffer-list))
+    (dolist (buf (clatter-all-buffers))
       (when (buffer-live-p buf)
         (with-current-buffer buf
           (when (equal clatter--network network)
