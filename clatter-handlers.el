@@ -431,6 +431,11 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
            (run-hook-with-args 'clatter-react-hook
                                conn nick target react-emoji react-msgid))))
 
+      ;; --- MARKREAD (IRCv3 read-marker) ---
+      ("MARKREAD"
+       (when (fboundp 'clatter-read-marker--handle)
+         (clatter-read-marker--handle conn tags params)))
+
       ;; --- BATCH ---
       ("BATCH"
        (clatter--handle-batch conn tags params))

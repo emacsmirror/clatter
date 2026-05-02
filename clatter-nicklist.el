@@ -146,6 +146,71 @@ CONN is used for nick colorization."
            (slot . 0)
            (dedicated . t)))))))
 
+;; --- Auto-refresh hooks ---
+
+(defun clatter-nicklist--auto-refresh (channel-buffer)
+  "Refresh any open nicklist for CHANNEL-BUFFER."
+  (when (buffer-live-p channel-buffer)
+    (with-current-buffer channel-buffer
+      (when clatter--target
+        (let ((nl-buf (get-buffer
+                       (clatter-nicklist--buffer-name clatter--target))))
+          (when (and nl-buf (get-buffer-window nl-buf))
+            (with-current-buffer nl-buf
+              (clatter-nicklist-refresh))))))))
+
+(defun clatter-nicklist--on-join (_conn _nick channel _account _realname)
+  "Refresh nicklist when someone joins CHANNEL."
+  (let ((buf (clatter-get-buffer
+              (clatter-connection-network-id _conn) channel)))
+    (when buf
+      (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
+
+(defun clatter-nicklist--on-part (_conn _nick channel _message)
+  "Refresh nicklist when someone parts CHANNEL."
+  (let ((buf (clatter-get-buffer
+              (clatter-connection-network-id _conn) channel)))
+    (when buf
+      (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
+
+(defun clatter-nicklist--on-quit (conn nick _message)
+  "Refresh nicklist for all channels NICK was in."
+  (let ((network (clatter-connection-network-id conn)))
+    (dolist (buf (clatter-buffer-list))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (when (and (equal clatter--network network)
+                     clatter--nick-list
+                     (gethash (downcase nick) clatter--nick-list))
+            (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf)))))))
+
+(defun clatter-nicklist--on-nick (conn _old-nick _new-nick)
+  "Refresh nicklist when someone changes nick."
+  (let ((network (clatter-connection-network-id conn)))
+    (dolist (buf (clatter-buffer-list))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (when (equal clatter--network network)
+            (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf)))))))
+
+(defun clatter-nicklist--on-names (_conn channel _names-str)
+  "Refresh nicklist after NAMES reply for CHANNEL."
+  (let ((buf (clatter-get-buffer
+              (clatter-connection-network-id _conn) channel)))
+    (when buf
+      (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
+
+(defun clatter-nicklist-init ()
+  "Register nicklist auto-refresh hooks."
+  (add-hook 'clatter-join-hook #'clatter-nicklist--on-join)
+  (add-hook 'clatter-part-hook #'clatter-nicklist--on-part)
+  (add-hook 'clatter-quit-hook #'clatter-nicklist--on-quit)
+  (add-hook 'clatter-nick-hook #'clatter-nicklist--on-nick)
+  (add-hook 'clatter-names-hook #'clatter-nicklist--on-names))
+
+;; Auto-init when loaded
+(clatter-nicklist-init)
+
 (provide 'clatter-nicklist)
 
 ;;; clatter-nicklist.el ends here

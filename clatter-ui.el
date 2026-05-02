@@ -389,6 +389,7 @@ If the input contains multiple lines and exceeds
     (setq-local mode-line-format
                 (list " " 'mode-line-buffer-identification
                       clatter-mode-line-format
+                      '(:eval (clatter--typing-mode-line))
                       " " 'mode-line-end-spaces))
     ;; Key bindings for input
     (let ((map (make-sparse-keymap)))
@@ -810,6 +811,63 @@ Shows sender info when point is on a message."
               #'clatter-ui--eldoc-function nil t)
     (eldoc-mode 1)))
 
+;; --- Typing indicators ---
+
+(defcustom clatter-typing-timeout 6
+  "Seconds after which a typing indicator expires.
+If no update is received within this time, the indicator is cleared."
+  :type 'integer
+  :group 'clatter)
+
+(defvar-local clatter--typing-nicks nil
+  "Hash table of nicks currently typing in this buffer.
+Keys are nick strings, values are timer objects.")
+
+(defun clatter-ui--on-typing (conn nick target state)
+  "Handle typing indicator from NICK in TARGET with STATE on CONN.
+STATE is \"active\", \"paused\", or \"done\"."
+  (let* ((network (clatter-connection-network-id conn))
+         (buf (clatter-get-buffer network target)))
+    (when (and buf (buffer-live-p buf))
+      (with-current-buffer buf
+        (unless clatter--typing-nicks
+          (setq clatter--typing-nicks (make-hash-table :test 'equal)))
+        ;; Cancel any existing timer for this nick
+        (let ((existing-timer (gethash nick clatter--typing-nicks)))
+          (when (timerp existing-timer)
+            (cancel-timer existing-timer)))
+        (if (string-equal state "done")
+            ;; Remove typing indicator
+            (remhash nick clatter--typing-nicks)
+          ;; Set typing indicator with auto-expiry
+          (let ((the-buf (current-buffer))
+                (the-nick nick))
+            (puthash nick
+                     (run-at-time clatter-typing-timeout nil
+                                  (lambda ()
+                                    (when (buffer-live-p the-buf)
+                                      (with-current-buffer the-buf
+                                        (when clatter--typing-nicks
+                                          (remhash the-nick clatter--typing-nicks))
+                                        (force-mode-line-update)))))
+                     clatter--typing-nicks)))
+        (force-mode-line-update)))))
+
+(defun clatter--typing-mode-line ()
+  "Return a mode-line string showing who is typing, or nil."
+  (when (and clatter--typing-nicks
+             (> (hash-table-count clatter--typing-nicks) 0))
+    (let ((nicks nil))
+      (maphash (lambda (k _v) (push k nicks)) clatter--typing-nicks)
+      (propertize
+       (concat " "
+               (pcase (length nicks)
+                 (1 (format "%s is typing" (car nicks)))
+                 (2 (format "%s and %s are typing" (car nicks) (cadr nicks)))
+                 (_ (format "%d people typing" (length nicks))))
+               "...")
+       'face 'shadow))))
+
 (defun clatter-ui-init ()
   "Register UI hooks.  Call this after loading clatter."
   (add-hook 'clatter-privmsg-hook #'clatter-ui--on-privmsg)
@@ -833,6 +891,7 @@ Shows sender info when point is on a message."
   (add-hook 'clatter-react-hook #'clatter-ui--on-react)
   (add-hook 'clatter-batch-complete-hook #'clatter-ui--on-batch-complete)
   (add-hook 'clatter-ctcp-reply-hook #'clatter-ui--on-ctcp-reply)
+  (add-hook 'clatter-typing-hook #'clatter-ui--on-typing)
   (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc))
 
 ;; Auto-init when loaded
