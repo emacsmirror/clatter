@@ -206,15 +206,16 @@ ARGS are keyword arguments that override `clatter-networks' config:
 
       (condition-case err
           (let* ((client-cert (plist-get config :client-cert))
-                 (proc (open-network-stream
-                        (format "clatter-%s" network-id)
-                        nil  ; no buffer - we use process filter
-                        server port
-                        :type (if use-tls 'tls 'plain)
-                        :nowait t
-                        :client-certificate (when (and client-cert
-                                                       (file-exists-p client-cert))
-                                              (list client-cert client-cert)))))
+                 (proc (with-timeout (10 (error "Connection timed out"))
+                         (open-network-stream
+                          (format "clatter-%s" network-id)
+                          nil  ; no buffer - we use process filter
+                          server port
+                          :type (if use-tls 'tls 'plain)
+                          :nowait t
+                          :client-certificate (when (and client-cert
+                                                         (file-exists-p client-cert))
+                                                (list client-cert client-cert))))))
             (setf (clatter-connection-process conn) proc)
             (process-put proc :clatter-network-id network-id)
             (set-process-filter proc #'clatter--process-filter)
@@ -269,9 +270,11 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
       (let ((proc (clatter-connection-process conn)))
         (when (and proc (process-live-p proc))
           (clatter-send conn (clatter-irc-quit (or message "clatter.el")))
-          ;; Give the QUIT time to send
-          (sit-for 0.5)
-          (delete-process proc)))
+          ;; Give the QUIT time to send, then delete async
+          (run-at-time 0.5 nil
+                       (lambda ()
+                         (when (process-live-p proc)
+                           (delete-process proc))))))
       (setf (clatter-connection-state conn) :disconnected)
       (message "[clatter] Disconnected from %s" network-id))))
 
@@ -279,19 +282,20 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
 
 (defun clatter--schedule-reconnect (conn)
   "Schedule a reconnection attempt for CONN with exponential backoff."
-  (let* ((attempts (clatter-connection-reconnect-attempts conn))
-         (delay (min (* clatter-reconnect-initial-delay (expt 2 attempts))
-                     clatter-reconnect-max-delay))
-         (network-id (clatter-connection-network-id conn)))
-    (message "[clatter] Reconnecting to %s in %ds (attempt %d)..."
-             network-id delay (1+ attempts))
-    (run-hook-with-args 'clatter-reconnect-hook network-id delay (1+ attempts))
-    (setf (clatter-connection-reconnect-attempts conn) (1+ attempts))
-    (setf (clatter-connection-reconnect-timer conn)
-          (run-at-time delay nil
-                       (lambda ()
-                         (setf (clatter-connection-reconnect-timer conn) nil)
-                         (clatter-connect network-id))))))
+  (unless (eq (clatter-connection-state conn) :connecting)
+    (let* ((attempts (clatter-connection-reconnect-attempts conn))
+           (delay (min (* clatter-reconnect-initial-delay (expt 2 attempts))
+                       clatter-reconnect-max-delay))
+           (network-id (clatter-connection-network-id conn)))
+      (message "[clatter] Reconnecting to %s in %ds (attempt %d)..."
+               network-id delay (1+ attempts))
+      (run-hook-with-args 'clatter-reconnect-hook network-id delay (1+ attempts))
+      (setf (clatter-connection-reconnect-attempts conn) (1+ attempts))
+      (setf (clatter-connection-reconnect-timer conn)
+            (run-at-time delay nil
+                         (lambda ()
+                           (setf (clatter-connection-reconnect-timer conn) nil)
+                           (clatter-connect network-id)))))))
 
 ;; --- Health Monitoring ---
 
