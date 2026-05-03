@@ -68,13 +68,30 @@
               (apply #'format format-string args)
               "\n"))))
 
+(defvar clatter-watchdog-log
+  (expand-file-name "clatter/watchdog.log" user-emacs-directory)
+  "File path for connection watchdog log.
+This log persists across Emacs restarts to help diagnose lockups.")
+
+(defun clatter--watchdog (format-string &rest args)
+  "Write a timestamped line to the watchdog log file.
+Always writes regardless of `clatter-log-raw-protocol' setting."
+  (let ((dir (file-name-directory clatter-watchdog-log))
+        (line (concat (format-time-string "[%F %T] ")
+                      (apply #'format format-string args)
+                      "\n")))
+    (unless (file-directory-p dir)
+      (make-directory dir t))
+    (write-region line nil clatter-watchdog-log 'append 'silent)))
+
 ;; --- Send ---
 
 (defun clatter-send (conn line)
   "Send LINE to the IRC server via CONN.
 Appends CR-LF automatically."
   (let ((proc (clatter-connection-process conn)))
-    (when (and proc (process-live-p proc))
+    (when (and proc (process-live-p proc)
+               (memq (process-status proc) '(open run)))
       (clatter--debug ">> %s" line)
       (run-hook-with-args 'clatter-rawlog-outgoing-hook
                           (clatter-connection-network-id conn) line)
@@ -123,6 +140,7 @@ This is the main entry point from the process filter into the handler layer."
          (conn (clatter-get-connection network-id)))
     (when conn
       (clatter--debug "sentinel: %s %s" network-id (string-trim event))
+      (clatter--watchdog "DISCONNECT %s event=%s" network-id (string-trim event))
       (message "[clatter] Disconnected from %s: %s" network-id (string-trim event))
       (setf (clatter-connection-state conn) :disconnected)
       (setf (clatter-connection-process conn) nil)
@@ -134,6 +152,7 @@ This is the main entry point from the process filter into the handler layer."
       (run-hook-with-args 'clatter-disconnect-hook network-id event)
       ;; Auto-reconnect
       (when (clatter-connection-reconnect-enabled conn)
+        (clatter--watchdog "RECONNECT-SCHEDULE %s" network-id)
         (clatter--schedule-reconnect conn)))))
 
 ;; --- Connect ---
@@ -203,38 +222,66 @@ ARGS are keyword arguments that override `clatter-networks' config:
 
       (message "[clatter] Connecting to %s:%d%s..."
                server port (if use-tls " (TLS)" ""))
+      (clatter--watchdog "CONNECT %s %s:%d tls=%s" network-id server port use-tls)
 
       (condition-case err
           (let* ((client-cert (plist-get config :client-cert))
-                 (proc (with-timeout (10 (error "Connection timed out"))
-                         (open-network-stream
-                          (format "clatter-%s" network-id)
-                          nil  ; no buffer - we use process filter
-                          server port
-                          :type (if use-tls 'tls 'plain)
-                          :nowait t
-                          :client-certificate (when (and client-cert
-                                                         (file-exists-p client-cert))
-                                                (list client-cert client-cert))))))
+                 ;; Always connect plain+nowait first — TLS handshake
+                 ;; happens async in the sentinel to avoid blocking Emacs
+                 (proc (make-network-process
+                        :name (format "clatter-%s" network-id)
+                        :host server
+                        :service port
+                        :nowait t
+                        :coding '(utf-8 . utf-8)
+                        :filter #'clatter--process-filter
+                        :sentinel
+                        (lambda (p e)
+                          (clatter--watchdog "SENTINEL %s event=%s status=%s"
+                                             network-id (string-trim e)
+                                             (process-status p))
+                          (cond
+                           ;; TCP connected — upgrade to TLS if needed
+                           ((string-match-p "open" e)
+                            (when use-tls
+                              (clatter--watchdog "TLS-START %s" network-id)
+                              (condition-case tls-err
+                                  (gnutls-negotiate
+                                   :process p
+                                   :hostname server
+                                   :keylist (when (and client-cert
+                                                      (file-exists-p client-cert))
+                                              (list (list client-cert client-cert))))
+                                (error
+                                 (clatter--watchdog "TLS-FAIL %s %s"
+                                                     network-id
+                                                     (error-message-string tls-err))
+                                 (delete-process p)
+                                 (setf (clatter-connection-state conn) :disconnected)
+                                 (message "[clatter] TLS failed: %s"
+                                          (error-message-string tls-err))
+                                 (when (clatter-connection-reconnect-enabled conn)
+                                   (clatter--schedule-reconnect conn)))))
+                            (when (process-live-p p)
+                              (clatter--watchdog "TLS-OK %s" network-id)
+                              (set-process-sentinel p #'clatter--process-sentinel)
+                              (clatter--begin-registration conn config)))
+                           ;; Connection failed or closed
+                           (t
+                            (clatter--process-sentinel p e)))))))
             (setf (clatter-connection-process conn) proc)
             (process-put proc :clatter-network-id network-id)
-            (set-process-filter proc #'clatter--process-filter)
-            (set-process-sentinel proc #'clatter--process-sentinel)
-            (set-process-coding-system proc 'utf-8 'utf-8)
-            ;; Start registration once connected (sentinel or immediately)
-            (if (memq (process-status proc) '(open run))
-                (clatter--begin-registration conn config)
-              ;; For :nowait connections, register when open
-              (set-process-sentinel proc
-                                    (lambda (p e)
-                                      (if (string-match-p "open" e)
-                                          (progn
-                                            (set-process-filter p #'clatter--process-filter)
-                                            (set-process-sentinel p #'clatter--process-sentinel)
-                                            (clatter--begin-registration conn config))
-                                        (clatter--process-sentinel p e)))))
+            ;; Watchdog: kill process if still connecting after 15 seconds
+            (let ((watchdog-proc proc))
+              (run-at-time 15 nil
+                           (lambda ()
+                             (when (and (process-live-p watchdog-proc)
+                                        (eq (clatter-connection-state conn) :connecting))
+                               (clatter--watchdog "WATCHDOG-KILL %s (stuck connecting)" network-id)
+                               (delete-process watchdog-proc)))))
             conn)
         (error
+         (clatter--watchdog "CONNECT-FAIL %s %s" network-id (error-message-string err))
          (setf (clatter-connection-state conn) :disconnected)
          (message "[clatter] Connection failed: %s" (error-message-string err))
          nil)))))
@@ -310,7 +357,8 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
 (defun clatter--health-check (conn)
   "Check connection health for CONN.  Send PING if idle, disconnect if timed out."
   (let ((proc (clatter-connection-process conn)))
-    (when (and proc (process-live-p proc))
+    (when (and proc (process-live-p proc)
+               (memq (process-status proc) '(open run)))
       (let ((idle (- (float-time) (or (clatter-connection-last-activity conn) 0)))
             (ping-age (when (clatter-connection-ping-sent-time conn)
                         (- (float-time) (clatter-connection-ping-sent-time conn)))))
