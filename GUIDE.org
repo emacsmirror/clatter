@@ -110,6 +110,31 @@ With prefix arg (=C-u=), =/search= prompts for a network filter.
 | =/monitor - nick= | Remove nick from MONITOR                 |
 | =/whois nick=     | Query WHOIS information                   |
 
+** DCC File Transfer
+
+| Command              | Description                                |
+|----------------------+--------------------------------------------|
+| =/dcc get BOT #PACK= | Request an XDCC pack from a bot            |
+| =/dcc list=          | Show all DCC transfers with status         |
+| =/dcc accept [N]=    | Accept a pending DCC transfer              |
+| =/dcc cancel N=      | Cancel a transfer by ID                    |
+
+Workflow: join an XDCC channel, search for packs (e.g. =!search query= in #nibl on Rizon),
+then request with =/dcc get BotName #PackNumber=. You will be prompted to accept.
+Files are saved to =~/Downloads/= by default.
+
+** Autojoin Persistence
+
+| Command                    | Description                                 |
+|----------------------------+---------------------------------------------|
+| =/autojoin add #channel=   | Add channel to autojoin and save to init.el |
+| =/autojoin remove #channel= | Remove from autojoin and save to init.el   |
+| =/autojoin list=           | Show current autojoin for this network      |
+
+If no channel is specified, the current channel is used.
+The command edits the =:autojoin= list in your init.el directly
+and also updates the live config immediately.
+
 ** Utility
 
 | Command    | Description                      |
@@ -334,6 +359,15 @@ This is enabled automatically via =eldoc-mode= in clatter buffers.
 | =clatter-rawlog-max-lines=  | =5000=  | Max rawlog buffer lines             |
 | =clatter-rawlog-show-parsed= | =t=    | Show parsed message breakdown       |
 
+** DCC File Transfer
+
+| Variable                         | Default           | Description                       |
+|----------------------------------+-------------------+-----------------------------------|
+| =clatter-dcc-download-directory= | =~/Downloads/=    | Where received files are saved    |
+| =clatter-dcc-auto-accept=       | =nil=             | Auto-accept DCC offers            |
+| =clatter-dcc-max-file-size=     | =nil=             | Max file size to accept (bytes), nil = no limit |
+| =clatter-dcc-progress-interval= | =2=               | Seconds between progress updates  |
+
 ** Strict Transport Security
 
 | Variable                  | Default                     | Description                    |
@@ -385,6 +419,10 @@ by =clatter.el=. Optional modules need explicit =(require)=:
 
 ;; Full-text search (auto-loaded by commands, but can require directly)
 (require 'clatter-search)
+
+;; DCC file transfer (loaded by clatter-commands, but can require directly)
+(require 'clatter-dcc)
+(clatter-dcc-setup)
 #+end_src
 
 * Org-mode Integration

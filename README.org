@@ -24,7 +24,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Strict Transport Security (STS) - auto-upgrade plaintext to TLS
 - MONITOR (online/offline tracking)
 - Typing indicators (+typing)
-- CTCP (VERSION, TIME, PING, ACTION)
+- CTCP (VERSION, TIME, PING, ACTION, DCC)
 - TLS/SSL with client certificate support
 - mIRC color/formatting codes (bold, italic, underline, colors, reverse)
 - BOT mode (draft/bot) - [bot] indicator on messages from bots
@@ -164,6 +164,24 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - =org-store-link= support: store links to IRC messages (=irc:network/channel#msgid=)
 - =org-capture= helpers: =%(clatter-org-capture-message)= and =%(clatter-org-capture-channel)=
 - Log export: =M-x clatter-org-export-log= converts logs to org format grouped by date
+
+*** DCC File Transfer (clatter-dcc)
+- DCC SEND receive (XDCC pack downloads)
+- Async binary download with 4-byte ack protocol
+- Accept/reject prompt with file size display
+- Progress reporting (speed, percentage, ETA)
+- DCC RESUME/ACCEPT for interrupted transfers
+- Auto-accept mode and configurable max file size
+- Output path collision avoidance
+- Configurable download directory (default =~/Downloads/=)
+- =/dcc get BOT #PACK= to request XDCC packs
+- =/dcc list=, =/dcc accept=, =/dcc cancel= management commands
+
+*** Autojoin Persistence
+- =/autojoin add #channel= saves channel to init.el autojoin list
+- =/autojoin remove #channel= removes from autojoin list
+- =/autojoin list= shows current autojoin for the network
+- Edits init.el directly and updates live config
 
 *** Inline Image Preview (clatter-image)
 - Async inline image display for URLs in messages
@@ -313,6 +331,7 @@ With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= 
 | =clatter-image.el=      | Inline image preview (opt-in, GUI only)        |
 | =clatter-search.el=     | Full-text search across IRC log history        |
 | =clatter-org.el=        | Org-mode integration (links, capture, export)  |
+| =clatter-dcc.el=        | DCC file transfer (XDCC receive, resume)       |
 
 ** Companion Packages
 

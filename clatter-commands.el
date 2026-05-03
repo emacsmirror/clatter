@@ -102,10 +102,11 @@ INPUT is the full string including the leading /."
             (let ((target (substring args 0 space-pos))
                   (text (string-trim-left (substring args (1+ space-pos)))))
               (clatter-send conn (clatter-irc-privmsg target text))
-              ;; Open query buffer and show the message
+              ;; Open query buffer and show the message (skip if echo-message handles it)
               (let ((buf (clatter-get-or-create-buffer clatter--network target)))
                 (clatter-ui-setup-buffer-if-needed buf)
-                (clatter-insert-privmsg buf (clatter-connection-nick conn) text conn)))
+                (unless (member "echo-message" (clatter-connection-cap-enabled conn))
+                  (clatter-insert-privmsg buf (clatter-connection-nick conn) text conn))))
           (clatter-insert-error (current-buffer) "Usage: /msg target message"))))))
 
 (defun clatter-cmd-me (args)
@@ -483,6 +484,98 @@ Uses +draft/react tag via TAGMSG."
                                  emoji msgid target))))))
 
 (clatter-defcommand "react" #'clatter-cmd-react)
+
+;; --- DCC ---
+
+(require 'clatter-dcc)
+(clatter-dcc-setup)
+(clatter-defcommand "dcc" #'clatter-cmd-dcc)
+
+;; --- Autojoin persistence ---
+
+(defun clatter--update-autojoin-in-init (network-id channel action)
+  "Update :autojoin for NETWORK-ID in the user init file.
+CHANNEL is the channel name, ACTION is \\='add or \\='remove.
+Edits the file directly and saves it."
+  (let ((file (or user-init-file
+                  (expand-file-name "init.el" user-emacs-directory))))
+    (unless (file-exists-p file)
+      (error "Init file not found: %s" file))
+    (with-current-buffer (find-file-noselect file)
+      (save-excursion
+        (goto-char (point-min))
+        (unless (search-forward (format "(\"%s\"" network-id) nil t)
+          (error "Network \"%s\" not found in %s" network-id file))
+        (unless (search-forward ":autojoin" nil t)
+          (error "No :autojoin found for network \"%s\"" network-id))
+        (skip-chars-forward " \t\n")
+        (let ((list-start (point))
+              autojoin list-end)
+          (forward-sexp)
+          (setq list-end (point))
+          (goto-char list-start)
+          (setq autojoin (read (current-buffer)))
+          (let ((new-autojoin
+                 (pcase action
+                   ('add (if (member channel autojoin)
+                             (progn (message "[clatter] %s already in autojoin for %s"
+                                            channel network-id)
+                                    nil)
+                           (append autojoin (list channel))))
+                   ('remove (if (member channel autojoin)
+                                (remove channel autojoin)
+                              (progn (message "[clatter] %s not in autojoin for %s"
+                                             channel network-id)
+                                     nil))))))
+            (when new-autojoin
+              (delete-region list-start list-end)
+              (goto-char list-start)
+              (insert (prin1-to-string new-autojoin))
+              (save-buffer)
+              ;; Update the live config too
+              (let ((net-config (assoc network-id clatter-networks)))
+                (when net-config
+                  (plist-put (cdr net-config) :autojoin new-autojoin)))
+              (message "[clatter] Autojoin %s: %s on %s"
+                       (if (eq action 'add) "added" "removed")
+                       channel network-id))))))))
+
+(defun clatter-cmd-autojoin (args)
+  "Handle /autojoin commands.
+Usage:
+  /autojoin add #channel    - add channel to autojoin and save to init.el
+  /autojoin remove #channel - remove channel from autojoin and save to init.el
+  /autojoin list            - show current autojoin channels"
+  (let* ((parts (split-string (string-trim args)))
+         (subcmd (downcase (or (car parts) "list")))
+         (channel (cadr parts))
+         (conn (clatter--current-conn))
+         (network-id (when conn (clatter-connection-network-id conn))))
+    (pcase subcmd
+      ("add"
+       (let ((ch (or channel clatter--target)))
+         (if (and ch network-id)
+             (clatter--update-autojoin-in-init network-id ch 'add)
+           (message "[clatter] Usage: /autojoin add #channel"))))
+      ("remove"
+       (let ((ch (or channel clatter--target)))
+         (if (and ch network-id)
+             (clatter--update-autojoin-in-init network-id ch 'remove)
+           (message "[clatter] Usage: /autojoin remove #channel"))))
+      ("list"
+       (if network-id
+           (let* ((config (cdr (assoc network-id clatter-networks)))
+                  (channels (plist-get config :autojoin)))
+             (message "[clatter] Autojoin for %s: %s"
+                      network-id
+                      (if channels
+                          (string-join channels " ")
+                        "(none)")))
+         (message "[clatter] Not connected")))
+      (_
+       (message "[clatter] Usage: /autojoin add|remove|list [#channel]")))))
+
+(clatter-defcommand "autojoin" #'clatter-cmd-autojoin)
 
 (provide 'clatter-commands)
 
