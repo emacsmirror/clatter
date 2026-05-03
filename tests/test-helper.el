@@ -47,6 +47,8 @@ NETWORK-ID defaults to \"testnet\", NICK to \"testnick\"."
                :reconnect-enabled t
                :reconnect-attempts 0
                :reconnect-timer nil
+               :desired-nick (or nick "testnick")
+               :nick-reclaim-timer nil
                :last-activity (float-time)
                :ping-sent-time nil
                :health-timer nil

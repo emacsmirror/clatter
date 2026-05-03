@@ -36,6 +36,8 @@
   reconnect-enabled    ; t to auto-reconnect
   reconnect-attempts   ; integer
   reconnect-timer      ; timer object
+  desired-nick         ; string: the configured nick we want to reclaim
+  nick-reclaim-timer   ; timer for periodic nick reclaim attempts
   ;; Health monitoring
   last-activity        ; float-time of last activity
   ping-sent-time       ; float-time of last health ping, nil if no pending
@@ -213,6 +215,7 @@ ARGS are keyword arguments that override `clatter-networks' config:
 
       (setf (clatter-connection-state conn) :connecting)
       (setf (clatter-connection-nick conn) nick)
+      (setf (clatter-connection-desired-nick conn) nick)
       (setf (clatter-connection-recv-buffer conn) (decode-coding-string "" 'utf-8))
       (setf (clatter-connection-cap-enabled conn) nil)
       (setf (clatter-connection-sasl-state conn) nil)
@@ -314,6 +317,9 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
       (setf (clatter-connection-reconnect-enabled conn) nil)
       (when (clatter-connection-reconnect-timer conn)
         (cancel-timer (clatter-connection-reconnect-timer conn)))
+      (when (clatter-connection-nick-reclaim-timer conn)
+        (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+        (setf (clatter-connection-nick-reclaim-timer conn) nil))
       (let ((proc (clatter-connection-process conn)))
         (when (and proc (process-live-p proc))
           (clatter-send conn (clatter-irc-quit (or message "clatter.el")))

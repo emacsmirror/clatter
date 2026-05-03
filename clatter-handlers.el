@@ -219,7 +219,9 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
        (run-hook-with-args 'clatter-connect-hook (clatter-connection-network-id conn))
        (message "[clatter] Connected to %s as %s"
                 (clatter-connection-network-id conn)
-                (clatter-connection-nick conn)))
+                (clatter-connection-nick conn))
+       ;; Start nick reclaim if we ended up with a fallback nick
+       (clatter--maybe-start-nick-reclaim conn))
 
       ;; --- 005 RPL_ISUPPORT ---
       ("005"
@@ -354,7 +356,14 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
               (parsed-prefix (clatter-parse-prefix prefix))
               (old-nick (clatter-prefix-nick parsed-prefix)))
          (when (string-equal old-nick (clatter-connection-nick conn))
-           (setf (clatter-connection-nick conn) new-nick))
+           (setf (clatter-connection-nick conn) new-nick)
+           ;; Stop reclaim timer if we got our desired nick
+           (when (and (clatter-connection-desired-nick conn)
+                      (string-equal new-nick (clatter-connection-desired-nick conn))
+                      (clatter-connection-nick-reclaim-timer conn))
+             (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+             (setf (clatter-connection-nick-reclaim-timer conn) nil)
+             (message "[clatter] Reclaimed nick %s" new-nick)))
          (run-hook-with-args 'clatter-nick-hook conn old-nick new-nick)))
 
       ;; --- MODE ---
@@ -633,6 +642,49 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
     (when callback
       (funcall callback _msg)
       (remhash label (clatter-connection-pending-labels conn)))))
+
+;; --- Nick Reclaim ---
+
+(defvar clatter-nick-reclaim-interval 15
+  "Seconds between nick reclaim attempts.")
+
+(defvar clatter-nick-reclaim-max-attempts 20
+  "Max nick reclaim attempts before giving up (5 minutes at 15s interval).")
+
+(defun clatter--maybe-start-nick-reclaim (conn)
+  "Start a nick reclaim timer on CONN if current nick differs from desired."
+  ;; Cancel any existing reclaim timer
+  (when (clatter-connection-nick-reclaim-timer conn)
+    (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+    (setf (clatter-connection-nick-reclaim-timer conn) nil))
+  (let ((desired (clatter-connection-desired-nick conn))
+        (current (clatter-connection-nick conn)))
+    (when (and desired current
+               (not (string-equal current desired)))
+      (let ((attempts 0))
+        (setf (clatter-connection-nick-reclaim-timer conn)
+              (run-at-time clatter-nick-reclaim-interval
+                           clatter-nick-reclaim-interval
+                           (lambda ()
+                             (setq attempts (1+ attempts))
+                             (cond
+                              ;; Gave up or disconnected
+                              ((or (> attempts clatter-nick-reclaim-max-attempts)
+                                   (not (eq (clatter-connection-state conn) :connected)))
+                               (when (clatter-connection-nick-reclaim-timer conn)
+                                 (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+                                 (setf (clatter-connection-nick-reclaim-timer conn) nil))
+                               (when (> attempts clatter-nick-reclaim-max-attempts)
+                                 (message "[clatter] Gave up reclaiming nick %s" desired)))
+                              ;; Already have it
+                              ((string-equal (clatter-connection-nick conn) desired)
+                               (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+                               (setf (clatter-connection-nick-reclaim-timer conn) nil))
+                              ;; Try reclaim
+                              (t
+                               (clatter-send conn (clatter-irc-nick desired)))))))
+        (message "[clatter] Will try to reclaim nick %s every %ds"
+                 desired clatter-nick-reclaim-interval)))))
 
 (provide 'clatter-handlers)
 
