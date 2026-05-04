@@ -654,8 +654,8 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
 (defvar clatter-nick-reclaim-interval 15
   "Seconds between nick reclaim attempts.")
 
-(defvar clatter-nick-reclaim-max-attempts 20
-  "Max nick reclaim attempts before giving up (5 minutes at 15s interval).")
+(defvar clatter-nick-reclaim-max-attempts 40
+  "Max nick reclaim attempts before giving up (10 minutes at 15s interval).")
 
 (defun clatter--maybe-start-nick-reclaim (conn)
   "Start a nick reclaim timer on CONN if current nick differs from desired."
@@ -667,6 +667,13 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
         (current (clatter-connection-nick conn)))
     (when (and desired current
                (not (string-equal current desired)))
+      ;; Try NickServ REGAIN immediately if SASL-authenticated
+      (when (eq (clatter-connection-sasl-state conn) :done)
+        (clatter-send conn (clatter-irc-privmsg
+                            "NickServ"
+                            (format "REGAIN %s" desired)))
+        (message "[clatter] Sent NickServ REGAIN %s" desired))
+      ;; Also start periodic NICK attempts as fallback
       (let ((attempts 0))
         (setf (clatter-connection-nick-reclaim-timer conn)
               (run-at-time clatter-nick-reclaim-interval

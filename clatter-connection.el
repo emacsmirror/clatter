@@ -150,6 +150,10 @@ This is the main entry point from the process filter into the handler layer."
       (when (clatter-connection-health-timer conn)
         (cancel-timer (clatter-connection-health-timer conn))
         (setf (clatter-connection-health-timer conn) nil))
+      ;; Cancel nick reclaim timer
+      (when (clatter-connection-nick-reclaim-timer conn)
+        (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+        (setf (clatter-connection-nick-reclaim-timer conn) nil))
       ;; Notify UI
       (run-hook-with-args 'clatter-disconnect-hook network-id event)
       ;; Auto-reconnect

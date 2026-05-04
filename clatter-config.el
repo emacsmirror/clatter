@@ -96,7 +96,7 @@ have channels with very long nicknames."
   :type 'integer
   :group 'clatter)
 
-(defcustom clatter-ping-interval 120
+(defcustom clatter-ping-interval 60
   "Seconds between health-check pings to the server."
   :type 'integer
   :group 'clatter)
