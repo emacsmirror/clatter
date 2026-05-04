@@ -2,6 +2,28 @@
 #+AUTHOR: Glenn Thompson
 #+STARTUP: showall
 
+* Prerequisites
+
+- **Emacs 28.1+** (built with GnuTLS support)
+- **GnuTLS** is required for TLS/SSL connections to IRC servers
+
+To verify GnuTLS is available, evaluate:
+
+#+begin_src emacs-lisp
+(gnutls-available-p)  ;; should return t
+#+end_src
+
+If it returns =nil=, install GnuTLS and rebuild Emacs:
+
+| OS               | Package                              |
+|------------------+--------------------------------------|
+| Debian/Ubuntu    | =apt install gnutls-bin libgnutls28-dev= |
+| Fedora/RHEL      | =dnf install gnutls=                 |
+| Arch             | =pacman -S gnutls=                   |
+| macOS (Homebrew) | =brew install gnutls=                |
+
+Most modern Emacs builds include GnuTLS support by default.
+
 * Quick Start
 
 ** Minimal Configuration

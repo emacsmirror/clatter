@@ -249,11 +249,17 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
 
       ;; --- Nick in use ---
       ("433"
-       (let ((new-nick (concat (clatter-connection-nick conn) "_")))
-         (setf (clatter-connection-nick conn) new-nick)
-         (clatter-send conn (clatter-irc-nick new-nick))
-         (run-hook-with-args 'clatter-system-hook conn
-                             (format "Nick in use, trying %s" new-nick))))
+       (if (eq (clatter-connection-state conn) :connected)
+           ;; Already connected - this is a failed reclaim attempt, just log it
+           (run-hook-with-args 'clatter-system-hook conn
+                               (format "Nick %s still in use, will retry"
+                                       (clatter-connection-desired-nick conn)))
+         ;; During registration - append _ and retry
+         (let ((new-nick (concat (clatter-connection-nick conn) "_")))
+           (setf (clatter-connection-nick conn) new-nick)
+           (clatter-send conn (clatter-irc-nick new-nick))
+           (run-hook-with-args 'clatter-system-hook conn
+                               (format "Nick in use, trying %s" new-nick)))))
 
       ;; --- PRIVMSG ---
       ("PRIVMSG"

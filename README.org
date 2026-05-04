@@ -4,7 +4,7 @@
 
 * clatter.el - An IRCv3 Client for Emacs
 
-A dedicated, fully IRCv3-compliant IRC client for Emacs. Pure Elisp. No external dependencies beyond Emacs itself.
+A dedicated, fully IRCv3-compliant IRC client for Emacs. Pure Elisp. No external dependencies beyond Emacs itself (GnuTLS required for TLS connections).
 
 Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Common Lisp TUI client), redesigned from scratch for Emacs.
 
@@ -230,6 +230,18 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Visual marker line between read and unread messages
 - Auto-sends MARKREAD on buffer focus
 - Manual mark/query commands
+
+** Requirements
+
+- Emacs 28.1 or later
+- GnuTLS (for TLS/SSL connections) - Emacs must be compiled with GnuTLS support
+  - On Debian/Ubuntu: =apt install gnutls-bin libgnutls28-dev=
+  - On Fedora/RHEL: =dnf install gnutls=
+  - On macOS (Homebrew): =brew install gnutls=
+  - On Arch: =pacman -S gnutls=
+  - Check with: =M-x describe-variable RET gnutls-available-p RET=
+
+Most modern Emacs builds include GnuTLS support by default.
 
 ** Installation
 

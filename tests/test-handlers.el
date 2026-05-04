@@ -317,8 +317,9 @@
 ;; --- Nick in use (433) ---
 
 (ert-deftest clatter-test-dispatch-nick-in-use ()
-  "433 appends underscore to nick and retries."
+  "433 during registration appends underscore to nick and retries."
   (let ((conn (clatter-test-make-connection "testnet" "testnick")))
+    (setf (clatter-connection-state conn) :connecting)
     (unwind-protect
         (clatter-test-with-mock-send
           (clatter-dispatch-message
@@ -326,6 +327,19 @@
                  ":server 433 * testnick :Nickname is already in use"))
           (should (equal (clatter-connection-nick conn) "testnick_"))
           (should (clatter-test-sent-matching "NICK testnick_")))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-nick-in-use-while-connected ()
+  "433 while connected (reclaim attempt) does not append underscore."
+  (let ((conn (clatter-test-make-connection "testnet" "testnick_")))
+    (setf (clatter-connection-desired-nick conn) "testnick")
+    (unwind-protect
+        (clatter-test-with-mock-send
+          (clatter-dispatch-message
+           conn (clatter-test-parse
+                 ":server 433 * testnick :Nickname is already in use"))
+          (should (equal (clatter-connection-nick conn) "testnick_"))
+          (should-not (clatter-test-sent-matching "NICK")))
       (clatter-test-cleanup))))
 
 (provide 'test-handlers)
