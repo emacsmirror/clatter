@@ -92,9 +92,14 @@ PARAMS format: (target timestamp=TIMESTAMP)"
   (when (and clatter-read-marker--msgid
              (> clatter--unread-count 0))
     (save-excursion
-      (goto-char (or clatter--messages-marker (point-min)))
-      ;; Move forward past unread messages
-      (forward-line clatter--unread-count)
+      (if (eq clatter-message-order 'oldest-first)
+          ;; In oldest-first, unread messages are at the bottom
+          (progn
+            (goto-char (point-max))
+            (forward-line (- clatter--unread-count)))
+        ;; In newest-first, unread messages are at the top (after prompt)
+        (goto-char (or clatter--messages-marker (point-min)))
+        (forward-line clatter--unread-count))
       (let ((ov (make-overlay (line-beginning-position)
                               (1+ (line-beginning-position)))))
         (overlay-put ov 'before-string

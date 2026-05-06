@@ -136,9 +136,19 @@ before sending.  Set to nil to disable the warning."
   :type '(choice integer (const nil))
   :group 'clatter)
 
+(defcustom clatter-message-order 'newest-first
+  "Order in which messages appear in channel buffers.
+`newest-first' places new messages directly below the input line
+with older messages scrolling downward (default).
+`oldest-first' places new messages at the bottom of the buffer,
+like a traditional IRC client."
+  :type '(choice (const :tag "Newest first (below input)" newest-first)
+                 (const :tag "Oldest first (traditional)" oldest-first))
+  :group 'clatter)
+
 (defcustom clatter-buffer-max-lines 10000
   "Maximum number of lines to keep in a clatter buffer.
-When exceeded, oldest messages (at the bottom) are removed.
+When exceeded, oldest messages are removed.
 Set to nil to disable truncation."
   :type '(choice integer (const nil))
   :group 'clatter)

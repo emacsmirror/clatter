@@ -129,16 +129,21 @@ Apply FACE and set clatter-sender property to SENDER if provided."
             (propertize prefix-str 'face 'clatter-system))))
 
 (defun clatter--insert-message (buffer text &optional no-timestamp msg-props time)
-  "Insert formatted TEXT into BUFFER below the input line.
+  "Insert formatted TEXT into BUFFER.
 Adds timestamp unless NO-TIMESTAMP is non-nil.
 MSG-PROPS is an optional plist of extra text properties for the message line.
 TIME is an optional Emacs time value (from IRCv3 server-time) for the timestamp.
-Newest messages appear directly below the input; older ones scroll down."
+When `clatter-message-order' is `newest-first', messages appear directly below
+the input line with older ones scrolling down.  When `oldest-first', messages
+append at the bottom like a traditional IRC client."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (let ((inhibit-read-only t))
+      (let ((inhibit-read-only t)
+            (oldest-first (eq clatter-message-order 'oldest-first)))
         (save-excursion
-          (goto-char (or clatter--messages-marker (point-max)))
+          (goto-char (if oldest-first
+                         (point-max)
+                       (or clatter--messages-marker (point-max))))
           (let* ((ts-str (unless no-timestamp
                            (format-time-string clatter-timestamp-format time)))
                  (wrap-col (1+ clatter-nick-column-width))
@@ -159,23 +164,37 @@ Newest messages appear directly below the input; older ones scroll down."
                                        'line-prefix ""))
             (when msg-props
               (add-text-properties start (point) msg-props))))
-        (clatter--maybe-truncate buffer)))))
+        (clatter--maybe-truncate buffer)
+        ;; Auto-scroll in oldest-first mode
+        (when oldest-first
+          (dolist (win (get-buffer-window-list buffer nil t))
+            (with-selected-window win
+              (goto-char (point-max))
+              (recenter -1))))))))
 
 (defun clatter--maybe-truncate (buffer)
   "Truncate BUFFER if it exceeds `clatter-buffer-max-lines'.
-Removes oldest messages from the bottom of the buffer."
+Removes oldest messages from the appropriate end of the buffer."
   (when (and clatter-buffer-max-lines
              (> (count-lines (point-min) (point-max)) clatter-buffer-max-lines))
     (let ((inhibit-read-only t)
           (target-lines (- (count-lines (point-min) (point-max))
                            clatter-buffer-max-lines)))
       (save-excursion
-        (goto-char (point-max))
-        (forward-line (- target-lines))
-        ;; Remove overlays in the region being deleted
-        (dolist (ov (overlays-in (point) (point-max)))
-          (delete-overlay ov))
-        (delete-region (point) (point-max))))))
+        (if (eq clatter-message-order 'oldest-first)
+            ;; Oldest messages are near the top (after the prompt)
+            (let ((start (or clatter--messages-marker (point-min))))
+              (goto-char start)
+              (forward-line target-lines)
+              (dolist (ov (overlays-in start (point)))
+                (delete-overlay ov))
+              (delete-region start (point)))
+          ;; newest-first: oldest messages are at the bottom
+          (goto-char (point-max))
+          (forward-line (- target-lines))
+          (dolist (ov (overlays-in (point) (point-max)))
+            (delete-overlay ov))
+          (delete-region (point) (point-max)))))))
 
 (defun clatter--find-message-by-msgid (buffer msgid)
   "Find message text and sender in BUFFER by MSGID.
@@ -232,7 +251,10 @@ SERVER-TIME overrides the current time for the timestamp."
     (clatter--insert-message buffer formatted nil props server-time)
     (when (fboundp 'clatter-image--scan-message)
       (let ((img-marker (with-current-buffer buffer
-                          (copy-marker (or clatter--messages-marker (point-max))))))
+                          (copy-marker
+                           (if (eq clatter-message-order 'oldest-first)
+                               (point-max)
+                             (or clatter--messages-marker (point-max)))))))
         (clatter-image--scan-message text buffer img-marker)))
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
