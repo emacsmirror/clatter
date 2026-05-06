@@ -291,8 +291,8 @@ INPUT is the full string including the leading /."
 (defun clatter-cmd-suppress (args)
   "Handle /suppress [TYPE...] - suppress message types.
 With no args, show current suppressions.
-With 'all', suppress join/part/quit/nick/mode/away.
-With 'none', clear all suppressions."
+With `all', suppress join/part/quit/nick/mode/away.
+With `none', clear all suppressions."
   (let ((types (split-string (string-trim args) " " t)))
     (cond
      ((null types)
