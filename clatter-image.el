@@ -9,7 +9,7 @@
 ;; Async inline image preview for URLs in messages.
 ;; Opt-in via `clatter-image-enable' (default nil).
 ;; Only works in GUI Emacs frames; graceful no-op in terminal.
-;; No external dependencies - uses built-in `url-retrieve' and `create-image'.
+;; Uses external curl to avoid blocking Emacs on DNS/TLS.
 
 ;;; Code:
 
@@ -63,41 +63,49 @@ Uses simple string parsing to avoid `url-generic-parse-url' which can block."
 ;; --- Async fetch and display ---
 
 (defun clatter-image--fetch (url buffer insert-marker)
-  "Fetch image at URL and insert into BUFFER at INSERT-MARKER."
+  "Fetch image at URL and insert into BUFFER at INSERT-MARKER.
+Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
   (when (and clatter-image-enable
              (display-graphic-p)
              (clatter-image--url-p url))
-    (require 'url)
-    (url-retrieve
-     (substring-no-properties url)
-     (lambda (status buf marker url-str)
-       (unless (plist-get status :error)
-         (condition-case nil
-             (let* ((size (buffer-size))
-                    (data (progn
-                            (goto-char (point-min))
-                            (re-search-forward "\n\n" nil t)
-                            (buffer-substring-no-properties (point) (point-max)))))
-               (when (and data
-                          (> (length data) 0)
-                          (<= size clatter-image-max-size))
-                 (let ((image (create-image data nil t
-                                            :max-width clatter-image-max-width
-                                            :max-height clatter-image-max-height)))
-                   (when (and image (buffer-live-p buf))
-                     (with-current-buffer buf
-                       (let ((inhibit-read-only t))
-                         (save-excursion
-                           (goto-char marker)
-                           (end-of-line)
-                           (insert "\n")
-                           (insert-image image (format "[image: %s]" url-str))
-                           (insert "\n"))))))))
-           (error nil)))
-       (when (buffer-live-p (current-buffer))
-         (kill-buffer (current-buffer))))
-     (list buffer insert-marker url)
-     t t)))
+    (let* ((clean-url (substring-no-properties url))
+           (proc-buf (generate-new-buffer " *clatter-image-fetch*"))
+           (proc (start-process
+                  "clatter-image" proc-buf
+                  "curl" "-sL"
+                  "-m" "15"
+                  "--max-filesize" (number-to-string clatter-image-max-size)
+                  "-o" "-"
+                  clean-url)))
+      (set-process-coding-system proc 'binary 'binary)
+      (set-process-sentinel
+       proc
+       (lambda (process _event)
+         (when (memq (process-status process) '(exit signal))
+           (let ((pbuf (process-buffer process)))
+             (when (and (eq (process-exit-status process) 0)
+                        (buffer-live-p pbuf))
+               (condition-case nil
+                   (let ((data (with-current-buffer pbuf
+                                 (buffer-string))))
+                     (when (and data (> (length data) 0)
+                                (buffer-live-p buffer))
+                       (let ((image (create-image data nil t
+                                                  :max-width clatter-image-max-width
+                                                  :max-height clatter-image-max-height)))
+                         (when image
+                           (with-current-buffer buffer
+                             (let ((inhibit-read-only t))
+                               (save-excursion
+                                 (goto-char insert-marker)
+                                 (end-of-line)
+                                 (insert "\n")
+                                 (insert-image image
+                                               (format "[image: %s]" clean-url))
+                                 (insert "\n"))))))))
+                 (error nil)))
+             (when (buffer-live-p pbuf)
+               (kill-buffer pbuf)))))))))
 
 ;; --- Hook into message insertion ---
 
