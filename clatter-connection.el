@@ -97,7 +97,13 @@ Appends CR-LF automatically."
       (clatter--debug ">> %s" line)
       (run-hook-with-args 'clatter-rawlog-outgoing-hook
                           (clatter-connection-network-id conn) line)
-      (process-send-string proc (concat line "\r\n")))))
+      (condition-case err
+          (process-send-string proc (concat line "\r\n"))
+        (error
+         (clatter--watchdog "SEND-FAIL %s %s"
+                            (clatter-connection-network-id conn)
+                            (error-message-string err))
+         (delete-process proc))))))
 
 ;; --- Receive (Process Filter) ---
 
@@ -253,12 +259,16 @@ ARGS are keyword arguments that override `clatter-networks' config:
                             (when use-tls
                               (clatter--watchdog "TLS-START %s" network-id)
                               (condition-case tls-err
-                                  (gnutls-negotiate
-                                   :process p
-                                   :hostname server
-                                   :keylist (when (and client-cert
-                                                      (file-exists-p client-cert))
-                                              (list (list client-cert client-cert))))
+                                  (with-timeout
+                                      (10
+                                       (clatter--watchdog "TLS-TIMEOUT %s" network-id)
+                                       (error "TLS handshake timed out (10s)"))
+                                    (gnutls-negotiate
+                                     :process p
+                                     :hostname server
+                                     :keylist (when (and client-cert
+                                                        (file-exists-p client-cert))
+                                                (list (list client-cert client-cert)))))
                                 (error
                                  (clatter--watchdog "TLS-FAIL %s %s"
                                                      network-id
