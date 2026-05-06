@@ -122,6 +122,10 @@ Accumulates partial lines and dispatches complete ones."
           (let ((line (substring data 0 (match-beginning 0))))
             (setq data (substring data (match-end 0)))
             (when (> (length line) 0)
+              ;; Log raw lines to watchdog during registration
+              (unless (eq (clatter-connection-state conn) :connected)
+                (clatter--watchdog "RECV %s %s" network-id
+                                   (substring line 0 (min (length line) 200))))
               (clatter--debug "<< %s" line)
               (run-hook-with-args 'clatter-rawlog-incoming-hook
                                   network-id line)
@@ -164,8 +168,13 @@ This is the main entry point from the process filter into the handler layer."
       (run-hook-with-args 'clatter-disconnect-hook network-id event)
       ;; Auto-reconnect
       (when (clatter-connection-reconnect-enabled conn)
-        (clatter--watchdog "RECONNECT-SCHEDULE %s" network-id)
-        (clatter--schedule-reconnect conn)))))
+        (let ((attempts (clatter-connection-reconnect-attempts conn)))
+          (clatter--watchdog "RECONNECT-SCHEDULE %s attempt=%d delay=%ds"
+                             network-id (1+ attempts)
+                             (min (* clatter-reconnect-initial-delay
+                                     (expt 2 attempts))
+                                  clatter-reconnect-max-delay))
+          (clatter--schedule-reconnect conn))))))
 
 ;; --- Connect ---
 
@@ -308,6 +317,7 @@ ARGS are keyword arguments that override `clatter-networks' config:
 (defun clatter--begin-registration (conn config)
   "Begin IRC registration sequence on CONN with CONFIG.
 Always starts with CAP LS 302 for IRCv3 negotiation."
+  (clatter--watchdog "REGISTER-START %s" (clatter-connection-network-id conn))
   (setf (clatter-connection-state conn) :registering)
   (setf (clatter-connection-cap-negotiating conn) t)
   (setf (clatter-connection-last-activity conn) (float-time))
@@ -375,28 +385,45 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
                      #'clatter--health-check conn)))
 
 (defun clatter--health-check (conn)
-  "Check connection health for CONN.  Send PING if idle, disconnect if timed out."
-  (let ((proc (clatter-connection-process conn)))
-    (when (and proc (process-live-p proc)
-               (memq (process-status proc) '(open run)))
-      (let ((idle (- (float-time) (or (clatter-connection-last-activity conn) 0)))
-            (ping-age (when (clatter-connection-ping-sent-time conn)
-                        (- (float-time) (clatter-connection-ping-sent-time conn)))))
-        (clatter--debug "health: %s idle=%.0fs ping-pending=%s"
-                       (clatter-connection-network-id conn) idle
-                       (if ping-age (format "%.0fs" ping-age) "no"))
+  "Check connection health for CONN.
+Like ERC, uses a single timeout on last-received-time:
+- If no data received for `clatter-ping-timeout' seconds, kill the
+  connection (it is dead).
+- Otherwise, send a PING to keep the connection alive and provoke
+  a PONG that resets the receive timer.
+PINGs are only sent when state is :connected (after 001)."
+  (let* ((proc (clatter-connection-process conn))
+         (network-id (clatter-connection-network-id conn)))
+    (cond
+     ;; Process gone -- cancel our own timer
+     ((not (and proc (process-live-p proc)
+                 (memq (process-status proc) '(open run))))
+      (clatter--watchdog "HEALTH-STALE %s (process gone)" network-id)
+      (when (clatter-connection-health-timer conn)
+        (cancel-timer (clatter-connection-health-timer conn))
+        (setf (clatter-connection-health-timer conn) nil)))
+     ;; Not yet registered -- don't send PINGs, let watchdog handle stuck state
+     ((not (eq (clatter-connection-state conn) :connected))
+      nil)
+     ;; Connected -- check health
+     (t
+      (let ((since-recv (- (float-time)
+                           (or (clatter-connection-last-activity conn) 0))))
         (cond
-         ;; Pending ping timed out
-         ((and ping-age (> ping-age clatter-ping-timeout))
-          (message "[clatter] Health check: ping timeout for %s (%.0fs > %ds)"
-                   (clatter-connection-network-id conn) ping-age clatter-ping-timeout)
+         ;; No data received for too long -- connection is dead
+         ((> since-recv clatter-ping-timeout)
+          (clatter--watchdog "HEALTH-KILL %s (no data for %.0fs, timeout %ds)"
+                             network-id since-recv clatter-ping-timeout)
+          (message "[clatter] No data from %s for %.0fs, killing connection"
+                   network-id since-recv)
+          (setf (clatter-connection-ping-sent-time conn) nil)
           (delete-process proc))
-         ;; Idle too long, send ping
-         ((> idle clatter-ping-interval)
-          (clatter--debug "health: sending PING to %s (idle %.0fs)"
-                          (clatter-connection-network-id conn) idle)
+         ;; Send keepalive PING
+         (t
+          (clatter--watchdog "HEALTH-PING %s (last-recv %.0fs ago)"
+                             network-id since-recv)
           (setf (clatter-connection-ping-sent-time conn) (float-time))
-          (clatter-send conn (clatter-irc-ping "clatter"))))))))
+          (clatter-send conn (clatter-irc-ping "clatter")))))))))
 
 ;; --- Hooks ---
 

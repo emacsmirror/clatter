@@ -13,7 +13,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'url)
 (require 'clatter-config)
 (require 'clatter-connection)
 (require 'clatter-protocol)
@@ -83,46 +82,43 @@
           raw)))))
 
 (defun clatter-url-preview--fetch (url buffer)
-  "Asynchronously fetch URL and display its title in BUFFER."
+  "Asynchronously fetch URL and display its title in BUFFER.
+Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
   (let ((clean-url (substring-no-properties url)))
     (puthash clean-url t clatter-url-preview--pending)
-    (let ((url-request-extra-headers
-           '(("User-Agent" . "Mozilla/5.0 (compatible; clatter.el)")))
-          (url-mime-accept-string "text/html")
-          (url-show-status nil))
-      (condition-case nil
-          (url-retrieve
-           clean-url
-         (lambda (status url buf)
-           (remhash url clatter-url-preview--pending)
-           (unless (plist-get status :error)
-             (let ((title nil))
-               (when (buffer-live-p (current-buffer))
-                 (goto-char (point-min))
-                 ;; Skip HTTP headers
-                 (when (re-search-forward "\n\n" nil t)
-                   (let ((body (buffer-substring-no-properties
-                                (point)
-                                (min (+ (point) 8192) (point-max)))))
-                     (setq title (clatter-url-preview--extract-title body)))))
-               (when (and title (buffer-live-p buf))
-                 ;; Cache it
-                 (when (> (hash-table-count clatter-url-preview--cache)
-                          clatter-url-preview--cache-max)
-                   (clrhash clatter-url-preview--cache))
-                 (puthash url title clatter-url-preview--cache)
-                 ;; Display in buffer
-                 (with-current-buffer buf
-                   (clatter-insert-system
-                    buf (propertize (format "↳ %s" title)
-                                   'face '(:foreground "#89ddff" :slant italic))))))
-             (when (buffer-live-p (current-buffer))
-               (kill-buffer (current-buffer)))))
-         (list url buffer)
-         t  ; silent
-         t) ; inhibit cookies
+    (condition-case nil
+        (let* ((proc-buf (generate-new-buffer " *clatter-url-fetch*"))
+               (proc (start-process
+                      "clatter-url-preview" proc-buf
+                      "curl" "-sL" "-m" (number-to-string clatter-url-preview-timeout)
+                      "-o" "-" "-r" "0-16384"
+                      "-H" "User-Agent: Mozilla/5.0 (compatible; clatter.el)"
+                      "-H" "Accept: text/html"
+                      clean-url)))
+          (set-process-sentinel
+           proc
+           (lambda (process _event)
+             (when (memq (process-status process) '(exit signal))
+               (let ((proc-buffer (process-buffer process)))
+                 (remhash clean-url clatter-url-preview--pending)
+                 (when (and (eq (process-exit-status process) 0)
+                            (buffer-live-p proc-buffer))
+                   (let ((body (with-current-buffer proc-buffer
+                                 (buffer-string))))
+                     (let ((title (clatter-url-preview--extract-title body)))
+                       (when (and title (buffer-live-p buffer))
+                         (when (> (hash-table-count clatter-url-preview--cache)
+                                  clatter-url-preview--cache-max)
+                           (clrhash clatter-url-preview--cache))
+                         (puthash clean-url title clatter-url-preview--cache)
+                         (with-current-buffer buffer
+                           (clatter-insert-system
+                            buffer (propertize (format "\u21b3 %s" title)
+                                              'face '(:foreground "#89ddff" :slant italic))))))))
+                 (when (buffer-live-p proc-buffer)
+                   (kill-buffer proc-buffer)))))))
       (error
-       (remhash clean-url clatter-url-preview--pending))))))
+       (remhash clean-url clatter-url-preview--pending)))))
 
 ;; --- Hook Handler ---
 

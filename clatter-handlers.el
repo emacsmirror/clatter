@@ -144,7 +144,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
       ("903"  ; RPL_SASLSUCCESS
        (clatter-cap-handle-sasl-success conn))
 
-      ((or "904" "905")  ; SASL failures
+      ((or "904" "905" "906")  ; SASL failures / aborted
        (clatter-cap-handle-sasl-failure conn params))
 
       ;; --- Standard Replies (IRCv3) ---
@@ -185,8 +185,20 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
                                  (format "NOTE [%s/%s] %s: %s" cmd code context description)
                                (format "NOTE [%s/%s] %s" cmd code description)))))
 
+      ;; --- Server ERROR (sent before forced disconnect) ---
+      ("ERROR"
+       (let ((reason (or (car params) "Unknown")))
+         (clatter--watchdog "SERVER-ERROR %s %s"
+                            (clatter-connection-network-id conn) reason)
+         (message "[clatter] Server ERROR: %s" reason)
+         (run-hook-with-args 'clatter-system-hook conn
+                             (format "ERROR: %s" reason))))
+
       ;; --- Registration complete ---
       ("001"
+       (clatter--watchdog "REGISTERED %s nick=%s"
+                          (clatter-connection-network-id conn)
+                          (clatter-connection-nick conn))
        (setf (clatter-connection-state conn) :connected)
        ;; Reset reconnect attempts after 60s of stable connection
        (let ((this-conn conn))

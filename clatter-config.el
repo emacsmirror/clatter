@@ -91,18 +91,24 @@ have channels with very long nicknames."
   :type 'integer
   :group 'clatter)
 
-(defcustom clatter-reconnect-initial-delay 5
+(defcustom clatter-reconnect-initial-delay 10
   "Initial delay in seconds before first reconnection attempt."
   :type 'integer
   :group 'clatter)
 
-(defcustom clatter-ping-interval 60
-  "Seconds between health-check pings to the server."
+(defcustom clatter-ping-interval 30
+  "Seconds between sending keepalive pings to the server.
+Matches ERC default.  Lower values keep the connection alive through
+NAT timeouts but produce more traffic."
   :type 'integer
   :group 'clatter)
 
-(defcustom clatter-ping-timeout 30
-  "Seconds to wait for PONG before considering connection dead."
+(defcustom clatter-ping-timeout 120
+  "Seconds with no data received before considering connection dead.
+If no data (including PONG replies) has been received from the server
+for this many seconds, the connection is killed and a reconnect is
+scheduled.  Must be greater than `clatter-ping-interval'.
+Matches ERC default."
   :type 'integer
   :group 'clatter)
 

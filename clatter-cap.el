@@ -113,7 +113,9 @@ Dispatches based on subcommand (LS, ACK, NAK)."
          (sasl-type (plist-get config :sasl)))
     (setf (clatter-connection-cap-enabled conn)
           (append (clatter-connection-cap-enabled conn) acked))
-    (clatter--debug "Enabled caps: %s" (string-join acked ", "))
+    (clatter--watchdog "CAP-ACK %s caps=%s sasl-type=%s"
+                       (clatter-connection-network-id conn)
+                       (string-join acked ",") sasl-type)
     ;; If SASL was ACKed, start authentication
     (if (cl-member "sasl" acked :test #'string-equal)
         (cond
@@ -213,8 +215,11 @@ SERVER-RESPONSE is base64-encoded server message."
   (clatter-cap--send-registration conn))
 
 (defun clatter-cap-handle-sasl-failure (conn params)
-  "Handle 904/905 SASL failure on CONN with PARAMS."
-  (clatter--debug "SASL authentication failed: %s" (nth 1 params))
+  "Handle 904/905/906 SASL failure on CONN with PARAMS."
+  (clatter--watchdog "SASL-FAIL %s %s"
+                     (clatter-connection-network-id conn)
+                     (or (nth 1 params) "unknown"))
+  (message "[clatter] SASL failed: %s" (or (nth 1 params) "unknown"))
   (clatter-send conn "CAP END")
   (clatter-cap--send-registration conn))
 
@@ -227,6 +232,8 @@ SERVER-RESPONSE is base64-encoded server message."
          (username (or (plist-get config :username) nick))
          (realname (or (plist-get config :realname) clatter-default-realname))
          (password (plist-get config :password)))
+    (clatter--watchdog "SEND-REG %s nick=%s user=%s"
+                       (clatter-connection-network-id conn) nick username)
     ;; Server password (PASS) must come before NICK/USER
     (when password
       (clatter-send conn (clatter-irc-pass password)))
