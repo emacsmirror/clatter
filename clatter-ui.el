@@ -231,7 +231,9 @@ SERVER-TIME overrides the current time for the timestamp."
       (setq props (plist-put props 'clatter-msgid msgid)))
     (clatter--insert-message buffer formatted nil props server-time)
     (when (fboundp 'clatter-image--scan-message)
-      (clatter-image--scan-message text buffer))
+      (let ((img-marker (with-current-buffer buffer
+                          (copy-marker (or clatter--messages-marker (point-max))))))
+        (clatter-image--scan-message text buffer img-marker)))
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
 
