@@ -194,11 +194,13 @@ Example: \\='(join part quit away) to hide join/part/quit/away noise."
 
 ;; --- Ignore list ---
 
-(defvar clatter-ignore-list nil
+(defcustom clatter-ignore-list nil
   "List of ignored nick patterns.
 Each entry is a string.  Entries are matched case-insensitively.
 Glob-style wildcards (* and ?) are supported.
-Example: (\"spambot\" \"*!*@bad.host.example.com\")")
+Example: (\"spambot\" \"*!*@bad.host.example.com\")"
+  :type '(repeat string)
+  :group 'clatter)
 
 (defun clatter-ignored-p (sender)
   "Return non-nil if SENDER should be ignored.
