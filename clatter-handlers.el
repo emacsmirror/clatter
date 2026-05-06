@@ -667,13 +667,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
         (current (clatter-connection-nick conn)))
     (when (and desired current
                (not (string-equal current desired)))
-      ;; Try NickServ REGAIN immediately if SASL-authenticated
-      (when (eq (clatter-connection-sasl-state conn) :done)
-        (clatter-send conn (clatter-irc-privmsg
-                            "NickServ"
-                            (format "REGAIN %s" desired)))
-        (message "[clatter] Sent NickServ REGAIN %s" desired))
-      ;; Also start periodic NICK attempts as fallback
+      ;; Start periodic NICK attempts (ghost times out in 2-4 minutes)
       (let ((attempts 0))
         (setf (clatter-connection-nick-reclaim-timer conn)
               (run-at-time clatter-nick-reclaim-interval
