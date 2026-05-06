@@ -10,7 +10,7 @@
 ;;; Commentary:
 
 ;; clatter.el is a dedicated, IRCv3-compliant IRC client for Emacs.
-;; Pure Elisp with no external dependencies beyond Emacs 29.1+.
+;; Pure Elisp, requiring only Emacs 29.1+ and curl (for async URL/image fetching).
 ;;
 ;; Spiritual successor to CLatter (Common Lisp TUI IRC client),
 ;; redesigned from scratch for Emacs.
