@@ -250,7 +250,7 @@ ARGS are keyword arguments that override `clatter-networks' config:
 
       (condition-case err
           (let* ((client-cert (plist-get config :client-cert))
-                 ;; Always connect plain+nowait first — TLS handshake
+                 ;; Always connect plain+nowait first - TLS handshake
                  ;; happens async in the sentinel to avoid blocking Emacs
                  (proc (make-network-process
                         :name (format "clatter-%s" network-id)
@@ -265,7 +265,7 @@ ARGS are keyword arguments that override `clatter-networks' config:
                                              network-id (string-trim e)
                                              (process-status p))
                           (cond
-                           ;; TCP connected — upgrade to TLS if needed
+                           ;; TCP connected - upgrade to TLS if needed
                            ((string-match-p "open" e)
                             (when use-tls
                               (clatter--watchdog "TLS-START %s" network-id)
