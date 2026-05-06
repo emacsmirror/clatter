@@ -74,12 +74,14 @@
 
 ;; --- Nick color palette (hash-based consistent colors) ---
 
-(defvar clatter-nick-colors
+(defcustom clatter-nick-colors
   '("#f78c6c" "#c3e88d" "#89ddff" "#c792ea" "#ffcb6b"
     "#ff5370" "#82aaff" "#f07178" "#babed8" "#a6accd"
     "#e2b93d" "#addb67" "#7fdbca" "#ef5350" "#80cbc4"
     "#b2ccd6" "#eeffff" "#f78c6c" "#c792ea" "#ff5370")
-  "Color palette for nick colorization.")
+  "Color palette for nick colorization."
+  :type '(repeat color)
+  :group 'clatter)
 
 (defun clatter-nick-color (nick)
   "Return a consistent color for NICK based on hash."
@@ -229,7 +231,9 @@ SERVER-TIME overrides the current time for the timestamp."
       (setq props (plist-put props 'clatter-msgid msgid)))
     (clatter--insert-message buffer formatted nil props server-time)
     (when (fboundp 'clatter-image--scan-message)
-      (clatter-image--scan-message text buffer))
+      (let ((img-marker (with-current-buffer buffer
+                          (copy-marker (or clatter--messages-marker (point-max))))))
+        (clatter-image--scan-message text buffer img-marker)))
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
 

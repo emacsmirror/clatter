@@ -70,10 +70,12 @@
               (apply #'format format-string args)
               "\n"))))
 
-(defvar clatter-watchdog-log
+(defcustom clatter-watchdog-log
   (expand-file-name "clatter/watchdog.log" user-emacs-directory)
   "File path for connection watchdog log.
-This log persists across Emacs restarts to help diagnose lockups.")
+This log persists across Emacs restarts to help diagnose lockups."
+  :type 'file
+  :group 'clatter)
 
 (defun clatter--watchdog (format-string &rest args)
   "Write a timestamped line to the watchdog log file.

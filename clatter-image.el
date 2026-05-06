@@ -9,7 +9,7 @@
 ;; Async inline image preview for URLs in messages.
 ;; Opt-in via `clatter-image-enable' (default nil).
 ;; Only works in GUI Emacs frames; graceful no-op in terminal.
-;; No external dependencies - uses built-in `url-retrieve' and `create-image'.
+;; Uses external curl to avoid blocking Emacs on DNS/TLS.
 
 ;;; Code:
 
@@ -46,6 +46,36 @@ Images larger than this are skipped.  Default: 5 MB."
   :type '(repeat string)
   :group 'clatter)
 
+;; --- URL normalization ---
+
+(defun clatter-image--normalize-url (url)
+  "Convert URL to a direct image link where possible.
+Handles GitHub and GitLab blob URLs."
+  (let ((u (substring-no-properties url)))
+    (cond
+     ;; GitHub blob -> raw.githubusercontent.com
+     ((string-match
+       "https://github\\.com/\\([^/]+/[^/]+\\)/blob/\\(.+\\)" u)
+      (format "https://raw.githubusercontent.com/%s/%s"
+              (match-string 1 u) (match-string 2 u)))
+     ;; GitLab blob -> raw
+     ((string-match
+       "\\(https://[^/]+\\)/\\([^/]+/[^/]+\\)/-/blob/\\(.+\\)" u)
+      (format "%s/%s/-/raw/%s"
+              (match-string 1 u) (match-string 2 u) (match-string 3 u)))
+     (t u))))
+
+;; --- Data validation ---
+
+(defun clatter-image--valid-data-p (data)
+  "Return non-nil if DATA starts with a known image magic byte sequence."
+  (and (> (length data) 8)
+       (or (string-prefix-p "\x89PNG" data)
+           (string-prefix-p "\xFF\xD8" data)
+           (string-prefix-p "GIF8" data)
+           (string-prefix-p "BM" data)
+           (string-prefix-p "RIFF" data))))
+
 ;; --- URL detection ---
 
 (defun clatter-image--url-p (url)
@@ -62,56 +92,84 @@ Uses simple string parsing to avoid `url-generic-parse-url' which can block."
 
 ;; --- Async fetch and display ---
 
+(defun clatter-image--insert (image buffer marker url-str)
+  "Insert IMAGE into BUFFER at MARKER, centered horizontally.
+URL-STR is used for the alt-text fallback."
+  (let* ((img-width (or (car (image-size image t)) 0))
+         (win (get-buffer-window buffer))
+         (win-width (if win
+                        (* (window-width win)
+                           (frame-char-width (window-frame win)))
+                      (* 80 (frame-char-width))))
+         (pad-px (max 0 (/ (- win-width img-width) 2)))
+         (pad-cols (/ pad-px (frame-char-width)))
+         (prefix (make-string pad-cols ?\s)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (save-excursion
+          (goto-char marker)
+          (let ((start (point)))
+            (insert-image image (format "[image: %s]" url-str))
+            (insert "\n")
+            (put-text-property start (point) 'line-prefix prefix)))))))
+
 (defun clatter-image--fetch (url buffer insert-marker)
-  "Fetch image at URL and insert into BUFFER at INSERT-MARKER."
+  "Fetch image at URL and insert into BUFFER at INSERT-MARKER.
+Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
   (when (and clatter-image-enable
              (display-graphic-p)
              (clatter-image--url-p url))
-    (require 'url)
-    (url-retrieve
-     (substring-no-properties url)
-     (lambda (status buf marker url-str)
-       (unless (plist-get status :error)
-         (condition-case nil
-             (let* ((size (buffer-size))
-                    (data (progn
-                            (goto-char (point-min))
-                            (re-search-forward "\n\n" nil t)
-                            (buffer-substring-no-properties (point) (point-max)))))
-               (when (and data
-                          (> (length data) 0)
-                          (<= size clatter-image-max-size))
-                 (let ((image (create-image data nil t
-                                            :max-width clatter-image-max-width
-                                            :max-height clatter-image-max-height)))
-                   (when (and image (buffer-live-p buf))
-                     (with-current-buffer buf
-                       (let ((inhibit-read-only t))
-                         (save-excursion
-                           (goto-char marker)
-                           (end-of-line)
-                           (insert "\n")
-                           (insert-image image (format "[image: %s]" url-str))
-                           (insert "\n"))))))))
-           (error nil)))
-       (when (buffer-live-p (current-buffer))
-         (kill-buffer (current-buffer))))
-     (list buffer insert-marker url)
-     t t)))
+    (let* ((clean-url (clatter-image--normalize-url url))
+           (proc-buf (generate-new-buffer " *clatter-image-fetch*"))
+           (_ (with-current-buffer proc-buf
+                (set-buffer-multibyte nil)))
+           (proc (start-process
+                  "clatter-image" proc-buf
+                  "curl" "-sL"
+                  "-m" "15"
+                  "--max-filesize" (number-to-string clatter-image-max-size)
+                  "-o" "-"
+                  clean-url)))
+      (set-process-coding-system proc 'binary 'binary)
+      (set-process-sentinel
+       proc
+       (lambda (process _event)
+         (when (memq (process-status process) '(exit signal))
+           (let ((pbuf (process-buffer process)))
+             (when (and (eq (process-exit-status process) 0)
+                        (buffer-live-p pbuf))
+               (condition-case nil
+                   (let ((data (with-current-buffer pbuf
+                                 (buffer-substring-no-properties
+                                  (point-min) (point-max)))))
+                     (when (and data (> (length data) 0)
+                                (clatter-image--valid-data-p data)
+                                (buffer-live-p buffer))
+                       (let ((image (create-image data nil t
+                                                  :max-width clatter-image-max-width
+                                                  :max-height clatter-image-max-height)))
+                         (when image
+                           (clatter-image--insert image buffer
+                                                  insert-marker clean-url)))))
+                 (error nil)))
+             (when (buffer-live-p pbuf)
+               (kill-buffer pbuf)))))))))
 
 ;; --- Hook into message insertion ---
 
-(defun clatter-image--scan-message (text buffer)
+(defun clatter-image--scan-message (text buffer &optional insert-marker)
   "Scan TEXT for image URLs and fetch them for inline display in BUFFER.
+INSERT-MARKER is the position right after the message line.
 Should be called after message insertion."
   (when (and clatter-image-enable (display-graphic-p))
     (let ((pos 0))
       (while (string-match "https?://[^ \t\n]+" text pos)
         (let ((url (match-string 0 text))
-              (marker (with-current-buffer buffer
-                        (save-excursion
-                          (goto-char (point-max))
-                          (point-marker)))))
+              (marker (or insert-marker
+                         (with-current-buffer buffer
+                           (save-excursion
+                             (goto-char (point-max))
+                             (point-marker))))))
           (when (clatter-image--url-p url)
             (clatter-image--fetch url buffer marker)))
         (setq pos (match-end 0))))))

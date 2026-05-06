@@ -85,7 +85,7 @@ Each entry is a string.  Matching is case-insensitive."
 
 ;; --- Expanded color palette ---
 
-(defvar clatter-hl-nick-colors
+(defcustom clatter-hl-nick-colors
   '("#f78c6c" "#c3e88d" "#89ddff" "#c792ea" "#ffcb6b"
     "#ff5370" "#82aaff" "#f07178" "#babed8" "#a6accd"
     "#e2b93d" "#addb67" "#7fdbca" "#ef5350" "#80cbc4"
@@ -95,7 +95,9 @@ Each entry is a string.  Matching is case-insensitive."
     "#ab9df2" "#fc9867" "#b8e986" "#ffd866" "#ff6188"
     "#a9dc76" "#78dce8" "#ab9df2" "#e5c07b" "#56b6c2")
   "Extended color palette for nick highlighting.
-40 colors chosen for good contrast on dark backgrounds.")
+40 colors chosen for good contrast on dark backgrounds."
+  :type '(repeat color)
+  :group 'clatter)
 
 ;; --- Color cache ---
 

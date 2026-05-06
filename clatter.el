@@ -1,8 +1,8 @@
-;;; clatter.el --- An IRCv3 client for Emacs -*- lexical-binding: t; -*-
+;;; clatter.el --- An IRCv3-compliant IRC client -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
 ;; Author: Glenn Thompson
-;; URL: https://src.paren.works/glenn/clatter.el
+;; URL: https://github.com/parenworks/clatter.el
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: comm, irc
@@ -10,7 +10,7 @@
 ;;; Commentary:
 
 ;; clatter.el is a dedicated, IRCv3-compliant IRC client for Emacs.
-;; Pure Elisp with no external dependencies beyond Emacs 29.1+.
+;; Pure Elisp, requiring only Emacs 29.1+ and curl (for async URL/image fetching).
 ;;
 ;; Spiritual successor to CLatter (Common Lisp TUI IRC client),
 ;; redesigned from scratch for Emacs.

@@ -178,17 +178,17 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - =/dcc list=, =/dcc accept=, =/dcc cancel= management commands
 
 *** Autojoin Persistence
-- =/autojoin add #channel= saves channel to init.el autojoin list
+- =/autojoin add #channel= saves channel to autojoin list
 - =/autojoin remove #channel= removes from autojoin list
 - =/autojoin list= shows current autojoin for the network
-- Edits init.el directly and updates live config
+- Persists via =customize-save-variable= to =custom-file=
 
 *** Inline Image Preview (clatter-image)
 - Async inline image display for URLs in messages
 - Opt-in: disabled by default (=clatter-image-enable=)
 - GUI frames only, graceful no-op in terminal
 - Configurable max width/height and file size cap
-- No external dependencies (uses built-in =url-retrieve= and =create-image=)
+- Uses async curl subprocess (non-blocking)
 
 *** Channel List Browser (clatter-list)
 - Interactive =/list= command with tabulated display
@@ -233,7 +233,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 
 ** Requirements
 
-- Emacs 28.1 or later
+- Emacs 29.1 or later
 - GnuTLS (for TLS/SSL connections) - Emacs must be compiled with GnuTLS support
   - On Debian/Ubuntu: =apt install gnutls-bin libgnutls28-dev=
   - On Fedora/RHEL: =dnf install gnutls=
@@ -267,7 +267,7 @@ Clone this repository and add to your =load-path=:
 Or configure via =customize=:
 
 #+BEGIN_SRC emacs-lisp
-(setq clatter-networks
+(setopt clatter-networks
   '(("libera"
      :server "irc.libera.chat"
      :port 6697
@@ -276,6 +276,8 @@ Or configure via =customize=:
      :sasl scram-sha-256  ;; or 'plain or 'external
      :autojoin ("#emacs" "#commonlisp"))))
 #+END_SRC
+
+Or use =M-x customize-group RET clatter RET= for the full options UI.
 
 ** Keybindings
 
@@ -347,7 +349,10 @@ With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= 
 
 ** Companion Packages
 
-clatter.el has no external dependencies, but works well with:
+clatter.el requires =curl= at runtime for async URL/image fetching.
+No Emacs Lisp dependencies beyond Emacs 29.1 itself.
+
+Works well with:
 
 - [[https://github.com/iqbalansari/emacs-emojify][emojify]] - emoji rendering in messages (recommended)
 - [[https://github.com/minad/corfu][corfu]] / [[https://github.com/minad/vertico][vertico]] - completion UI for nick/command/channel completion

@@ -4,7 +4,7 @@
 
 * Prerequisites
 
-- **Emacs 28.1+** (built with GnuTLS support)
+- **Emacs 29.1+** (built with GnuTLS support)
 - **GnuTLS** is required for TLS/SSL connections to IRC servers
 
 To verify GnuTLS is available, evaluate:
@@ -32,14 +32,14 @@ Most modern Emacs builds include GnuTLS support by default.
 (add-to-list 'load-path (expand-file-name "~/SourceCode/clatter.el"))
 (require 'clatter)
 
-(setq clatter-networks
-      '(("libera"
-         :server "irc.libera.chat"
-         :port 6697
-         :tls t
-         :nick "yournick"
-         :sasl plain
-         :autojoin ("#emacs" "#lisp"))))
+(setopt clatter-networks
+       '(("libera"
+          :server "irc.libera.chat"
+          :port 6697
+          :tls t
+          :nick "yournick"
+          :sasl plain
+          :autojoin ("#emacs" "#lisp"))))
 #+end_src
 
 ** Connecting
@@ -149,13 +149,13 @@ Files are saved to =~/Downloads/= by default.
 
 | Command                    | Description                                 |
 |----------------------------+---------------------------------------------|
-| =/autojoin add #channel=   | Add channel to autojoin and save to init.el |
-| =/autojoin remove #channel= | Remove from autojoin and save to init.el   |
+| =/autojoin add #channel=   | Add channel to autojoin and persist         |
+| =/autojoin remove #channel= | Remove from autojoin and persist           |
 | =/autojoin list=           | Show current autojoin for this network      |
 
 If no channel is specified, the current channel is used.
-The command edits the =:autojoin= list in your init.el directly
-and also updates the live config immediately.
+Changes are persisted via =customize-save-variable= to your
+=custom-file= and also update the live config immediately.
 
 ** Utility
 
@@ -175,10 +175,10 @@ and also updates the live config immediately.
 | =clatter-default-port=        | =6697=             | Default port                          |
 | =clatter-default-tls=         | =t=                | Use TLS by default                    |
 | =clatter-use-auth-source=     | =t=                | Look up passwords via auth-source     |
-| =clatter-reconnect-initial-delay= | =5=            | Seconds before first reconnect        |
+| =clatter-reconnect-initial-delay= | =10=           | Seconds before first reconnect        |
 | =clatter-reconnect-max-delay= | =300=              | Max reconnect delay (exponential backoff) |
-| =clatter-ping-interval=       | =120=              | Seconds between health pings          |
-| =clatter-ping-timeout=        | =30=               | Seconds before ping timeout           |
+| =clatter-ping-interval=       | =30=               | Seconds between health pings          |
+| =clatter-ping-timeout=        | =120=              | Seconds before ping timeout           |
 
 ** Display
 
@@ -198,7 +198,7 @@ and also updates the live config immediately.
 
 Example:
 #+begin_src emacs-lisp
-(setq clatter-suppress-messages '(join part quit away))
+(setopt clatter-suppress-messages '(join part quit away))
 #+end_src
 
 ** Input
@@ -223,7 +223,7 @@ Example:
 
 Enable logging:
 #+begin_src emacs-lisp
-(setq clatter-log-enable t)
+(setopt clatter-log-enable t)
 (clatter-log-init)
 #+end_src
 
@@ -253,11 +253,11 @@ Enable logging:
 Per-channel/nick rules with schedule support:
 
 #+begin_src emacs-lisp
-(setq clatter-notify-rules
-      '((:target "#emacs" :level mentions :schedule (9 . 22))
-        (:target "#bots" :level none)
-        (:target "#systemcrafters" :level all)
-        (:target "friend" :level all)))
+(setopt clatter-notify-rules
+        '((:target "#emacs" :level mentions :schedule (9 . 22))
+          (:target "#bots" :level none)
+          (:target "#systemcrafters" :level all)
+          (:target "friend" :level all)))
 #+end_src
 
 Rule levels:
@@ -429,12 +429,12 @@ by =clatter.el=. Optional modules need explicit =(require)=:
 
 #+begin_src emacs-lisp
 ;; Channel logging
-(setq clatter-log-enable t)
+(setopt clatter-log-enable t)
 (clatter-log-init)
 
 ;; Inline images (GUI only)
 (require 'clatter-image)
-(setq clatter-image-enable t)
+(setopt clatter-image-enable t)
 
 ;; Org-mode integration
 (require 'clatter-org)
@@ -523,7 +523,7 @@ grouped by date with timestamped entries.
 Enable raw protocol logging to see all IRC traffic:
 
 #+begin_src emacs-lisp
-(setq clatter-log-raw-protocol t)
+(setopt clatter-log-raw-protocol t)
 #+end_src
 
 Open the debug buffer: =M-x clatter-rawlog-open=.
@@ -555,7 +555,7 @@ cd ~/SourceCode/clatter.el && rm -f *.elc
 If your buffer is too noisy with joins/parts/quits:
 
 #+begin_src emacs-lisp
-(setq clatter-suppress-messages '(join part quit away))
+(setopt clatter-suppress-messages '(join part quit away))
 #+end_src
 
 Or at runtime: =/suppress join part quit away=
