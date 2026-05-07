@@ -92,20 +92,36 @@ Always writes regardless of `clatter-log-raw-protocol' setting."
 
 (defun clatter-send (conn line)
   "Send LINE to the IRC server via CONN.
-Appends CR-LF automatically."
-  (let ((proc (clatter-connection-process conn)))
-    (when (and proc (process-live-p proc)
-               (memq (process-status proc) '(open run)))
-      (clatter--debug ">> %s" line)
-      (run-hook-with-args 'clatter-rawlog-outgoing-hook
-                          (clatter-connection-network-id conn) line)
-      (condition-case err
-          (process-send-string proc (concat line "\r\n"))
-        (error
-         (clatter--watchdog "SEND-FAIL %s %s"
-                            (clatter-connection-network-id conn)
-                            (error-message-string err))
-         (delete-process proc))))))
+Appends CR-LF automatically.  Refuses to write if the connection
+appears stale (no data received for `clatter-ping-timeout' seconds)
+to avoid blocking Emacs on a dead GnuTLS socket."
+  (cl-block clatter-send
+    (let ((proc (clatter-connection-process conn)))
+      (when (and proc (process-live-p proc)
+                 (memq (process-status proc) '(open run)))
+        ;; Refuse to write on a likely-dead connection.  GnuTLS send can
+        ;; block indefinitely at the C level if the remote peer is gone,
+        ;; freezing the entire Emacs event loop.
+        (let ((since-recv (- (float-time)
+                             (or (clatter-connection-last-activity conn)
+                                 (float-time)))))
+          (when (> since-recv clatter-ping-timeout)
+            (clatter--watchdog "SEND-REFUSE %s (stale %.0fs, killing)"
+                               (clatter-connection-network-id conn) since-recv)
+            (delete-process proc)
+            (cl-return-from clatter-send nil)))
+        (clatter--debug ">> %s" line)
+        (run-hook-with-args 'clatter-rawlog-outgoing-hook
+                            (clatter-connection-network-id conn) line)
+        (let ((payload (concat line "\r\n"))
+              (network-id (clatter-connection-network-id conn)))
+          (condition-case err
+              (with-local-quit
+                (process-send-string proc payload))
+            (error
+             (clatter--watchdog "SEND-FAIL %s %s"
+                                network-id (error-message-string err))
+             (delete-process proc))))))))
 
 ;; --- Receive (Process Filter) ---
 
