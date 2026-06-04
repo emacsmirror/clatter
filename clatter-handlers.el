@@ -190,6 +190,15 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
        (let ((reason (or (car params) "Unknown")))
          (clatter--watchdog "SERVER-ERROR %s %s"
                             (clatter-connection-network-id conn) reason)
+         ;; Detect a services nick-regain kill so the reconnect logic
+         ;; can back off and avoid an immediate re-collision loop.
+         (when (string-match-p "regained by services" reason)
+           (setf (clatter-connection-regain-kill-time conn) (float-time))
+           (setf (clatter-connection-regain-kill-count conn)
+                 (1+ (or (clatter-connection-regain-kill-count conn) 0)))
+           (clatter--watchdog "REGAIN-KILL %s count=%d"
+                              (clatter-connection-network-id conn)
+                              (clatter-connection-regain-kill-count conn)))
          (message "[clatter] Server ERROR: %s" reason)
          (run-hook-with-args 'clatter-system-hook conn
                              (format "ERROR: %s" reason))))
@@ -205,7 +214,9 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
          (run-at-time 60 nil
                       (lambda ()
                         (when (eq (clatter-connection-state this-conn) :connected)
-                          (setf (clatter-connection-reconnect-attempts this-conn) 0)))))
+                          (setf (clatter-connection-reconnect-attempts this-conn) 0)
+                          (setf (clatter-connection-regain-kill-count this-conn) 0)
+                          (setf (clatter-connection-regain-kill-time this-conn) nil)))))
        (let ((config (process-get (clatter-connection-process conn) :clatter-config)))
          ;; NickServ identify if not using SASL
          (let ((password (clatter-get-password (clatter-connection-network-id conn))))
@@ -677,7 +688,8 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
     (setf (clatter-connection-nick-reclaim-timer conn) nil))
   (let ((desired (clatter-connection-desired-nick conn))
         (current (clatter-connection-nick conn)))
-    (when (and desired current
+    (when (and clatter-nick-reclaim-enabled
+               desired current
                (not (string-equal current desired)))
       ;; Start periodic NICK attempts (ghost times out in 2-4 minutes)
       (let ((attempts 0))

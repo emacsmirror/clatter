@@ -118,6 +118,36 @@ Passwords are looked up by :host (server) and :user (nick)."
   :type 'boolean
   :group 'clatter)
 
+(defcustom clatter-nick-reclaim-enabled t
+  "Whether to periodically try to reclaim the configured nick.
+When non-nil, if you connect and your desired nick is in use (so you
+land on a fallback like \"nick_\"), clatter periodically sends NICK to
+reclaim it.  Disable this if another long-lived client (such as a
+bouncer) legitimately holds your nick, to avoid fighting over it."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-regain-kill-backoff 120
+  "Minimum reconnect delay in seconds after a services nick-regain kill.
+When the server kills the connection with a \"regained by services\"
+message, an immediate reconnect tends to trigger another collision and
+another kill.  After such a kill, clatter waits at least this many
+seconds before reconnecting to break the ping-pong loop."
+  :type 'integer
+  :group 'clatter)
+
+(defcustom clatter-quit-on-exit t
+  "Send a QUIT to all connected networks when Emacs exits.
+This prevents leaving orphaned ghost sessions on the server that hold
+your nick until the server times them out."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-quit-message "clatter.el"
+  "Default QUIT message sent when disconnecting or exiting Emacs."
+  :type 'string
+  :group 'clatter)
+
 (defcustom clatter-log-raw-protocol nil
   "Log raw IRC protocol lines to *clatter-debug* buffer."
   :type 'boolean

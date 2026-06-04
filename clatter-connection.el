@@ -36,6 +36,8 @@
   reconnect-enabled    ; t to auto-reconnect
   reconnect-attempts   ; integer
   reconnect-timer      ; timer object
+  regain-kill-count    ; integer: consecutive "regained by services" kills
+  regain-kill-time     ; float-time of last regain kill, nil if none
   desired-nick         ; string: the configured nick we want to reclaim
   nick-reclaim-timer   ; timer for periodic nick reclaim attempts
   ;; Health monitoring
@@ -364,7 +366,7 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
         (setf (clatter-connection-nick-reclaim-timer conn) nil))
       (let ((proc (clatter-connection-process conn)))
         (when (and proc (process-live-p proc))
-          (clatter-send conn (clatter-irc-quit (or message "clatter.el")))
+          (clatter-send conn (clatter-irc-quit (or message clatter-quit-message)))
           ;; Give the QUIT time to send, then delete async
           (run-at-time 0.5 nil
                        (lambda ()
@@ -373,15 +375,69 @@ Always starts with CAP LS 302 for IRCv3 negotiation."
       (setf (clatter-connection-state conn) :disconnected)
       (message "[clatter] Disconnected from %s" network-id))))
 
+(defun clatter-disconnect-all (&optional message)
+  "Disconnect from all connected networks with optional quit MESSAGE.
+Intended for use on Emacs exit: sends QUIT synchronously and deletes
+each process so no orphaned ghost sessions remain on the servers."
+  (let ((quit-msg (or message clatter-quit-message)))
+    (maphash
+     (lambda (_network-id conn)
+       (setf (clatter-connection-reconnect-enabled conn) nil)
+       (when (clatter-connection-reconnect-timer conn)
+         (cancel-timer (clatter-connection-reconnect-timer conn))
+         (setf (clatter-connection-reconnect-timer conn) nil))
+       (when (clatter-connection-nick-reclaim-timer conn)
+         (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+         (setf (clatter-connection-nick-reclaim-timer conn) nil))
+       (let ((proc (clatter-connection-process conn)))
+         (when (and proc (process-live-p proc)
+                    (memq (process-status proc) '(open run)))
+           (clatter--watchdog "QUIT-ON-EXIT %s"
+                              (clatter-connection-network-id conn))
+           ;; Send QUIT synchronously.  We cannot rely on async timers
+           ;; here because Emacs is exiting.
+           (ignore-errors
+             (with-local-quit
+               (process-send-string proc
+                                    (concat (clatter-irc-quit quit-msg) "\r\n"))
+               ;; Briefly let the QUIT flush to the socket.
+               (accept-process-output proc 0.3)))
+           (ignore-errors (delete-process proc)))
+         (setf (clatter-connection-process conn) nil)
+         (setf (clatter-connection-state conn) :disconnected)))
+     clatter-connections)))
+
+(defun clatter--quit-on-exit ()
+  "Cleanly disconnect all networks when Emacs exits.
+Added to `kill-emacs-hook'.  No-op unless `clatter-quit-on-exit'."
+  (when clatter-quit-on-exit
+    (clatter-disconnect-all)))
+
+(add-hook 'kill-emacs-hook #'clatter--quit-on-exit)
+
 ;; --- Reconnection ---
 
 (defun clatter--schedule-reconnect (conn)
-  "Schedule a reconnection attempt for CONN with exponential backoff."
+  "Schedule a reconnection attempt for CONN with exponential backoff.
+If the last disconnect was a recent services nick-regain kill, the
+delay is raised to at least `clatter-regain-kill-backoff' seconds to
+avoid an immediate re-collision and another kill."
   (unless (eq (clatter-connection-state conn) :connecting)
     (let* ((attempts (clatter-connection-reconnect-attempts conn))
            (delay (min (* clatter-reconnect-initial-delay (expt 2 attempts))
                        clatter-reconnect-max-delay))
+           (kill-time (clatter-connection-regain-kill-time conn))
+           (recent-regain-kill (and kill-time
+                                    (< (- (float-time) kill-time) 30)))
+           (delay (if recent-regain-kill
+                      (max delay clatter-regain-kill-backoff)
+                    delay))
            (network-id (clatter-connection-network-id conn)))
+      (when recent-regain-kill
+        (clatter--watchdog "RECONNECT-BACKOFF %s regain-kill-count=%d delay=%ds"
+                           network-id
+                           (or (clatter-connection-regain-kill-count conn) 0)
+                           delay))
       (message "[clatter] Reconnecting to %s in %ds (attempt %d)..."
                network-id delay (1+ attempts))
       (run-hook-with-args 'clatter-reconnect-hook network-id delay (1+ attempts))
