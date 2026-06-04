@@ -691,10 +691,12 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
     (when (and clatter-nick-reclaim-enabled
                desired current
                (not (string-equal current desired)))
-      ;; Start periodic NICK attempts (ghost times out in 2-4 minutes)
+      ;; Start periodic reclaim attempts.  The first attempt is delayed
+      ;; by `clatter-nick-reclaim-initial-delay' so that services have
+      ;; settled our SASL login and any ENFORCE hold before we act.
       (let ((attempts 0))
         (setf (clatter-connection-nick-reclaim-timer conn)
-              (run-at-time clatter-nick-reclaim-interval
+              (run-at-time clatter-nick-reclaim-initial-delay
                            clatter-nick-reclaim-interval
                            (lambda ()
                              (setq attempts (1+ attempts))
@@ -714,9 +716,23 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
                                (setf (clatter-connection-nick-reclaim-timer conn) nil))
                               ;; Try reclaim
                               (t
-                               (clatter-send conn (clatter-irc-nick desired)))))))
+                               (clatter--reclaim-nick conn desired))))))
         (message "[clatter] Will try to reclaim nick %s every %ds"
                  desired clatter-nick-reclaim-interval)))))
+
+(defun clatter--reclaim-nick (conn desired)
+  "Attempt to reclaim DESIRED nick on CONN.
+When SASL-identified and `clatter-nick-reclaim-use-regain' is set, use
+NickServ REGAIN so services hand us the nick as the authenticated owner
+\(cooperating with ENFORCE).  Otherwise fall back to a bare NICK."
+  (if (and clatter-nick-reclaim-use-regain
+           (eq (clatter-connection-sasl-state conn) :done))
+      (progn
+        (clatter--watchdog "RECLAIM-REGAIN %s nick=%s"
+                           (clatter-connection-network-id conn) desired)
+        (clatter-send conn (clatter-irc-privmsg
+                            "NickServ" (format "REGAIN %s" desired))))
+    (clatter-send conn (clatter-irc-nick desired))))
 
 (provide 'clatter-handlers)
 

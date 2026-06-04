@@ -127,6 +127,31 @@ bouncer) legitimately holds your nick, to avoid fighting over it."
   :type 'boolean
   :group 'clatter)
 
+(defcustom clatter-nick-reclaim-use-regain nil
+  "Reclaim the nick as the identified account owner via NickServ REGAIN.
+When non-nil and the connection is SASL-identified, automatic reclaim
+attempts use \"REGAIN\" on NickServ rather than a bare NICK command.
+
+This defaults to nil deliberately: REGAIN forcibly kills whatever session
+holds the nick.  If a legitimate second client (a bouncer, or the same
+account connected from another host) holds it, auto-REGAIN turns a
+harmless fallback nick into a mutual kill loop, since both sides keep
+regaining and killing each other.  With nil, automatic reclaim only
+issues a passive NICK and waits, which never kills anyone; use the
+explicit `/regain' command when you actually want to seize the nick.
+
+When non-nil and not SASL-identified, a bare NICK is used as a fallback."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-nick-reclaim-initial-delay 8
+  "Seconds to wait after connecting before the first nick reclaim attempt.
+Gives services time to fully associate your SASL login with your account
+and to settle any ENFORCE hold on the nick, so the first REGAIN succeeds
+cleanly instead of racing the enforcement timer."
+  :type 'integer
+  :group 'clatter)
+
 (defcustom clatter-regain-kill-backoff 120
   "Minimum reconnect delay in seconds after a services nick-regain kill.
 When the server kills the connection with a \"regained by services\"
