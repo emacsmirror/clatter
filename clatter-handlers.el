@@ -699,8 +699,9 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
                            (lambda ()
                              (setq attempts (1+ attempts))
                              (cond
-                              ;; Gave up or disconnected
-                              ((or (> attempts clatter-nick-reclaim-max-attempts)
+                              ;; Disabled at runtime, gave up, or disconnected
+                              ((or (not clatter-nick-reclaim-enabled)
+                                   (> attempts clatter-nick-reclaim-max-attempts)
                                    (not (eq (clatter-connection-state conn) :connected)))
                                (when (clatter-connection-nick-reclaim-timer conn)
                                  (cancel-timer (clatter-connection-nick-reclaim-timer conn))

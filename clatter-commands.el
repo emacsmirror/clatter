@@ -288,6 +288,65 @@ INPUT is the full string including the leading /."
     (when conn
       (clatter-send conn (clatter-irc-privmsg "ChanServ" args)))))
 
+(defun clatter--nickserv-recover (conn verb nick)
+  "Send NickServ VERB (\"GHOST\" or \"REGAIN\") for NICK on CONN.
+Includes the network password if one is configured/available."
+  (let* ((network (clatter-connection-network-id conn))
+         (password (clatter-get-password network))
+         (cmd (if password
+                  (format "%s %s %s" verb nick password)
+                (format "%s %s" verb nick))))
+    (clatter-send conn (clatter-irc-privmsg "NickServ" cmd))
+    (clatter-insert-system (current-buffer)
+                           (format "Sent NickServ %s for %s" verb nick))))
+
+(defun clatter-cmd-ghost (args)
+  "Handle /ghost [NICK] - disconnect a ghost session holding NICK.
+With no NICK, uses your configured (desired) nick.  GHOST kills the
+other session but does NOT rename you; the reclaim timer (or a manual
+/nick) then takes the freed nick."
+  (let ((conn (clatter--require-conn)))
+    (when conn
+      (let ((nick (or (car (split-string (string-trim args)))
+                      (clatter-connection-desired-nick conn)
+                      (clatter-connection-nick conn))))
+        (clatter--nickserv-recover conn "GHOST" nick)))))
+
+(defun clatter-cmd-regain (args)
+  "Handle /regain [NICK] - reclaim NICK, renaming you to it.
+With no NICK, uses your configured (desired) nick.  REGAIN both frees
+the nick from any other session and changes your nick to it.  Note: if
+another client authed to your account is online, it can REGAIN back,
+causing a kill loop - use /ghost and wait instead in that case."
+  (let ((conn (clatter--require-conn)))
+    (when conn
+      (let ((nick (or (car (split-string (string-trim args)))
+                      (clatter-connection-desired-nick conn)
+                      (clatter-connection-nick conn))))
+        (clatter--nickserv-recover conn "REGAIN" nick)))))
+
+(defun clatter-cmd-reclaim (args)
+  "Handle /reclaim [on|off] - control automatic nick reclaim.
+With no argument, reports the current state.  Turning it off also
+cancels any reclaim timer that is currently running."
+  (let ((arg (downcase (string-trim args))))
+    (cond
+     ((member arg '("off" "no" "disable" "stop"))
+      (setq clatter-nick-reclaim-enabled nil)
+      (let ((conn (clatter--current-conn)))
+        (when (and conn (clatter-connection-nick-reclaim-timer conn))
+          (cancel-timer (clatter-connection-nick-reclaim-timer conn))
+          (setf (clatter-connection-nick-reclaim-timer conn) nil)))
+      (clatter-insert-system (current-buffer) "Nick reclaim disabled"))
+     ((member arg '("on" "yes" "enable" "start"))
+      (setq clatter-nick-reclaim-enabled t)
+      (clatter-insert-system (current-buffer) "Nick reclaim enabled"))
+     (t
+      (clatter-insert-system
+       (current-buffer)
+       (format "Nick reclaim is %s"
+               (if clatter-nick-reclaim-enabled "enabled" "disabled")))))))
+
 (defun clatter-cmd-suppress (args)
   "Handle /suppress [TYPE...] - suppress message types.
 With no args, show current suppressions.
@@ -356,6 +415,9 @@ With `none', clear all suppressions."
 (clatter-defcommand "unsuppress" #'clatter-cmd-unsuppress)
 (clatter-defcommand "ns" #'clatter-cmd-ns)
 (clatter-defcommand "cs" #'clatter-cmd-cs)
+(clatter-defcommand "ghost" #'clatter-cmd-ghost)
+(clatter-defcommand "regain" #'clatter-cmd-regain)
+(clatter-defcommand "reclaim" #'clatter-cmd-reclaim)
 
 ;; --- Ignore commands ---
 
