@@ -301,6 +301,7 @@ SERVER-TIME overrides the current time for the timestamp."
   "Set up the input prompt at the top of BUFFER."
   (with-current-buffer buffer
     (let ((inhibit-read-only t))
+      (clatter-input-ring-setup)
       (goto-char (point-min))
       (setq clatter--prompt-marker (point-marker))
       (set-marker-insertion-type clatter--prompt-marker nil)
@@ -332,6 +333,22 @@ SERVER-TIME overrides the current time for the timestamp."
       (delete-region clatter--input-marker
                      (1- (marker-position clatter--messages-marker))))))
 
+(defun clatter--set-input (input)
+  (clatter--clear-input)
+  (insert input))
+
+(defun clatter-set-prev-input ()
+  "Insert the previous input history item at the prompt."
+  (interactive)
+  (clatter--set-input (clatter-input-ring-nth 0))
+  (setq clatter-input-ring-index (1+ clatter-input-ring-index)))
+
+(defun clatter-set-next-input ()
+  "Insert the next input history item at the prompt."
+  (interactive)
+  (setq clatter-input-ring-index (1- clatter-input-ring-index))
+  (clatter--set-input (clatter-input-ring-nth -1)))
+
 ;; --- Input handling ---
 
 (defun clatter-send-input ()
@@ -341,6 +358,7 @@ If the input contains multiple lines and exceeds
   (interactive)
   (let ((input (string-trim (or (clatter--get-input) ""))))
     (when (> (length input) 0)
+      (clatter-input-ring-add input)
       (let* ((lines (split-string input "\n"))
              (nlines (length lines))
              (flood (and clatter-paste-flood-threshold
@@ -423,6 +441,8 @@ If the input contains multiple lines and exceeds
       (set-keymap-parent map clatter-mode-map)
       (define-key map (kbd "RET") #'clatter-send-input)
       (define-key map (kbd "TAB") #'completion-at-point)
+      (define-key map (kbd "M-p") #'clatter-set-prev-input)
+      (define-key map (kbd "M-n") #'clatter-set-next-input)
       (use-local-map map))
     ;; Ensure window margins are synced for timestamp display
     (add-hook 'window-configuration-change-hook
