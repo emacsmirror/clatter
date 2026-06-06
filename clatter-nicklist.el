@@ -99,9 +99,16 @@ CONN is used for nick colorization."
 (defun clatter-nicklist-close ()
   "Close the nicklist sidebar."
   (interactive)
-  (let ((win (get-buffer-window (current-buffer))))
-    (when win (delete-window win)))
-  (kill-buffer (current-buffer)))
+  (let ((source (or clatter-nicklist--source-buffer (current-buffer))))
+    (when source
+      (with-current-buffer source
+        (when (and clatter--target clatter--nick-list)
+          (let* ((target clatter--target)
+                 (nl-name (clatter-nicklist--buffer-name target))
+                 (existing (get-buffer nl-name)))
+            (when (and existing (get-buffer-window existing))
+              (delete-window (get-buffer-window existing))
+              (kill-buffer existing))))))))
 
 (defun clatter-nicklist-query ()
   "Open a query (DM) with the nick at point."
