@@ -122,7 +122,7 @@ CONN is used for nick colorization."
                        (clatter-get-connection clatter--network))
               (let ((conn (clatter-get-connection clatter--network)))
                 (clatter-get-or-create-buffer
-                 clatter--network nick 'query conn)
+                 clatter--network nick 'query)
                 (pop-to-buffer
                  (clatter-get-buffer clatter--network nick))))))))))
 
