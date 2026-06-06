@@ -297,6 +297,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
               (is-bot (assoc "bot" parsed-tags))
               (msgid (cdr (assoc "msgid" parsed-tags)))
               (reply-to (or (cdr (assoc "+draft/reply" parsed-tags))
+                            (cdr (assoc "+reply" parsed-tags))
                             (cdr (assoc "draft/reply" parsed-tags))))
               ;; STATUSMSG: detect prefix like @#channel or +#channel
               (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
