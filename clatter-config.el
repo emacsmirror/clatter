@@ -193,7 +193,8 @@ before sending.  Set to nil to disable the warning."
 
 (defcustom clatter-input-ring-size 1024
   "Size of the input history ring."
-  :type 'integer)
+  :type 'integer
+  :group 'clatter)
 
 (defcustom clatter-message-order 'newest-first
   "Order in which messages appear in channel buffers.

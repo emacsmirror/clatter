@@ -134,8 +134,13 @@ TYPE is server, channel, or query (auto-detected if nil)."
   (setq clatter-input-ring-index 0))
 
 (defun clatter-input-ring-nth (n)
-  "Get the Nth next element in the input history ring."
-  (ring-ref clatter-input-ring (+ clatter-input-ring-index n)))
+  "Get element N steps back in the input history ring.
+Return nil when the ring is empty or N is out of range."
+  (when (and (ring-p clatter-input-ring)
+             (not (ring-empty-p clatter-input-ring))
+             (>= n 0)
+             (< n (ring-length clatter-input-ring)))
+    (ring-ref clatter-input-ring n)))
 
 ;; --- Nick list management ---
 

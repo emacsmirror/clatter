@@ -340,16 +340,24 @@ SERVER-TIME overrides the current time for the timestamp."
   (insert input))
 
 (defun clatter-set-prev-input ()
-  "Insert the previous input history item at the prompt."
+  "Insert the previous (older) input history item at the prompt."
   (interactive)
-  (clatter--set-input (clatter-input-ring-nth 0))
-  (setq clatter-input-ring-index (1+ clatter-input-ring-index)))
+  (let ((item (clatter-input-ring-nth clatter-input-ring-index)))
+    (when item
+      (clatter--set-input item)
+      (setq clatter-input-ring-index
+            (min (1+ clatter-input-ring-index)
+                 (1- (ring-length clatter-input-ring)))))))
 
 (defun clatter-set-next-input ()
-  "Insert the next input history item at the prompt."
+  "Insert the next (newer) input history item at the prompt."
   (interactive)
-  (setq clatter-input-ring-index (1- clatter-input-ring-index))
-  (clatter--set-input (clatter-input-ring-nth -1)))
+  (when (and (ring-p clatter-input-ring)
+             (not (ring-empty-p clatter-input-ring)))
+    (setq clatter-input-ring-index (max 0 (1- clatter-input-ring-index)))
+    (let ((item (clatter-input-ring-nth clatter-input-ring-index)))
+      (when item
+        (clatter--set-input item)))))
 
 ;; --- Input handling ---
 

@@ -363,8 +363,8 @@ Works well with:
 
 Thanks to the people who have contributed to clatter.el:
 
-- fmqa (F. Magsarian), non-destructive message suppression and
-  assorted nicklist fixes
+- [[https://github.com/fmqa][fmqa]] (F. Magsarian), non-destructive message
+  suppression, input history, and assorted nicklist fixes
 
 ** License
 
