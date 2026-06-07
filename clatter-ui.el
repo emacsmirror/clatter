@@ -413,8 +413,10 @@ If the input contains multiple lines and exceeds
 (defun clatter-ui-setup-buffer (buffer)
   "Set up UI elements for a new clatter BUFFER."
   (with-current-buffer buffer
-    ;; Add invisibility spec
-    (setq buffer-invisibility-spec clatter-suppress-messages)
+    ;; Seed the buffer-local invisibility spec from the global default.
+    ;; Use a fresh copy so per-buffer /suppress and /unsuppress edits
+    ;; never mutate the shared clatter-suppress-messages list.
+    (setq buffer-invisibility-spec (copy-sequence clatter-suppress-messages))
     (clatter--setup-prompt buffer)
     ;; Add mode-line
     (setq-local mode-line-format

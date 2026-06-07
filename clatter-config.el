@@ -209,9 +209,15 @@ Set to nil to disable truncation."
   :group 'clatter)
 
 (defcustom clatter-suppress-messages nil
-  "List of message types to suppress from channel buffers.
+  "Default message types hidden in new channel buffers.
 Valid values: join, part, quit, nick, mode, away, kick, topic.
-Example: \\='(join part quit away) to hide join/part/quit/away noise."
+Example: \\='(join part quit away) to hide join/part/quit/away noise.
+
+This list seeds each new buffer's `buffer-invisibility-spec'.
+Suppression is non-destructive: matching messages are still
+inserted but hidden, so they can be revealed again later.  Use
+the per-buffer `/suppress' and `/unsuppress' commands to toggle
+types at runtime without losing any history."
   :type '(repeat (choice (const :tag "JOIN" join)
                          (const :tag "PART" part)
                          (const :tag "QUIT" quit)

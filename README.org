@@ -40,7 +40,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - Newest-at-top message layout (input prompt at top, messages below)
 - =auth-source= integration for passwords (.authinfo.gpg, pass, etc.)
 - Multi-network support
-- Configurable message suppression (JOIN, PART, QUIT, NICK, etc.)
+- Non-destructive message suppression, per channel (JOIN, PART, QUIT, NICK, etc.) toggled at runtime with =/suppress= and =/unsuppress=; hidden messages are kept and can be revealed again
 - Buffer truncation (configurable =clatter-buffer-max-lines=, default 10000)
 - Flyspell spell-checking in input area (built-in, toggle with =clatter-flyspell-enable=)
 - Paste flood protection (warns before sending >3 lines, configurable threshold)
@@ -358,6 +358,13 @@ Works well with:
 - [[https://github.com/minad/corfu][corfu]] / [[https://github.com/minad/vertico][vertico]] - completion UI for nick/command/channel completion
 - [[https://github.com/oantolin/orderless][orderless]] - flexible completion matching
 - [[https://github.com/minad/consult][consult]] - =consult-buffer= integration via =clatter-track=
+
+** Contributors
+
+Thanks to the people who have contributed to clatter.el:
+
+- fmqa (F. Magsarian), non-destructive message suppression and
+  assorted nicklist fixes
 
 ** License
 
