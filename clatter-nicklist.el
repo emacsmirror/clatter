@@ -57,12 +57,22 @@
                         'face 'bold))
     (insert (propertize (make-string (1- clatter-nicklist-width) ?-) 'face 'shadow)
             "\n")
-    ;; Group by prefix: ops (@), voiced (+), regular
+    ;; Group by prefix: ops (@), other (&%...). voiced (+), regular
     (let ((ops (cl-remove-if-not (lambda (n) (string-equal (cdr n) "@")) nicks))
+          (other (cl-remove-if-not (lambda (n) (not (or (string-equal (cdr n) "@")
+                                                   (string-equal (cdr n) "+")
+                                                   (string-equal (cdr n) "")))) nicks))
           (voiced (cl-remove-if-not (lambda (n) (string-equal (cdr n) "+")) nicks))
           (regular (cl-remove-if-not (lambda (n) (string-equal (cdr n) "")) nicks)))
       (when ops
         (dolist (n ops)
+          (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
+      (when other
+        (setq other (sort other
+                          :lessp (lambda (a b) (or (string-greaterp (cdr a) (cdr b))
+                                              (string-lessp (car a) (car b))))
+                          :in-place t))
+        (dolist (n other)
           (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
       (when voiced
         (dolist (n voiced)
