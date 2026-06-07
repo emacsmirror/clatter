@@ -355,40 +355,35 @@ With `none', clear all suppressions."
   (let ((types (split-string (string-trim args) " " t)))
     (cond
      ((null types)
-      (clatter-insert-system (current-buffer)
-                             (format "Suppressed: %s"
-                                     (if clatter-suppress-messages
-                                         (mapconcat #'symbol-name
-                                                    clatter-suppress-messages " ")
-                                       "none"))))
+      (message "Suppressed: %s"
+               (if buffer-invisibility-spec
+                   (mapconcat #'symbol-name
+                              buffer-invisibility-spec " ")
+                 "none")))
      ((string-equal (car types) "all")
-      (setq clatter-suppress-messages '(join part quit nick mode away))
-      (clatter-insert-system (current-buffer) "Suppressing all join/part/quit/nick/mode/away"))
+      (setq buffer-invisibility-spec '(join part quit nick mode away)))
      ((string-equal (car types) "none")
-      (setq clatter-suppress-messages nil)
-      (clatter-insert-system (current-buffer) "Showing all messages"))
+      (setq buffer-invisibility-spec nil))
      (t
       (dolist (type types)
         (let ((sym (intern type)))
-          (unless (memq sym clatter-suppress-messages)
-            (push sym clatter-suppress-messages))))
-      (clatter-insert-system (current-buffer)
-                             (format "Suppressed: %s"
-                                     (mapconcat #'symbol-name
-                                                clatter-suppress-messages " ")))))))
+          (unless (memq sym buffer-invisibility-spec)
+            (push sym buffer-invisibility-spec))))
+      (message "Suppressed: %s"
+               (mapconcat #'symbol-name
+                          buffer-invisibility-spec " "))))))
 
 (defun clatter-cmd-unsuppress (args)
   "Handle /unsuppress TYPE... - stop suppressing message types."
   (let ((types (split-string (string-trim args) " " t)))
     (dolist (type types)
-      (setq clatter-suppress-messages
-            (delq (intern type) clatter-suppress-messages)))
-    (clatter-insert-system (current-buffer)
-                           (format "Suppressed: %s"
-                                   (if clatter-suppress-messages
-                                       (mapconcat #'symbol-name
-                                                  clatter-suppress-messages " ")
-                                     "none")))))
+      (setq buffer-invisibility-spec
+            (delq (intern type) buffer-invisibility-spec)))
+    (message "Suppressed: %s"
+             (if buffer-invisibility-spec
+                 (mapconcat #'symbol-name
+                            buffer-invisibility-spec " ")
+               "none"))))
 
 ;; --- Register all commands ---
 

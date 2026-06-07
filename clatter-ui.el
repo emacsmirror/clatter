@@ -128,7 +128,7 @@ Apply FACE and set clatter-sender property to SENDER if provided."
     (concat (make-string pad ?\s)
             (propertize prefix-str 'face 'clatter-system))))
 
-(defun clatter--insert-message (buffer text &optional no-timestamp msg-props time)
+(defun clatter--insert-message (buffer text &optional no-timestamp msg-props time invisible)
   "Insert formatted TEXT into BUFFER.
 Adds timestamp unless NO-TIMESTAMP is non-nil.
 MSG-PROPS is an optional plist of extra text properties for the message line.
@@ -156,14 +156,16 @@ append at the bottom like a traditional IRC client."
                              (propertize " " 'display
                                          `((margin right-margin)
                                            ,(propertize ts-str 'face 'clatter-timestamp))))
-                (overlay-put ov 'clatter-timestamp t)))
+                (overlay-put ov 'clatter-timestamp t)
+                (overlay-put ov 'invisible invisible)))
             (add-text-properties start (point)
                                  (list 'read-only t
                                        'front-sticky t
                                        'wrap-prefix wrap-prefix
                                        'line-prefix ""))
             (when msg-props
-              (add-text-properties start (point) msg-props))))
+              (add-text-properties start (point) msg-props))
+            (put-text-property start (point) 'invisible invisible)))
         (clatter--maybe-truncate buffer)
         ;; Auto-scroll in oldest-first mode
         (when oldest-first
@@ -281,12 +283,12 @@ SERVER-TIME overrides the current time for the timestamp."
                             (propertize text 'face 'clatter-notice))))
     (clatter--insert-message buffer formatted)))
 
-(defun clatter-insert-system (buffer text)
+(defun clatter-insert-system (buffer text &optional invisible)
   "Insert a system message TEXT into BUFFER."
   (let* ((prefix (clatter--format-system-prefix "***"))
          (formatted (concat prefix " "
                             (propertize text 'face 'clatter-system))))
-    (clatter--insert-message buffer formatted)))
+    (clatter--insert-message buffer formatted nil nil nil invisible)))
 
 (defun clatter-insert-error (buffer text)
   "Insert an error message TEXT into BUFFER."
@@ -411,6 +413,8 @@ If the input contains multiple lines and exceeds
 (defun clatter-ui-setup-buffer (buffer)
   "Set up UI elements for a new clatter BUFFER."
   (with-current-buffer buffer
+    ;; Add invisibility spec
+    (setq buffer-invisibility-spec clatter-suppress-messages)
     (clatter--setup-prompt buffer)
     ;; Add mode-line
     (setq-local mode-line-format
@@ -515,8 +519,7 @@ Emacs requires `set-window-margins' on the window, not just
     (when (string-equal nick my-nick)
       (clatter-send conn (clatter-irc-names channel))
       (display-buffer buf))
-    (unless (memq 'join clatter-suppress-messages)
-      (clatter-insert-system buf (format "%s has joined %s" nick channel)))))
+    (clatter-insert-system buf (format "%s has joined %s" nick channel) 'join)))
 
 (defun clatter-ui--on-part (conn nick channel message)
   "Handle PART event for UI."
@@ -524,10 +527,10 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-buffer network channel)))
     (when buf
       (clatter-nick-remove buf nick)
-      (unless (memq 'part clatter-suppress-messages)
-        (clatter-insert-system buf
-                               (format "%s has left %s%s" nick channel
-                                       (if message (format " (%s)" message) "")))))))
+      (clatter-insert-system buf
+                             (format "%s has left %s%s" nick channel
+                                     (if message (format " (%s)" message) ""))
+                             'part))))
 
 (defun clatter-ui--on-quit (conn nick message)
   "Handle QUIT event for UI."
@@ -536,10 +539,10 @@ Emacs requires `set-window-margins' on the window, not just
       (when (gethash (downcase nick)
                      (buffer-local-value 'clatter--nick-list buf))
         (clatter-nick-remove buf nick)
-        (unless (memq 'quit clatter-suppress-messages)
-          (clatter-insert-system buf
-                                 (format "%s has quit%s" nick
-                                         (if message (format " (%s)" message) ""))))))))
+        (clatter-insert-system buf
+                               (format "%s has quit%s" nick
+                                       (if message (format " (%s)" message) ""))
+                               'quit)))))
 
 (defun clatter-ui--on-nick (conn old-nick new-nick)
   "Handle NICK change event for UI."
@@ -548,10 +551,10 @@ Emacs requires `set-window-margins' on the window, not just
       (when (gethash (downcase old-nick)
                      (buffer-local-value 'clatter--nick-list buf))
         (clatter-nick-rename buf old-nick new-nick)
-        (unless (memq 'nick clatter-suppress-messages)
-          (clatter-insert-system buf
-                                 (format "%s is now known as %s"
-                                         old-nick new-nick)))))))
+        (clatter-insert-system buf
+                               (format "%s is now known as %s"
+                                       old-nick new-nick)
+                               'nick)))))
 
 (defun clatter-ui--on-topic (conn channel _nick topic)
   "Handle TOPIC event for UI."
@@ -559,8 +562,7 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-buffer network channel)))
     (when buf
       (clatter-set-topic buf topic)
-      (unless (memq 'topic clatter-suppress-messages)
-        (clatter-insert-system buf (format "Topic: %s" topic))))))
+      (clatter-insert-system buf (format "Topic: %s" topic) 'topic))))
 
 (defun clatter-ui--on-kick (conn channel nick kicked reason)
   "Handle KICK event for UI."
@@ -568,10 +570,10 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-buffer network channel)))
     (when buf
       (clatter-nick-remove buf kicked)
-      (unless (memq 'kick clatter-suppress-messages)
-        (clatter-insert-system buf
-                               (format "%s was kicked by %s%s" kicked nick
-                                       (if reason (format " (%s)" reason) "")))))))
+      (clatter-insert-system buf
+                             (format "%s was kicked by %s%s" kicked nick
+                                     (if reason (format " (%s)" reason) ""))
+                             'kick))))
 
 (defun clatter-ui--on-names (conn channel names-str)
   "Handle NAMES reply for UI."
@@ -609,25 +611,25 @@ Emacs requires `set-window-margins' on the window, not just
 
 (defun clatter-ui--on-away (conn nick away-msg)
   "Handle AWAY event for UI."
-  (unless (memq 'away clatter-suppress-messages)
-    (let ((network (clatter-connection-network-id conn)))
-      (dolist (buf (clatter-channel-buffers network))
-        (when (gethash (downcase nick)
-                       (buffer-local-value 'clatter--nick-list buf))
-          (clatter-insert-system buf
-                                 (if away-msg
-                                     (format "%s is away: %s" nick away-msg)
-                                   (format "%s is back" nick))))))))
+  (let ((network (clatter-connection-network-id conn)))
+    (dolist (buf (clatter-channel-buffers network))
+      (when (gethash (downcase nick)
+                     (buffer-local-value 'clatter--nick-list buf))
+        (clatter-insert-system buf
+                               (if away-msg
+                                   (format "%s is away: %s" nick away-msg)
+                                 (format "%s is back" nick))
+                               'away)))))
 
 (defun clatter-ui--on-mode (conn target setter modes)
   "Handle MODE event for UI."
-  (unless (memq 'mode clatter-suppress-messages)
-    (let* ((network (clatter-connection-network-id conn))
-           (buf (clatter-get-buffer network target)))
-      (when buf
-        (clatter-insert-system buf
-                               (format "%s sets mode %s"
-                                       setter (string-join modes " ")))))))
+  (let* ((network (clatter-connection-network-id conn))
+         (buf (clatter-get-buffer network target)))
+    (when buf
+      (clatter-insert-system buf
+                             (format "%s sets mode %s"
+                                     setter (string-join modes " "))
+                             'mode))))
 
 (defun clatter-ui--on-motd (conn lines)
   "Handle MOTD for UI: display in server buffer."
