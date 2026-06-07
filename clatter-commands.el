@@ -471,9 +471,9 @@ For channels, sends PART first."
 (clatter-defcommand "ignore" #'clatter-cmd-ignore)
 (clatter-defcommand "unignore" #'clatter-cmd-unignore)
 
-(defun clatter-cmd-list (_conn _args)
+(defun clatter-cmd-list (args)
   "Open the interactive channel list browser."
-  (let ((conn (clatter-current-connection)))
+  (let ((conn (clatter--current-conn)))
     (if conn
         (clatter-list-request conn)
       (message "Not connected."))))
@@ -503,7 +503,7 @@ Uses +draft/reply tag to thread the response."
   (let* ((text (string-trim args))
          (msgid (get-text-property (point) 'clatter-msgid))
          (target clatter--target)
-         (conn (clatter-current-connection)))
+         (conn (clatter--current-conn)))
     (cond
      ((string-empty-p text)
       (message "Usage: /reply <message>"))
@@ -528,7 +528,7 @@ Uses +draft/react tag via TAGMSG."
   (let* ((emoji (string-trim args))
          (msgid (get-text-property (point) 'clatter-msgid))
          (target clatter--target)
-         (conn (clatter-current-connection)))
+         (conn (clatter--current-conn)))
     (cond
      ((string-empty-p emoji)
       (message "Usage: /react <emoji>"))
