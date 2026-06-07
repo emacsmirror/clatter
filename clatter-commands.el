@@ -475,7 +475,7 @@ For channels, sends PART first."
   "Open the interactive channel list browser."
   (let ((conn (clatter--current-conn)))
     (if conn
-        (clatter-list-request conn)
+        (clatter-list-request conn (string-trim args))
       (message "Not connected."))))
 
 (clatter-defcommand "list" #'clatter-cmd-list)

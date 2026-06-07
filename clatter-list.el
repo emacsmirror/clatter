@@ -135,12 +135,12 @@ Each entry is (CHANNEL USERS TOPIC).")
 
 ;; --- Entry point ---
 
-(defun clatter-list-request (conn)
+(defun clatter-list-request (conn &optional arg)
   "Send LIST on CONN and prepare to display results."
   (setq clatter-list--entries nil)
   (setq clatter-list--conn conn)
   (setq clatter-list--filter "")
-  (clatter-send conn "LIST")
+  (clatter-send conn (if (string-empty-p arg) "LIST" (format "LIST %s" arg)))
   (message "Fetching channel list..."))
 
 (provide 'clatter-list)
