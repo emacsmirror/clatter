@@ -69,8 +69,9 @@
           (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
       (when other
         (setq other (sort other
-                          :lessp (lambda (a b) (or (string-greaterp (cdr a) (cdr b))
-                                              (string-lessp (car a) (car b))))
+                          :lessp (lambda (a b) (if (string-equal (cdr a) (cdr b))
+                                              (string-lessp (car a) (car b))
+                                            (string-greaterp (cdr a) (cdr b))))
                           :in-place t))
         (dolist (n other)
           (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
