@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'ring)
 (require 'clatter-config)
 (require 'clatter-protocol)
 (require 'clatter-connection)
@@ -110,6 +111,31 @@ TYPE is server, channel, or query (auto-detected if nil)."
            when (with-current-buffer buf
                   (eq clatter--buffer-type 'channel))
            collect buf))
+
+;; --- Input ring ---
+
+(defvar-local clatter-input-ring nil
+  "Ring object for input history.")
+
+(defvar-local clatter-input-ring-index 0
+  "Current position in the input history.")
+
+(defun clatter-input-ring-setup ()
+  (setq clatter-input-ring
+        (if (and (ring-p clatter-input-ring)
+                 (= (ring-size clatter-input-ring)
+                    clatter-input-ring-size))
+            clatter-input-ring
+          (make-ring clatter-input-ring-size))))
+
+(defun clatter-input-ring-add (input)
+  "Add INPUT to the input history ring."
+  (ring-insert clatter-input-ring input)
+  (setq clatter-input-ring-index 0))
+
+(defun clatter-input-ring-nth (n)
+  "Get the Nth next element in the input history ring."
+  (ring-ref clatter-input-ring (+ clatter-input-ring-index n)))
 
 ;; --- Nick list management ---
 
