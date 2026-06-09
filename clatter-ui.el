@@ -539,6 +539,20 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-notice buf sender text)))
 
+(defun clatter-ui--on-invite (conn sender nick channel)
+  "Handle INVITE event for UI."
+  (let* ((network (clatter-connection-network-id conn))
+         (my-nick (clatter-connection-nick conn))
+         (buf (or (clatter-get-buffer network channel)
+                  (clatter-get-server-buffer network)
+                  (clatter-get-or-create-buffer network "*server*" 'server))))
+    (clatter-ui-setup-buffer-if-needed buf)
+    (clatter-insert-system buf (format "%s invites %s to join %s"
+                                       sender
+                                       (if (string-equal nick my-nick) "you" nick)
+                                       channel)
+                           'invite)))
+
 (defun clatter-ui--on-join (conn nick channel _account _realname)
   "Handle JOIN event for UI."
   (let* ((network (clatter-connection-network-id conn))
@@ -1002,6 +1016,7 @@ Requires the server to support the message-tags capability."
   (add-hook 'clatter-privmsg-hook #'clatter-ui--on-privmsg)
   (add-hook 'clatter-action-hook #'clatter-ui--on-action)
   (add-hook 'clatter-notice-hook #'clatter-ui--on-notice)
+  (add-hook 'clatter-invite-hook #'clatter-ui--on-invite)
   (add-hook 'clatter-join-hook #'clatter-ui--on-join)
   (add-hook 'clatter-part-hook #'clatter-ui--on-part)
   (add-hook 'clatter-quit-hook #'clatter-ui--on-quit)

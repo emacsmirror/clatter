@@ -111,6 +111,10 @@ Called with (CONN NICK).")
   "Hook for completed batch delivery.
 Called with (CONN BATCH-TYPE TARGET MESSAGES).")
 
+(defvar clatter-invite-hook nil
+  "Hook for INVITE events.
+Called with (CONN SENDER NICK CHANNEL).")
+
 ;; --- Main Dispatch ---
 
 (defun clatter-dispatch-message (conn msg)
@@ -354,6 +358,14 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
                                    conn sender-nick ctcp-cmd ctcp-args))
            (run-hook-with-args 'clatter-notice-hook
                                conn sender-nick target text))))
+
+      ;; --- INVITE ---
+      ("INVITE"
+       (let* ((nick (nth 0 params))
+              (channel (nth 1 params))
+              (parsed-prefix (clatter-parse-prefix prefix))
+              (sender-nick (clatter-prefix-nick parsed-prefix)))
+         (run-hook-with-args 'clatter-invite-hook conn sender-nick nick channel)))
 
       ;; --- JOIN ---
       ("JOIN"
