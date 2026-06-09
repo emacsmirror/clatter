@@ -55,7 +55,7 @@
                      (when isup
                        (let ((prefix (gethash "PREFIX" isup)))
                          (and prefix
-                              (string-match (rx bol ?\( (+ alpha) ?\) (group (+ anything) eol))
+                              (string-match (rx bol ?\( (+ alpha) ?\) (group (+ anything)) eol)
                                             prefix)
                               (match-string 1 prefix)))))
                    clatter-prefix-rank)))
