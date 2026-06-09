@@ -460,6 +460,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
               (react-emoji (or (cdr (assoc "+draft/react" parsed-tags))
                                (cdr (assoc "draft/react" parsed-tags))))
               (react-msgid (or (cdr (assoc "+draft/reply" parsed-tags))
+                               (cdr (assoc "+reply" parsed-tags))
                                (cdr (assoc "draft/reply" parsed-tags)))))
          ;; Typing indicator
          (when (and typing-state
