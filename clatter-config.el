@@ -233,6 +233,11 @@ types at runtime without losing any history."
                          (const :tag "TOPIC" topic)))
   :group 'clatter)
 
+(defcustom clatter-prefix-rank "~&@%+"
+  "Default prefix ranking. This may be overriden by the server."
+  :type 'string
+  :group 'clatter)
+
 ;; --- IRCv3 capabilities we want to negotiate ---
 
 (defconst clatter-wanted-capabilities

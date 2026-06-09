@@ -45,42 +45,41 @@
 
 (defun clatter-nicklist--render (buf)
   "Render the nicklist for source buffer BUF into the current buffer."
-  (let ((inhibit-read-only t)
-        (nicks (clatter-nick-list buf))
-        (conn (when (buffer-live-p buf)
-                (with-current-buffer buf
-                  (when clatter--network
-                    (clatter-get-connection clatter--network))))))
+  (let* ((inhibit-read-only t)
+         (nicks (clatter-nick-list buf))
+         (conn (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (when clatter--network
+                     (clatter-get-connection clatter--network)))))
+         (rank (or (let ((isup (clatter-connection-isupport conn)))
+                     (when isup
+                       (let ((prefix (gethash "PREFIX" isup)))
+                         (and prefix
+                              (string-match (rx bol ?\( (+ alpha) ?\) (group (+ anything) eol))
+                                            prefix)
+                              (match-string 1 prefix)))))
+                   clatter-prefix-rank)))
     (erase-buffer)
     (insert (propertize (format " %d members\n"
                                 (length nicks))
                         'face 'bold))
     (insert (propertize (make-string (1- clatter-nicklist-width) ?-) 'face 'shadow)
             "\n")
-    ;; Group by prefix: ops (@), other (&%...). voiced (+), regular
-    (let ((ops (cl-remove-if-not (lambda (n) (string-equal (cdr n) "@")) nicks))
-          (other (cl-remove-if-not (lambda (n) (not (or (string-equal (cdr n) "@")
-                                                   (string-equal (cdr n) "+")
-                                                   (string-equal (cdr n) "")))) nicks))
-          (voiced (cl-remove-if-not (lambda (n) (string-equal (cdr n) "+")) nicks))
-          (regular (cl-remove-if-not (lambda (n) (string-equal (cdr n) "")) nicks)))
-      (when ops
-        (dolist (n ops)
-          (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
-      (when other
-        (setq other (sort other
-                          :lessp (lambda (a b) (if (string-equal (cdr a) (cdr b))
-                                              (string-lessp (car a) (car b))
-                                            (string-greaterp (cdr a) (cdr b))))
-                          :in-place t))
-        (dolist (n other)
-          (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
-      (when voiced
-        (dolist (n voiced)
-          (clatter-nicklist--insert-nick (car n) (cdr n) conn)))
-      (when regular
-        (dolist (n regular)
-          (clatter-nicklist--insert-nick (car n) (cdr n) conn))))
+    ;; Display sorted nicks by rank
+    (setq nicks
+          (sort nicks
+                :key (lambda (n) (cons (car n)
+                                  (or (cl-loop for p being the elements of (cdr n)
+                                               sum (- (length rank)
+                                                      (string-search (char-to-string p) rank)))
+                                      0)))
+                :lessp (lambda (a b)
+                         (if (= (cdr a) (cdr b))
+                             (string< (car a) (car b))
+                           (> (cdr a) (cdr b))))
+                :in-place t))
+    (dolist (n nicks)
+      (clatter-nicklist--insert-nick (car n) (cdr n) conn))
     (goto-char (point-min))))
 
 (defun clatter-nicklist--insert-nick (nick prefix conn)
