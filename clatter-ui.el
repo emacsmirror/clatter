@@ -608,9 +608,17 @@ Emacs requires `set-window-margins' on the window, not just
 (defun clatter-ui--on-names (conn channel names-str)
   "Handle NAMES reply for UI."
   (let* ((network (clatter-connection-network-id conn))
-         (buf (clatter-get-buffer network channel)))
+         (buf (clatter-get-buffer network channel))
+         (prefixes (or (let ((isup (clatter-connection-isupport conn)))
+                         (when isup
+                           (let ((prefix (gethash "PREFIX" isup)))
+                             (and prefix
+                                  (string-match (rx bol ?\( (+ alpha) ?\) (group (+ anything)) eol)
+                                                prefix)
+                                  (match-string 1 prefix)))))
+                       clatter-prefix-rank)))
     (when buf
-      (dolist (entry (clatter-parse-names names-str))
+      (dolist (entry (clatter-parse-names names-str prefixes))
         (clatter-nick-add buf (car entry) (cdr entry))))))
 
 (defun clatter-ui--on-system (conn text)
