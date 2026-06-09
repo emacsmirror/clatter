@@ -283,11 +283,13 @@ SERVER-TIME overrides the current time for the timestamp."
                             (propertize text 'face 'clatter-notice))))
     (clatter--insert-message buffer formatted)))
 
-(defun clatter-insert-system (buffer text &optional invisible)
+(defun clatter-insert-system (buffer text &optional invisible verbatim)
   "Insert a system message TEXT into BUFFER."
   (let* ((prefix (clatter--format-system-prefix "***"))
          (formatted (concat prefix " "
-                            (propertize text 'face 'clatter-system))))
+                            (if verbatim
+                                text
+                              (propertize text 'face 'clatter-system)))))
     (clatter--insert-message buffer formatted nil nil nil invisible)))
 
 (defun clatter-insert-error (buffer text)
@@ -669,7 +671,7 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-system buf "--- MOTD ---")
     (dolist (line lines)
-      (clatter-insert-system buf line))
+      (clatter-insert-system buf (clatter-format-parse line) nil t))
     (clatter-insert-system buf "--- End of MOTD ---")))
 
 (defun clatter-ui--on-whois (_conn nick data)
