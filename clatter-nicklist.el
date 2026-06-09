@@ -70,8 +70,8 @@
           (sort nicks
                 :key (lambda (n) (cons (car n)
                                   (or (cl-loop for p being the elements of (cdr n)
-                                               sum (- (length rank)
-                                                      (string-search (char-to-string p) rank)))
+                                               maximize (- (length rank)
+                                                           (string-search (char-to-string p) rank)))
                                       0)))
                 :lessp (lambda (a b)
                          (if (= (cdr a) (cdr b))
