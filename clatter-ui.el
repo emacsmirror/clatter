@@ -586,7 +586,7 @@ Emacs requires `set-window-margins' on the window, not just
                                        old-nick new-nick)
                                'nick)))))
 
-(defun clatter-ui--on-topic (conn channel _nick topic)
+(defun clatter-ui--on-topic (conn channel _nick topic _at)
   "Handle TOPIC event for UI."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network channel)))
