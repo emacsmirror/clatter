@@ -584,7 +584,7 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
       ("333"  ; RPL_TOPICWHOTIME
        (let* ((channel (nth 1 params))
               (nick (nth 2 params))
-              (at (nth 3 params))
+              (at (string-to-number (nth 3 params)))
               (network (clatter-connection-network-id conn))
               (buf (clatter-get-buffer network channel))
               (topic (clatter-get-topic buf)))

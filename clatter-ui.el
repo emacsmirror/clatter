@@ -587,14 +587,22 @@ Emacs requires `set-window-margins' on the window, not just
                                        old-nick new-nick)
                                'nick)))))
 
-(defun clatter-ui--on-topic (conn channel _nick topic _at)
+(defun clatter-ui--on-topic (conn channel nick topic at)
   "Handle TOPIC event for UI."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network channel)))
     (when buf
       (clatter-set-topic buf topic)
-      (let ((hl-text (clatter-hl-format-text topic buf conn)))
-        (clatter-insert-system buf (format "Topic: %s" hl-text) 'topic)))))
+      (let ((prefix "Topic")
+            (hl-text (clatter-hl-format-text topic buf conn)))
+        (cond
+         ((and nick at)
+          (setq prefix (format "%s set at %s by %s"
+                               prefix
+                               (format-time-string "%F %T" at)
+                               nick)))
+         (nick (setq prefix (format "%s set by %s" prefix nick))))
+        (clatter-insert-system buf (format "%s: %s" prefix hl-text) 'topic)))))
 
 (defun clatter-ui--on-kick (conn channel nick kicked reason)
   "Handle KICK event for UI."
