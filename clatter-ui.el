@@ -287,7 +287,8 @@ SERVER-TIME overrides the current time for the timestamp."
   "Insert a system message TEXT into BUFFER."
   (let* ((prefix (clatter--format-system-prefix "***"))
          (formatted (concat prefix " "
-                            (propertize text 'face 'clatter-system))))
+                            (prog1 (setq text (copy-sequence text))
+                              (add-face-text-property 0 (length text) 'clatter-system t text)))))
     (clatter--insert-message buffer formatted nil nil nil invisible)))
 
 (defun clatter-insert-error (buffer text)
@@ -592,7 +593,8 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-buffer network channel)))
     (when buf
       (clatter-set-topic buf topic)
-      (clatter-insert-system buf (format "Topic: %s" topic) 'topic))))
+      (let ((hl-text (clatter-hl-format-text topic buf conn)))
+        (clatter-insert-system buf (format "Topic: %s" hl-text) 'topic)))))
 
 (defun clatter-ui--on-kick (conn channel nick kicked reason)
   "Handle KICK event for UI."
