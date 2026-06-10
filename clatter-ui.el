@@ -264,24 +264,26 @@ SERVER-TIME overrides the current time for the timestamp."
 (defun clatter-insert-action (buffer sender text conn)
   "Insert a /me ACTION from SENDER with TEXT into BUFFER."
   (let* ((hl-text (clatter-hl-format-text text buffer conn))
-         (prefix (clatter--format-nick-column "*" 'clatter-action sender))
-         (formatted (concat prefix " "
-                            (propertize (concat sender " " hl-text)
-                                        'face 'clatter-action))))
-    (clatter--insert-message buffer formatted nil
-                              (list 'clatter-msg-type 'action
-                                    'clatter-sender sender
-                                    'clatter-text text))
-    (unless (eq buffer (current-buffer))
-      (clatter-mark-activity buffer nil))))
+         (prefix (clatter--format-nick-column "*" 'clatter-action sender)))
+    (add-face-text-property 0 (length hl-text) 'clatter-action nil hl-text)
+    (let ((formatted (concat prefix " "
+                             (propertize (concat sender " ") 'face 'clatter-action)
+                             hl-text)))
+      (clatter--insert-message buffer formatted nil
+                               (list 'clatter-msg-type 'action
+                                     'clatter-sender sender
+                                     'clatter-text text))
+      (unless (eq buffer (current-buffer))
+        (clatter-mark-activity buffer nil)))))
 
-(defun clatter-insert-notice (buffer sender text)
+(defun clatter-insert-notice (buffer sender text conn)
   "Insert a NOTICE from SENDER with TEXT into BUFFER."
-  (let* ((prefix (clatter--format-nick-column
-                  (format "-%s-" sender) 'clatter-notice))
-         (formatted (concat prefix " "
-                            (propertize text 'face 'clatter-notice))))
-    (clatter--insert-message buffer formatted)))
+  (let ((hl-text (clatter-hl-format-text text buffer conn))
+        (prefix (clatter--format-nick-column
+                 (format "-%s-" sender) 'clatter-notice)))
+    (add-face-text-property 0 (length hl-text) 'clatter-notice nil hl-text)
+    (let ((formatted (concat prefix (propertize " " 'face 'clatter-notice) hl-text)))
+      (clatter--insert-message buffer formatted))))
 
 (defun clatter-insert-system (buffer text &optional invisible)
   "Insert a system message TEXT into BUFFER."
@@ -537,7 +539,7 @@ Emacs requires `set-window-margins' on the window, not just
                   (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server))))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-notice buf sender text)))
+    (clatter-insert-notice buf sender text conn)))
 
 (defun clatter-ui--on-join (conn nick channel _account _realname)
   "Handle JOIN event for UI."
