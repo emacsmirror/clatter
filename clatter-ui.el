@@ -198,9 +198,8 @@ Removes oldest messages from the appropriate end of the buffer."
             (delete-overlay ov))
           (delete-region (point) (point-max)))))))
 
-(defun clatter--find-message-by-msgid (buffer msgid)
-  "Find message text and sender in BUFFER by MSGID.
-Returns (sender . text) or nil."
+(defun clatter--find-message-position-by-msgid (buffer msgid)
+  "Find position of message in BUFFER identified by MSGID."
   (when (and (buffer-live-p buffer) msgid)
     (with-current-buffer buffer
       (save-excursion
@@ -208,24 +207,23 @@ Returns (sender . text) or nil."
         (let ((found nil))
           (while (and (not found) (not (eobp)))
             (when (string= msgid (get-text-property (point) 'clatter-msgid))
-              (setq found (cons (get-text-property (point) 'clatter-sender)
-                                (get-text-property (point) 'clatter-text))))
+              (setq found (point)))
             (forward-line 1))
           found)))))
 
+(defun clatter--find-message-by-msgid (buffer msgid)
+  "Find message text and sender in BUFFER by MSGID.
+Returns (sender . text) or nil."
+  (let ((found (clatter--find-message-position-by-msgid buffer msgid)))
+    (when found
+      (cons (get-text-property found 'clatter-sender)
+            (get-text-property found 'clatter-text)))))
+
 (defun clatter-jump-to-msgid (buffer msgid)
   "Jump to BUFFER message identified by MSGID."
-  (let (found)
-    (when (and (buffer-live-p buffer) msgid)
-      (with-current-buffer buffer
-        (save-excursion
-          (goto-char (point-min))
-          (while (and (not found) (not (eobp)))
-            (when (string= msgid (get-text-property (point) 'clatter-msgid))
-              (setq found (point)))
-            (forward-line 1))
-          found)))
-    (when found (goto-char found))))
+  (let ((found (clatter--find-message-position-by-msgid buffer msgid)))
+    (when found
+      (goto-char found))))
 
 (defun clatter-insert-privmsg (buffer sender text conn &optional server-time)
   "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
