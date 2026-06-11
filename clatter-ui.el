@@ -238,12 +238,13 @@ SERVER-TIME overrides the current time for the timestamp."
          (reply-line (when reply-context
                        (let* ((ref-sender (car reply-context))
                               (ref-text (cdr reply-context))
-                              (preview (if (> (length ref-text) 60)
-                                           (concat (substring ref-text 0 57) "...")
-                                         ref-text)))
-                         (concat (propertize (format "↳ %s: %s" ref-sender preview)
-                                             'face 'shadow)
-                                 "\n"))))
+                              (ref-text-formatted (clatter-format-parse ref-text))
+                              (preview (if (> (length ref-text-formatted) 60)
+                                           (concat (substring ref-text-formatted 0 57) "...")
+                                         ref-text-formatted))
+                              (front (propertize (format "↳ %s: " ref-sender) 'face 'shadow)))
+                         (add-face-text-property 0 (length preview) 'shadow nil preview)
+                         (concat front preview "\n"))))
          (formatted (concat (or reply-line "") nick-col " " msg-text))
          (props (list 'clatter-msg-type 'privmsg
                       'clatter-sender sender
