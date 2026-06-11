@@ -87,8 +87,8 @@
 CONN is used for nick colorization."
   (let* ((color (clatter-hl-nick-color nick))
          (prefix-face (cond
-                       ((string-equal prefix "@") 'clatter-system)
-                       ((string-equal prefix "+") 'clatter-notice)
+                       ((string-search "@" prefix) 'clatter-system)
+                       ((string-search "+" prefix) 'clatter-notice)
                        (t nil)))
          (prefix-str (if (string-empty-p prefix) " " prefix)))
     (insert (if prefix-face
