@@ -37,6 +37,19 @@
 
 ;; --- Actions ---
 
+(defun clatter-select-message ()
+  "Select the message at point."
+  (interactive)
+  (when-let* ((msgid (get-text-property (point) 'clatter-msgid))
+              (begin (previous-single-property-change (point) 'clatter-msgid))
+              (end (next-single-property-change (point) 'clatter-msgid)))
+    (prog1 msgid
+      (save-mark-and-excursion
+        (goto-char begin)
+        (set-mark end)
+        (activate-mark)
+        (secondary-selection-from-region)))))
+
 (defun clatter-action-reply (&optional arg)
   "Reply to the message at point.
 Inserts the sender's nick at the input prompt.
@@ -44,16 +57,8 @@ With a prefix argument, uses a /reply command."
   (interactive "P")
   (let* ((props (clatter-action--msg-at-point))
          (sender (plist-get props :sender)))
-    (if (and sender (or (not arg) (get-text-property (point) 'clatter-msgid)))
+    (if (and sender (or (not arg) (clatter-select-message)))
         (progn
-          (when arg
-            (let ((begin (previous-single-property-change (point) 'clatter-msgid))
-                  (end (next-single-property-change (point) 'clatter-msgid)))
-              (save-mark-and-excursion
-                (goto-char begin)
-                (set-mark end)
-                (activate-mark)
-                (secondary-selection-from-region))))
           (goto-char clatter--input-marker)
           (goto-char (save-excursion
                        (goto-char clatter--input-marker)
@@ -65,15 +70,8 @@ With a prefix argument, uses a /reply command."
 (defun clatter-action-react ()
   "React to the message at point."
   (interactive)
-  (if (get-text-property (point) 'clatter-msgid)
+  (if (clatter-select-message)
       (progn
-        (let ((begin (previous-single-property-change (point) 'clatter-msgid))
-              (end (next-single-property-change (point) 'clatter-msgid)))
-          (save-mark-and-excursion
-            (goto-char begin)
-            (set-mark end)
-            (activate-mark)
-            (secondary-selection-from-region)))
         (goto-char clatter--input-marker)
         (goto-char (save-excursion
                      (goto-char clatter--input-marker)
