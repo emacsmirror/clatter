@@ -37,21 +37,50 @@
 
 ;; --- Actions ---
 
-(defun clatter-action-reply ()
+(defun clatter-action-reply (&optional arg)
   "Reply to the message at point.
-Inserts the sender's nick at the input prompt."
-  (interactive)
+Inserts the sender's nick at the input prompt.
+With a prefix argument, uses a /reply command."
+  (interactive "P")
   (let* ((props (clatter-action--msg-at-point))
          (sender (plist-get props :sender)))
-    (if sender
+    (if (and sender (or (not arg) (get-text-property (point) 'clatter-msgid)))
         (progn
+          (when arg
+            (let ((begin (previous-single-property-change (point) 'clatter-msgid))
+                  (end (next-single-property-change (point) 'clatter-msgid)))
+              (save-mark-and-excursion
+                (goto-char begin)
+                (set-mark end)
+                (activate-mark)
+                (secondary-selection-from-region))))
           (goto-char clatter--input-marker)
           (goto-char (save-excursion
                        (goto-char clatter--input-marker)
                        (line-end-position)))
           (let ((inhibit-read-only t))
-            (insert sender ": ")))
+            (if arg (insert "/reply " sender ": ") (insert sender ": "))))
       (message "No message at point"))))
+
+(defun clatter-action-react ()
+  "React to the message at point."
+  (interactive)
+  (if (get-text-property (point) 'clatter-msgid)
+      (progn
+        (let ((begin (previous-single-property-change (point) 'clatter-msgid))
+              (end (next-single-property-change (point) 'clatter-msgid)))
+          (save-mark-and-excursion
+            (goto-char begin)
+            (set-mark end)
+            (activate-mark)
+            (secondary-selection-from-region)))
+        (goto-char clatter--input-marker)
+        (goto-char (save-excursion
+                     (goto-char clatter--input-marker)
+                     (line-end-position)))
+        (let ((inhibit-read-only t))
+          (insert "/react ")))
+    (message "No message at point")))
 
 (defun clatter-action-copy-message ()
   "Copy the message text at point to kill ring."
@@ -198,6 +227,7 @@ Inserts the sender's nick at the input prompt."
 (defvar clatter-action-map
   (let ((map (make-sparse-keymap "Clatter Actions")))
     (define-key map (kbd "r") #'clatter-action-reply)
+    (define-key map (kbd "e") #'clatter-action-react)
     (define-key map (kbd "c") #'clatter-action-copy-message)
     (define-key map (kbd "n") #'clatter-action-copy-nick)
     (define-key map (kbd "u") #'clatter-action-copy-url)
@@ -214,6 +244,7 @@ Inserts the sender's nick at the input prompt."
   "Show the message action menu for the message at point.
 Key bindings:
   r  Reply (insert nick at prompt)
+  e  React (insert /react at prompt)
   c  Copy message text
   n  Copy nick
   u  Copy URL at point
@@ -229,6 +260,7 @@ Key bindings:
          (url (get-text-property (point) 'clatter-url))
          (parts nil))
     (push "[r]eply" parts)
+    (push "r[e]act" parts)
     (push "[c]opy msg" parts)
     (when sender (push (format "[n]ick(%s)" sender) parts))
     (when url (push "[u]rl copy" parts))
@@ -248,6 +280,7 @@ Key bindings:
   (define-key clatter-mode-map (kbd "C-c C-a") #'clatter-action-menu)
   (define-key clatter-mode-map (kbd "C-c a") #'clatter-action-menu)
   (define-key clatter-mode-map (kbd "C-c C-r") #'clatter-action-reply)
+  (define-key clatter-mode-map (kbd "C-c C-e") #'clatter-action-react)
   (define-key clatter-mode-map (kbd "C-c C-u") #'clatter-action-collect-urls)
   (define-key clatter-mode-map (kbd "C-c C-w") #'clatter-action-whois))
 
