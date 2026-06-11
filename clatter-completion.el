@@ -31,7 +31,7 @@
   "Return list of nicks from current buffer's nick list."
   (when clatter--nick-list
     (let (nicks)
-      (maphash (lambda (nick _prefix) (push nick nicks))
+      (maphash (lambda (nick prefix-and-nick) (push (cdr prefix-and-nick) nicks))
                clatter--nick-list)
       (sort nicks #'string<))))
 
@@ -54,7 +54,8 @@ Completes nick names from the current channel."
                 :annotation-function
                 (lambda (nick)
                   (when clatter--nick-list
-                    (let ((prefix-char (gethash nick clatter--nick-list)))
+                    (let* ((prefix-and-nick (gethash nick clatter--nick-list))
+                           (prefix-char (car prefix-and-nick)))
                       (when (and prefix-char (not (string= prefix-char "")))
                         (format " [%s]" prefix-char)))))
                 :exit-function
@@ -150,6 +151,7 @@ Dispatches to command, channel, or nick completion as appropriate."
 
 (defun clatter-completion-setup ()
   "Set up completion-at-point in the current clatter buffer."
+  (setq-local completion-ignore-case t)
   (add-hook 'completion-at-point-functions
             #'clatter-completion-at-point nil t))
 

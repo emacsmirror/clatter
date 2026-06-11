@@ -488,7 +488,7 @@ Emacs requires `set-window-margins' on the window, not just
            (prefix (buffer-substring-no-properties start end))
            (nicks (cl-loop for k being the hash-keys of clatter--nick-list
                            when (string-prefix-p (downcase prefix) k)
-                           collect k)))
+                           collect (cdr (gethash k clatter--nick-list)))))
       (cond
        ((null nicks)
         (message "No matching nicks"))
