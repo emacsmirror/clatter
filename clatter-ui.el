@@ -213,6 +213,20 @@ Returns (sender . text) or nil."
             (forward-line 1))
           found)))))
 
+(defun clatter-jump-to-msgid (buffer msgid)
+  "Jump to BUFFER message identified by MSGID."
+  (let (found)
+    (when (and (buffer-live-p buffer) msgid)
+      (with-current-buffer buffer
+        (save-excursion
+          (goto-char (point-min))
+          (while (and (not found) (not (eobp)))
+            (when (string= msgid (get-text-property (point) 'clatter-msgid))
+              (setq found (point)))
+            (forward-line 1))
+          found)))
+    (when found (goto-char found))))
+
 (defun clatter-insert-privmsg (buffer sender text conn &optional server-time)
   "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
 SERVER-TIME overrides the current time for the timestamp."
@@ -244,7 +258,19 @@ SERVER-TIME overrides the current time for the timestamp."
                                          ref-text-formatted))
                               (front (propertize (format "↳ %s: " ref-sender) 'face 'shadow)))
                          (add-face-text-property 0 (length preview) 'shadow nil preview)
-                         (concat front preview "\n"))))
+                         (let ((context (concat front preview "\n"))
+                               (map (make-sparse-keymap))
+                               (action (lambda () (interactive) (clatter-jump-to-msgid buffer reply-to))))
+                           (define-key map [mouse-2] action)
+                           (define-key map (kbd "RET") action)
+                           (add-text-properties 0 (length context)
+                                                (list 'keymap map
+                                                      'follow-link t
+                                                      'reply-to reply-to
+                                                      'mouse-face 'highlight
+                                                      'help-echo "Click or press RET to jump to reply context")
+                                                context)
+                           context))))
          (formatted (concat (or reply-line "") nick-col " " msg-text))
          (props (list 'clatter-msg-type 'privmsg
                       'clatter-sender sender
