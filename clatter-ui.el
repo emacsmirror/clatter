@@ -654,7 +654,8 @@ Emacs requires `set-window-margins' on the window, not just
 (defun clatter-ui--on-mode (conn target setter modes)
   "Handle MODE event for UI."
   (let* ((network (clatter-connection-network-id conn))
-         (buf (clatter-get-buffer network target)))
+         (buf (or (clatter-get-buffer network target)
+                  (clatter-get-server-buffer network))))
     (when buf
       (clatter-insert-system buf
                              (format "%s sets mode %s"
