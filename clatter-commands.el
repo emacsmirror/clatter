@@ -65,6 +65,12 @@ INPUT is the full string including the leading /."
 
 ;; --- Commands ---
 
+(defun clatter-cmd-say (args)
+  "Handle /say MESSAGE."
+  (let ((trimmed (string-trim args)))
+    (when (> (length trimmed) 0)
+      (clatter--send-message trimmed))))
+
 (defun clatter-cmd-join (args)
   "Handle /join CHANNEL [KEY]."
   (let ((conn (clatter--require-conn)))
@@ -387,6 +393,7 @@ With `none', clear all suppressions."
 
 ;; --- Register all commands ---
 
+(clatter-defcommand "say" #'clatter-cmd-say)
 (clatter-defcommand "join" #'clatter-cmd-join "j")
 (clatter-defcommand "part" #'clatter-cmd-part "leave")
 (clatter-defcommand "msg" #'clatter-cmd-msg)
