@@ -200,11 +200,13 @@ FILE is stored for flushing."
       (clatter-log--write network log-target
                            (format "-%s- %s" sender text)))))
 
-(defun clatter-log--on-join (conn nick channel _account _realname)
+(defun clatter-log--on-join (conn nick channel _account realname)
   "Log JOIN of NICK to CHANNEL on CONN."
   (when clatter-log-system-messages
     (clatter-log--write (clatter-connection-network-id conn) channel
-                         (format "*** %s has joined %s" nick channel))))
+                        (if (and realname (not (string= nick realname)))
+                            (format "%s (%s) has joined %s" nick realname channel)
+                          (format "%s has joined %s" nick channel)))))
 
 (defun clatter-log--on-part (conn nick channel message)
   "Log PART of NICK from CHANNEL on CONN."

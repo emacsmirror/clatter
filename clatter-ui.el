@@ -539,7 +539,7 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-notice buf sender text)))
 
-(defun clatter-ui--on-join (conn nick channel _account _realname)
+(defun clatter-ui--on-join (conn nick channel _account realname)
   "Handle JOIN event for UI."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
@@ -549,7 +549,11 @@ Emacs requires `set-window-margins' on the window, not just
     (when (string-equal nick my-nick)
       (clatter-send conn (clatter-irc-names channel))
       (display-buffer buf))
-    (clatter-insert-system buf (format "%s has joined %s" nick channel) 'join)))
+    (clatter-insert-system buf
+                           (if (and realname (not (string= nick realname)))
+                               (format "%s (%s) has joined %s" nick realname channel)
+                             (format "%s has joined %s" nick channel))
+                           'join)))
 
 (defun clatter-ui--on-part (conn nick channel message)
   "Handle PART event for UI."
