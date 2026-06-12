@@ -824,6 +824,12 @@ COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
 
 (defun clatter-ui--on-numeric (conn command params)
   (pcase command
+    ;; -- Informational numerics ---
+    ((or "001" "002" "003" "004" "242" "251" "252" "253" "254" "255"
+         "265" "266" "305" "306")
+     (let* ((network (clatter-connection-network-id conn))
+            (buf (clatter-get-server-buffer network)))
+       (clatter-insert-system buf (string-join (cdr params) " "))))
     ;; -- MODE numerics ---
     ("221"   ; RPL_UMODEIS
      (let* ((network (clatter-connection-network-id conn))
