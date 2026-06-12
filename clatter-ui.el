@@ -820,6 +820,32 @@ COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
       (clatter-insert-system
        buf (format "CTCP %s reply from %s: %s" command sender reply-text)))))
 
+;; --- Handlers for other numerics ---
+
+(defun clatter-ui--on-numeric (conn command params)
+  (pcase command
+    ;; -- MODE numerics ---
+    ("221"   ; RPL_UMODEIS
+     (let* ((network (clatter-connection-network-id conn))
+            (buf (clatter-get-server-buffer network))
+            (nick (nth 0 params))
+            (modes (nth 1 params)))
+       (clatter-insert-system "%s is %s" nick modes)))
+    ("324"   ; RPL_CHANNELMODEIS
+     (let* ((network (clatter-connection-network-id conn))
+            (channel (nth 1 params))
+            (buf (clatter-get-buffer network channel))
+            (modes (nth 2 params)))
+       (clatter-insert-system buf (format "%s is %s" channel modes))))
+    ("329"   ; RPL_CREATIONTIME
+     (let* ((network (clatter-connection-network-id conn))
+            (channel (nth 1 params))
+            (buf (clatter-get-buffer network channel))
+            (ctime (string-to-number (nth 2 params))))
+       (clatter-insert-system
+        buf (format "%s was created at %s"
+                    channel (format-time-string "%F %T" ctime)))))))
+
 ;; --- Channel preview on hover (eldoc) ---
 
 (defun clatter-ui--eldoc-function (callback &rest _)
@@ -1021,6 +1047,7 @@ Requires the server to support the message-tags capability."
   (add-hook 'clatter-react-hook #'clatter-ui--on-react)
   (add-hook 'clatter-batch-complete-hook #'clatter-ui--on-batch-complete)
   (add-hook 'clatter-ctcp-reply-hook #'clatter-ui--on-ctcp-reply)
+  (add-hook 'clatter-numeric-hook #'clatter-ui--on-numeric)
   (add-hook 'clatter-typing-hook #'clatter-ui--on-typing)
   (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc))
 
