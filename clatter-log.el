@@ -237,11 +237,19 @@ FILE is stored for flushing."
                                (format "*** %s is now known as %s"
                                        old-nick new-nick)))))))
 
-(defun clatter-log--on-topic (conn channel _nick topic)
+(defun clatter-log--on-topic (conn channel nick topic at)
   "Log TOPIC change in CHANNEL on CONN."
   (when clatter-log-system-messages
     (clatter-log--write (clatter-connection-network-id conn) channel
-                         (format "*** Topic: %s" topic))))
+                        (let ((prefix "Topic"))
+                          (cond
+                           ((and nick at)
+                            (setq prefix (format "%s set at %s by %s"
+                                                 prefix
+                                                 (format-time-string "%F %T" at)
+                                                 nick)))
+                           (nick (setq prefix (format "%s set by %s" prefix nick))))
+                          (format "*** %s: %s" prefix topic)))))
 
 (defun clatter-log--on-kick (conn channel nick kicked reason)
   "Log KICK of KICKED by NICK in CHANNEL on CONN."

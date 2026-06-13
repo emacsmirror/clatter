@@ -229,6 +229,12 @@ Handles prefixes like @nick, +nick, ~nick."
     (with-current-buffer buffer
       (setq clatter--topic topic))))
 
+(defun clatter-get-topic (buffer)
+  "Get TOPIC for BUFFER."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      clatter--topic)))
+
 ;; --- Channel modes ---
 
 (defun clatter-set-channel-modes (buffer modes)

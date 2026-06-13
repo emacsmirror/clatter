@@ -51,7 +51,7 @@ Called with (CONN TARGET SETTER MODES).")
 
 (defvar clatter-topic-hook nil
   "Hook for TOPIC events.
-Called with (CONN CHANNEL NICK TOPIC).")
+Called with (CONN CHANNEL NICK TOPIC AT).")
 
 (defvar clatter-kick-hook nil
   "Hook for KICK events.
@@ -435,7 +435,7 @@ Called with (CONN SENDER NICK CHANNEL).")
               (topic (nth 1 params))
               (parsed-prefix (clatter-parse-prefix prefix))
               (nick (clatter-prefix-nick parsed-prefix)))
-         (run-hook-with-args 'clatter-topic-hook conn channel nick topic)))
+         (run-hook-with-args 'clatter-topic-hook conn channel nick topic nil)))
 
       ;; --- KICK ---
       ("KICK"
@@ -603,6 +603,22 @@ Called with (CONN SENDER NICK CHANNEL).")
          (clatter-list--on-entry conn channel users topic)))
       ("323"  ; RPL_LISTEND
        (clatter-list--on-end conn))
+
+      ;; --- TOPIC numerics ---
+      ("332"  ; RPL_TOPIC
+       (let* ((channel (nth 1 params))
+              (topic (nth 2 params))
+              (network (clatter-connection-network-id conn))
+              (buf (clatter-get-buffer network channel)))
+         (clatter-set-topic buf topic)))
+      ("333"  ; RPL_TOPICWHOTIME
+       (let* ((channel (nth 1 params))
+              (nick (nth 2 params))
+              (at (string-to-number (nth 3 params)))
+              (network (clatter-connection-network-id conn))
+              (buf (clatter-get-buffer network channel))
+              (topic (clatter-get-topic buf)))
+         (run-hook-with-args 'clatter-topic-hook conn channel nick topic at)))
 
       ;; --- MONITOR numerics ---
       ("730"  ; RPL_MONONLINE
