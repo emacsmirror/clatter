@@ -140,7 +140,7 @@ FILE is stored for flushing."
 (defun clatter-log-flush ()
   "Flush all buffered log entries to disk."
   (maphash
-   (lambda (key entry)
+   (lambda (_key entry)
      (let ((file (car entry))
            (lines (cddr entry)))
        (when lines

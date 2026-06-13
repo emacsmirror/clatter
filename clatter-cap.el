@@ -56,7 +56,7 @@ Dispatches based on subcommand (LS, ACK, NAK)."
      ((string-equal subcommand "NAK")
       (clatter-cap--handle-nak conn caps-string)))))
 
-(defun clatter-cap--handle-ls (conn caps-string)
+(cl-defun clatter-cap--handle-ls (conn caps-string)
   "Handle CAP LS response on CONN with CAPS-STRING."
   ;; Check STS before processing capabilities
   (let* ((config (process-get (clatter-connection-process conn) :clatter-config))
@@ -80,6 +80,7 @@ Dispatches based on subcommand (LS, ACK, NAK)."
         (delete-process (clatter-connection-process conn))
         (cl-return-from clatter-cap--handle-ls nil))))
   (let* ((available (clatter-cap--parse-list caps-string))
+         (_ (setf (clatter-connection-cap-available conn) available))
          (config (process-get (clatter-connection-process conn) :clatter-config))
          (sasl-type (plist-get config :sasl))
          (client-cert (plist-get config :client-cert))

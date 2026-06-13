@@ -16,6 +16,8 @@
 (require 'clatter-config)
 (require 'clatter-protocol)
 
+(declare-function gnutls-negotiate "gnutls")
+
 ;; --- Connection Structure ---
 
 (cl-defstruct (clatter-connection (:constructor clatter-connection--create))
@@ -28,6 +30,7 @@
   sasl-state           ; nil :requested :authenticating :done
   cap-negotiating      ; t during CAP negotiation
   cap-enabled          ; list of enabled capability strings
+  cap-available        ; list of capabilities advertised by the server
   ;; IRCv3 batch/label tracking
   active-batches       ; hash-table: batch-id -> plist
   pending-labels       ; hash-table: label -> callback

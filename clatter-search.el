@@ -191,8 +191,7 @@ With prefix arg, prompt for network to filter."
         (dolist (result results)
           (let* ((display (nth 0 result))
                  (file (nth 1 result))
-                 (lnum (nth 2 result))
-                 (text (nth 3 result)))
+                 (lnum (nth 2 result)))
             (insert (propertize display
                                 'clatter-search-file file
                                 'clatter-search-lnum lnum)

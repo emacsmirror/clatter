@@ -120,12 +120,12 @@ DIRECTION is :in or :out."
 
 (defun clatter-rawlog--insert-parsed (line)
   "Insert parsed structure of raw LINE."
-  (let ((parsed (ignore-errors (clatter-parse-message line))))
+  (let ((parsed (ignore-errors (clatter-parse-line line))))
     (when parsed
-      (let* ((tags (clatter-parsed-tags parsed))
-             (prefix (clatter-parsed-prefix parsed))
-             (command (clatter-parsed-command parsed))
-             (params (clatter-parsed-params parsed)))
+      (let* ((tags (clatter-message-tags parsed))
+             (prefix (clatter-message-prefix parsed))
+             (command (clatter-message-command parsed))
+             (params (clatter-message-params parsed)))
         (when (or tags prefix)
           (insert "         "
                   (when tags

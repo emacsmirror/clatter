@@ -233,7 +233,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 
 ** Requirements
 
-- Emacs 29.1 or later
+- Emacs 30.1 or later
 - GnuTLS (for TLS/SSL connections) - Emacs must be compiled with GnuTLS support
   - On Debian/Ubuntu: =apt install gnutls-bin libgnutls28-dev=
   - On Fedora/RHEL: =dnf install gnutls=
@@ -350,7 +350,7 @@ With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= 
 ** Companion Packages
 
 clatter.el requires =curl= at runtime for async URL/image fetching.
-No Emacs Lisp dependencies beyond Emacs 29.1 itself.
+No Emacs Lisp dependencies beyond Emacs 30.1 itself.
 
 Works well with:
 

@@ -118,7 +118,8 @@ Called with (CONN SENDER NICK CHANNEL).")
 ;; --- Main Dispatch ---
 
 (defmacro clatter--set-unprefixed (target prefixes)
-  "Trim TARGET's prefix character if within PREFIXES and return the trimmed character."
+  "Trim TARGET's prefix character if within PREFIXES.
+Return the trimmed character."
   `(when (and ,prefixes
               (> (length ,target) 1)
               (seq-contains-p ,prefixes (aref ,target 0)))
@@ -579,7 +580,7 @@ Called with (CONN SENDER NICK CHANNEL).")
       ("335"  ; RPL_WHOISBOT
        (let ((data (clatter-connection--whois-data conn)))
          (when data
-           (plist-put data :bot (or (nth 2 params) t)))))
+           (plist-put data :bot t))))
       ("671"  ; RPL_WHOISSECURE
        (let ((data (clatter-connection--whois-data conn)))
          (when data
@@ -614,7 +615,7 @@ Called with (CONN SENDER NICK CHANNEL).")
       ("333"  ; RPL_TOPICWHOTIME
        (let* ((channel (nth 1 params))
               (nick (nth 2 params))
-              (at (string-to-number (nth 3 params)))
+              (at (when (nth 3 params) (string-to-number (nth 3 params))))
               (network (clatter-connection-network-id conn))
               (buf (clatter-get-buffer network channel))
               (topic (clatter-get-topic buf)))
@@ -712,11 +713,11 @@ Called with (CONN SENDER NICK CHANNEL).")
 
 ;; --- Labeled Response ---
 
-(defun clatter--handle-labeled-response (conn label _msg)
-  "Handle labeled response on CONN for LABEL."
+(defun clatter--handle-labeled-response (conn label msg)
+  "Handle labeled response MSG on CONN for LABEL."
   (let ((callback (gethash label (clatter-connection-pending-labels conn))))
     (when callback
-      (funcall callback _msg)
+      (funcall callback msg)
       (remhash label (clatter-connection-pending-labels conn)))))
 
 ;; --- Nick Reclaim ---

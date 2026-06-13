@@ -31,7 +31,7 @@
   "Return list of nicks from current buffer's nick list."
   (when clatter--nick-list
     (let (nicks)
-      (maphash (lambda (nick prefix-and-nick) (push (cdr prefix-and-nick) nicks))
+      (maphash (lambda (_nick prefix-and-nick) (push (cdr prefix-and-nick) nicks))
                clatter--nick-list)
       (sort nicks #'string<))))
 

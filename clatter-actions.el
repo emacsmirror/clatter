@@ -17,6 +17,7 @@
 (require 'clatter-connection)
 (require 'clatter-protocol)
 (require 'clatter-model)
+(require 'clatter-ui)
 
 ;; --- Get message properties at point ---
 

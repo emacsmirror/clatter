@@ -266,9 +266,6 @@ Returns a list of (DISPLAY-STRING . URL) pairs, newest first."
         (let ((url (get-text-property (point) 'clatter-url)))
           (when url
             (let* ((bol (line-beginning-position))
-                   (eol (line-end-position))
-                   (line-text (string-trim
-                               (buffer-substring-no-properties bol eol)))
                    (sender (get-text-property bol 'clatter-sender))
                    (display (if sender
                                 (format "%s - %s" sender url)

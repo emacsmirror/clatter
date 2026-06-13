@@ -175,8 +175,8 @@ append at the bottom like a traditional IRC client."
               (goto-char (point-max))
               (recenter -1))))))))
 
-(defun clatter--maybe-truncate (buffer)
-  "Truncate BUFFER if it exceeds `clatter-buffer-max-lines'.
+(defun clatter--maybe-truncate (_buffer)
+  "Truncate the current buffer if it exceeds `clatter-buffer-max-lines'.
 Removes oldest messages from the appropriate end of the buffer."
   (when (and clatter-buffer-max-lines
              (> (count-lines (point-min) (point-max)) clatter-buffer-max-lines))
@@ -652,7 +652,7 @@ Emacs requires `set-window-margins' on the window, not just
     (when buf
       (clatter-set-topic buf topic)
       (let ((prefix "Topic")
-            (hl-text (clatter-hl-format-text topic buf conn)))
+            (hl-text (clatter-hl-format-text (or topic "") buf conn)))
         (cond
          ((and nick at)
           (setq prefix (format "%s set at %s by %s"
@@ -787,10 +787,7 @@ Emacs requires `set-window-margins' on the window, not just
     (when (plist-get data :away)
       (push (format "  Away: %s" (plist-get data :away)) parts))
     (when (plist-get data :bot)
-      (push (if (string-empty-p (plist-get data :bot))
-                "  Is a bot."
-              (format "  Is a bot: %s" (plist-get data :bot)))
-            parts))
+      (push "  Is a bot." parts))
     (dolist (line (nreverse parts))
       (clatter-insert-system buf line))))
 
@@ -855,9 +852,8 @@ Emacs requires `set-window-margins' on the window, not just
                   (add-text-properties found (1+ found)
                                        (list 'clatter-reactions new-reactions)))))))))))
 
-(defun clatter-ui--on-batch-complete (conn batch-type target messages)
+(defun clatter-ui--on-batch-complete (conn _batch-type target messages)
   "Handle completed batch: render MESSAGES for TARGET on CONN.
-BATCH-TYPE is the IRC batch type (e.g. chathistory, znc.in/playback).
 Renders a visual separator before and after history playback."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network target)))
@@ -904,34 +900,40 @@ COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
 ;; --- Handlers for other numerics ---
 
 (defun clatter-ui--on-numeric (conn command params)
+  "Handle informational and MODE-related numerics for UI.
+COMMAND is the numeric reply code, PARAMS its parameters on CONN."
   (pcase command
     ;; -- Informational numerics ---
     ((or "001" "002" "003" "004" "242" "251" "252" "253" "254" "255"
          "265" "266" "305" "306")
      (let* ((network (clatter-connection-network-id conn))
             (buf (clatter-get-server-buffer network)))
-       (clatter-insert-system buf (string-join (cdr params) " "))))
+       (when buf
+         (clatter-insert-system buf (string-join (cdr params) " ")))))
     ;; -- MODE numerics ---
     ("221"   ; RPL_UMODEIS
      (let* ((network (clatter-connection-network-id conn))
             (buf (clatter-get-server-buffer network))
             (nick (nth 0 params))
             (modes (nth 1 params)))
-       (clatter-insert-system "%s is %s" nick modes)))
+       (when buf
+         (clatter-insert-system buf (format "%s is %s" nick modes)))))
     ("324"   ; RPL_CHANNELMODEIS
      (let* ((network (clatter-connection-network-id conn))
             (channel (nth 1 params))
             (buf (clatter-get-buffer network channel))
             (modes (nth 2 params)))
-       (clatter-insert-system buf (format "%s is %s" channel modes))))
+       (when buf
+         (clatter-insert-system buf (format "%s is %s" channel modes)))))
     ("329"   ; RPL_CREATIONTIME
      (let* ((network (clatter-connection-network-id conn))
             (channel (nth 1 params))
             (buf (clatter-get-buffer network channel))
             (ctime (string-to-number (nth 2 params))))
-       (clatter-insert-system
-        buf (format "%s was created at %s"
-                    channel (format-time-string "%F %T" ctime)))))))
+       (when buf
+         (clatter-insert-system
+          buf (format "%s was created at %s"
+                      channel (format-time-string "%F %T" ctime))))))))
 
 ;; --- Channel preview on hover (eldoc) ---
 
@@ -965,12 +967,11 @@ Shows sender info when point is on a message."
                          :face 'clatter-notice)))))))
      ;; Message at point - show sender and msgid
      (sender
-      (let ((text (get-text-property (point) 'clatter-text)))
-        (funcall callback
-                 (concat sender
-                         (when msgid (format "  [msgid: %s]" msgid)))
-                 :thing "message"
-                 :face 'shadow))))
+      (funcall callback
+               (concat sender
+                       (when msgid (format "  [msgid: %s]" msgid)))
+               :thing "message"
+               :face 'shadow)))
     nil))
 
 (defun clatter-ui--channel-at-point ()

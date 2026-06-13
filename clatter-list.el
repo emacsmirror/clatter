@@ -140,7 +140,9 @@ Each entry is (CHANNEL USERS TOPIC).")
   (setq clatter-list--entries nil)
   (setq clatter-list--conn conn)
   (setq clatter-list--filter "")
-  (clatter-send conn (if (string-empty-p arg) "LIST" (format "LIST %s" arg)))
+  (clatter-send conn (if (or (null arg) (string-empty-p arg))
+                         "LIST"
+                       (format "LIST %s" arg)))
   (message "Fetching channel list..."))
 
 (provide 'clatter-list)

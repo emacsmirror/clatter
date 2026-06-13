@@ -70,8 +70,8 @@
           (sort nicks
                 :key (lambda (n) (cons (car n)
                                   (or (cl-loop for p being the elements of (cdr n)
-                                               maximize (- (length rank)
-                                                           (string-search (char-to-string p) rank)))
+                                               for idx = (string-search (char-to-string p) rank)
+                                               maximize (if idx (- (length rank) idx) 0))
                                       0)))
                 :lessp (lambda (a b)
                          (if (= (cdr a) (cdr b))
@@ -82,9 +82,8 @@
       (clatter-nicklist--insert-nick (car n) (cdr n) conn))
     (goto-char (point-min))))
 
-(defun clatter-nicklist--insert-nick (nick prefix conn)
-  "Insert NICK with PREFIX into the nicklist buffer.
-CONN is used for nick colorization."
+(defun clatter-nicklist--insert-nick (nick prefix _conn)
+  "Insert NICK with PREFIX into the nicklist buffer."
   (let* ((color (clatter-hl-nick-color nick))
          (prefix-face (cond
                        ((string-search "@" prefix) 'clatter-system)
@@ -130,11 +129,10 @@ CONN is used for nick colorization."
           (with-current-buffer source
             (when (and clatter--network
                        (clatter-get-connection clatter--network))
-              (let ((conn (clatter-get-connection clatter--network)))
-                (clatter-get-or-create-buffer
-                 clatter--network nick 'query)
-                (pop-to-buffer
-                 (clatter-get-buffer clatter--network nick))))))))))
+              (clatter-get-or-create-buffer
+               clatter--network nick 'query)
+              (pop-to-buffer
+               (clatter-get-buffer clatter--network nick)))))))))
 
 (defun clatter-nicklist-toggle ()
   "Toggle the nicklist sidebar for the current channel."
@@ -176,17 +174,17 @@ CONN is used for nick colorization."
             (with-current-buffer nl-buf
               (clatter-nicklist-refresh))))))))
 
-(defun clatter-nicklist--on-join (_conn _nick channel _account _realname)
+(defun clatter-nicklist--on-join (conn _nick channel _account _realname)
   "Refresh nicklist when someone joins CHANNEL."
   (let ((buf (clatter-get-buffer
-              (clatter-connection-network-id _conn) channel)))
+              (clatter-connection-network-id conn) channel)))
     (when buf
       (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
 
-(defun clatter-nicklist--on-part (_conn _nick channel _message)
+(defun clatter-nicklist--on-part (conn _nick channel _message)
   "Refresh nicklist when someone parts CHANNEL."
   (let ((buf (clatter-get-buffer
-              (clatter-connection-network-id _conn) channel)))
+              (clatter-connection-network-id conn) channel)))
     (when buf
       (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
 
@@ -210,10 +208,10 @@ CONN is used for nick colorization."
           (when (equal clatter--network network)
             (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf)))))))
 
-(defun clatter-nicklist--on-names (_conn channel _names-str)
+(defun clatter-nicklist--on-names (conn channel _names-str)
   "Refresh nicklist after NAMES reply for CHANNEL."
   (let ((buf (clatter-get-buffer
-              (clatter-connection-network-id _conn) channel)))
+              (clatter-connection-network-id conn) channel)))
     (when buf
       (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
 

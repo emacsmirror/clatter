@@ -4,7 +4,7 @@
 
 * Prerequisites
 
-- **Emacs 29.1+** (built with GnuTLS support)
+- **Emacs 30.1+** (built with GnuTLS support)
 - **GnuTLS** is required for TLS/SSL connections to IRC servers
 
 To verify GnuTLS is available, evaluate:
@@ -73,13 +73,14 @@ All commands are typed in the input area prefixed with =/=.
 | =/close=          | =/wc=      | Close current buffer (parts if channel) |
 | =/quit [msg]=     | =/q=       | Disconnect from network                 |
 | =/buffers=        |            | List all open buffers                   |
-| =/list=           |            | Open interactive channel list browser   |
+| =/list [filter]=  |            | Open interactive channel list browser (optional server filter, e.g. =>100=) |
 
 ** Messaging
 
 | Command                | Aliases    | Description                               |
 |------------------------+------------+-------------------------------------------|
 | =/msg nick text=       |            | Send private message                      |
+| =/say text=            |            | Send text to the current buffer (useful for text starting with =/=) |
 | =/me action=           |            | Send action (/me does something)          |
 | =/reply text=          | =/r=       | Reply to message at point (threaded)      |
 | =/react emoji=         |            | React to message at point with emoji      |

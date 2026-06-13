@@ -121,8 +121,8 @@ For use as %(clatter-org-capture-channel)."
           (let ((output-buf (current-buffer)))
             (dolist (entry (nreverse lines))
               (let ((date (nth 0 entry))
-                    (time (nth 1 entry))
-                    (content (nth 2 entry)))
+                    (_time (nth 1 entry))
+                    (_content (nth 2 entry)))
                 (with-current-buffer output-buf
                   (when (not (equal date current-date))
                     (setq current-date date)
@@ -160,6 +160,9 @@ For use as %(clatter-org-capture-channel)."
     (find-file-other-window output-file)))
 
 ;; --- Registration ---
+
+(declare-function org-link-set-parameters "ol")
+(declare-function org-link-store-props "ol")
 
 (with-eval-after-load 'org
   (org-link-set-parameters

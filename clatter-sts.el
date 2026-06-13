@@ -111,8 +111,8 @@ Returns plist (:port PORT :duration DURATION)."
   "Check CAP LS response CAPS-STRING for STS on HOSTNAME.
 IS-TLS indicates whether the current connection uses TLS.
 Returns (:action upgrade :port PORT) if upgrade needed,
-        (:action store :port PORT :duration DURATION) if policy should be stored,
-        nil if no STS or not applicable."
+\(:action store :port PORT :duration DURATION) if a policy should
+be stored, or nil if no STS or not applicable."
   (when (and clatter-sts-enable caps-string)
     (let ((caps (split-string caps-string))
           (result nil))

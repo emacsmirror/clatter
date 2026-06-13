@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'iso8601)
 (require 'clatter-config)
 
 ;; --- IRC Message Structure ---
