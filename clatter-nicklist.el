@@ -114,14 +114,18 @@
   (interactive)
   (let ((source (or clatter-nicklist--source-buffer (current-buffer))))
     (when source
-      (with-current-buffer source
-        (when (and clatter--target clatter--nick-list)
-          (let* ((target clatter--target)
-                 (nl-name (clatter-nicklist--buffer-name target))
-                 (existing (get-buffer nl-name)))
-            (when (and existing (get-buffer-window existing))
-              (delete-window (get-buffer-window existing))
-              (kill-buffer existing))))))))
+      (cond
+       ((buffer-live-p source)
+        (with-current-buffer source
+          (when (and clatter--target clatter--nick-list)
+            (let* ((target clatter--target)
+                   (nl-name (clatter-nicklist--buffer-name target))
+                   (existing (get-buffer nl-name)))
+              (when (and existing (get-buffer-window existing))
+                (delete-window (get-buffer-window existing))
+                (kill-buffer existing))))))
+       ((eq source clatter-nicklist--source-buffer)
+        (delete-window (get-buffer-window (current-buffer))))))))
 
 (defun clatter-nicklist-query ()
   "Open a query (DM) with the nick at point."
