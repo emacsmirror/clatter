@@ -596,6 +596,14 @@ Return the trimmed character."
              (realname (nth 5 params)))
          (setf (clatter-connection--whois-data conn)
                (list :nick nick :user user :host host :realname realname))))
+      ("276"  ; RPL_WHOISCERTFP
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :certfp (nth 2 params)))))
+      ("307"  ; RPL_WHOISREGNICK
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :regnick (string-join (cddr params) "")))))
       ("312"  ; RPL_WHOISSERVER
        (let ((data (clatter-connection--whois-data conn)))
          (when data
@@ -609,6 +617,10 @@ Return the trimmed character."
        (let ((data (clatter-connection--whois-data conn)))
          (when data
            (plist-put data :channels (nth 2 params)))))
+      ("320"  ; RPL_WHOISSPECIAL
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :special (string-join (cddr params) "")))))
       ("317"  ; RPL_WHOISIDLE
        (let ((data (clatter-connection--whois-data conn)))
          (when data
@@ -622,6 +634,18 @@ Return the trimmed character."
        (let ((data (clatter-connection--whois-data conn)))
          (when data
            (plist-put data :bot t))))
+      ("338"  ; RPL_WHOISACTUALLY
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :actually (string-join (reverse (cddr params)) " ")))))
+      ("378"  ; RPL_WHOISHOST
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :host (string-join (cddr params) " ")))))
+      ("379"  ; RPL_WHOISMODES
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :modes (string-join (cddr params) " ")))))
       ("671"  ; RPL_WHOISSECURE
        (let ((data (clatter-connection--whois-data conn)))
          (when data
