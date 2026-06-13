@@ -709,8 +709,9 @@ Emacs requires `set-window-margins' on the window, not just
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server))))
-    (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-system buf text)))
+    (when (buffer-live-p buf)
+      (clatter-ui-setup-buffer-if-needed buf)
+      (clatter-insert-system buf text))))
 
 (defun clatter-ui--on-welcome (conn _nick)
   "Handle 001 welcome for UI on CONN."
