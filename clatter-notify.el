@@ -36,6 +36,11 @@
   :type 'boolean
   :group 'clatter)
 
+(defcustom clatter-notify-on-invite t
+  "Send notification for channel invitations."
+  :type 'boolean
+  :group 'clatter)
+
 (defcustom clatter-notify-on-keyword t
   "Send notification when a keyword from `clatter-notify-keywords' matches."
   :type 'boolean
@@ -289,6 +294,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (pcase reason
     ('dm (format "DM from %s" sender))
     ('mention (format "Mentioned in %s" target))
+    ('invite (format "Invite from %s" sender))
     ('keyword (format "Keyword in %s" target))
     (_ (format "%s in %s" sender target))))
 
@@ -315,6 +321,15 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
           (clatter-notify--send
            (clatter-notify--format-title reason sender target)
            (format "* %s %s" sender text)))))))
+
+(defun clatter-notify--on-invite (conn sender nick channel)
+  "Handle INVITE for notifications."
+  (when (and clatter-notify-on-invite
+             (string-equal (clatter-connection-nick conn) nick))
+    (when (clatter-notify--rate-ok-p sender)
+      (clatter-notify--send
+       (clatter-notify--format-title 'invite sender nick)
+       (format "%s invites you to join %s" sender channel)))))
 
 ;; --- Interactive commands ---
 
@@ -365,6 +380,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (interactive)
   (add-hook 'clatter-privmsg-hook #'clatter-notify--on-privmsg)
   (add-hook 'clatter-action-hook #'clatter-notify--on-action)
+  (add-hook 'clatter-invite-hook #'clatter-notify--on-invite)
   (message "[clatter-notify] Notification hooks enabled"))
 
 (defun clatter-notify-disable ()
@@ -372,6 +388,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (interactive)
   (remove-hook 'clatter-privmsg-hook #'clatter-notify--on-privmsg)
   (remove-hook 'clatter-action-hook #'clatter-notify--on-action)
+  (remove-hook 'clatter-invite-hook #'clatter-notify--on-invite)
   (message "[clatter-notify] Notification hooks disabled"))
 
 ;; --- Auto-enable ---
