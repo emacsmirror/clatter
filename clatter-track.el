@@ -57,6 +57,18 @@ Removes the clatter: prefix and network name."
   :type 'boolean
   :group 'clatter)
 
+(defcustom clatter-track-in-buffer-mode-line nil
+  "Show the activity crumbs in each clatter buffer's own mode line.
+By default the track indicator is appended to the global
+`mode-line-format', which clatter buffers override with their own
+buffer-local mode line, so the crumbs are not visible while you are in a
+clatter buffer.  When this is non-nil, the indicator is also inserted
+into each clatter buffer's mode line (just before the trailing spaces),
+so the crumbs appear everywhere.  Takes effect for buffers created after
+the value is set."
+  :type 'boolean
+  :group 'clatter)
+
 ;; --- Faces ---
 
 (defface clatter-track-mention
