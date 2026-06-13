@@ -199,9 +199,8 @@ Removes oldest messages from the appropriate end of the buffer."
             (delete-overlay ov))
           (delete-region (point) (point-max)))))))
 
-(defun clatter--find-message-by-msgid (buffer msgid)
-  "Find message text and sender in BUFFER by MSGID.
-Returns (sender . text) or nil."
+(defun clatter--find-message-position-by-msgid (buffer msgid)
+  "Find position of message in BUFFER identified by MSGID."
   (when (and (buffer-live-p buffer) msgid)
     (with-current-buffer buffer
       (save-excursion
@@ -209,10 +208,23 @@ Returns (sender . text) or nil."
         (let ((found nil))
           (while (and (not found) (not (eobp)))
             (when (string= msgid (get-text-property (point) 'clatter-msgid))
-              (setq found (cons (get-text-property (point) 'clatter-sender)
-                                (get-text-property (point) 'clatter-text))))
+              (setq found (point)))
             (forward-line 1))
           found)))))
+
+(defun clatter--find-message-by-msgid (buffer msgid)
+  "Find message text and sender in BUFFER by MSGID.
+Returns (sender . text) or nil."
+  (let ((found (clatter--find-message-position-by-msgid buffer msgid)))
+    (when found
+      (cons (get-text-property found 'clatter-sender)
+            (get-text-property found 'clatter-text)))))
+
+(defun clatter-jump-to-msgid (buffer msgid)
+  "Jump to BUFFER message identified by MSGID."
+  (let ((found (clatter--find-message-position-by-msgid buffer msgid)))
+    (when found
+      (goto-char found))))
 
 (defun clatter-insert-privmsg (buffer sender text conn &optional server-time)
   "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
@@ -239,12 +251,25 @@ SERVER-TIME overrides the current time for the timestamp."
          (reply-line (when reply-context
                        (let* ((ref-sender (car reply-context))
                               (ref-text (cdr reply-context))
-                              (preview (if (> (length ref-text) 60)
-                                           (concat (substring ref-text 0 57) "...")
-                                         ref-text)))
-                         (concat (propertize (format "↳ %s: %s" ref-sender preview)
-                                             'face 'shadow)
-                                 "\n"))))
+                              (ref-text-formatted (clatter-format-parse ref-text))
+                              (preview (if (> (length ref-text-formatted) 60)
+                                           (concat (substring ref-text-formatted 0 57) "...")
+                                         ref-text-formatted))
+                              (front (propertize (format "↳ %s: " ref-sender) 'face 'shadow)))
+                         (add-face-text-property 0 (length preview) 'shadow nil preview)
+                         (let ((context (concat front preview "\n"))
+                               (map (make-sparse-keymap))
+                               (action (lambda () (interactive) (clatter-jump-to-msgid buffer reply-to))))
+                           (define-key map [mouse-2] action)
+                           (define-key map (kbd "RET") action)
+                           (add-text-properties 0 (length context)
+                                                (list 'keymap map
+                                                      'follow-link t
+                                                      'reply-to reply-to
+                                                      'mouse-face 'highlight
+                                                      'help-echo "Click or press RET to jump to reply context")
+                                                context)
+                           context))))
          (formatted (concat (or reply-line "") nick-col " " msg-text))
          (props (list 'clatter-msg-type 'privmsg
                       'clatter-sender sender

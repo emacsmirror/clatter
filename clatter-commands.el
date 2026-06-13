@@ -498,22 +498,26 @@ For channels, sends PART first."
 (clatter-defcommand "searchhere" #'clatter-cmd-searchhere)
 
 (defun clatter-cmd-reply (args)
-  "Reply to the message at point.  Usage: /reply TEXT
+  "Reply to selected message.  Usage: /reply TEXT
 Uses +draft/reply tag to thread the response."
   (let* ((text (string-trim args))
-         (msgid (get-text-property (point) 'clatter-msgid))
+         (msgid (and mouse-secondary-overlay
+                     (eq (current-buffer) (overlay-buffer mouse-secondary-overlay))
+                     (get-text-property (overlay-start mouse-secondary-overlay) 'clatter-msgid)))
          (target clatter--target)
          (conn (clatter--current-conn)))
     (cond
      ((string-empty-p text)
       (message "Usage: /reply <message>"))
      ((null msgid)
-      (message "No message at point to reply to (move cursor to a message first)"))
+      (message "No message to reply to (select a message using the secondary selection i.e. M-<mouse-1>)"))
      ((null conn)
       (message "Not connected"))
      (t
       (clatter-send conn (format "@+draft/reply=%s PRIVMSG %s :%s"
                                  msgid target text))
+      ; Clear secondary selection
+      (save-mark-and-excursion (secondary-selection-to-region))
       ;; Echo if echo-message not enabled
       (unless (member "echo-message" (clatter-connection-cap-enabled conn))
         (clatter-insert-privmsg (current-buffer)
@@ -523,22 +527,26 @@ Uses +draft/reply tag to thread the response."
 (clatter-defcommand "reply" #'clatter-cmd-reply "r")
 
 (defun clatter-cmd-react (args)
-  "React to the message at point with an emoji.  Usage: /react EMOJI
+  "React to selected message with an emoji.  Usage: /react EMOJI
 Uses +draft/react tag via TAGMSG."
   (let* ((emoji (string-trim args))
-         (msgid (get-text-property (point) 'clatter-msgid))
+         (msgid (and mouse-secondary-overlay
+                     (eq (current-buffer) (overlay-buffer mouse-secondary-overlay))
+                     (get-text-property (overlay-start mouse-secondary-overlay) 'clatter-msgid)))
          (target clatter--target)
          (conn (clatter--current-conn)))
     (cond
      ((string-empty-p emoji)
       (message "Usage: /react <emoji>"))
      ((null msgid)
-      (message "No message at point to react to (move cursor to a message first)"))
+      (message "No message to react to (select a message using the secondary selection i.e. M-<mouse-1>)"))
      ((null conn)
       (message "Not connected"))
      (t
       (clatter-send conn (format "@+draft/react=%s;+draft/reply=%s TAGMSG %s"
-                                 emoji msgid target))))))
+                                 emoji msgid target))
+      ; Clear secondary selection
+      (save-mark-and-excursion (secondary-selection-to-region))))))
 
 (clatter-defcommand "react" #'clatter-cmd-react)
 
