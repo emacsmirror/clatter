@@ -207,16 +207,19 @@ Uses format: WHO #channel %tcnuhraf,TOKEN to get account names."
   (clatter-send conn (format "WHO %s %%tcnuhraf,%s"
                               channel clatter-whox-token)))
 
-(defun clatter-parse-names (names-str)
+(defun clatter-parse-names (names-str &optional prefixes)
   "Parse NAMES reply string into list of (nick . prefix).
 Handles prefixes like @nick, +nick, ~nick."
+  (unless prefixes
+    (setq prefixes clatter-prefix-rank))
   (mapcar (lambda (entry)
-            (let ((entry (string-trim entry)))
-              (if (and (> (length entry) 0)
-                       (memq (aref entry 0) '(?@ ?+ ?~ ?& ?%)))
-                  (cons (substring entry 1) (string (aref entry 0)))
-                (cons entry ""))))
-          (split-string names-str)))
+            (cl-loop for character being the elements of (string-trim entry)
+                     with boundary = 0
+                     while (seq-contains-p prefixes character)
+                     do (cl-incf boundary)
+                     finally return (cons (car (split-string (substring entry boundary) (rx ?!)))
+                                          (substring entry 0 boundary))))
+              (split-string names-str)))
 
 ;; --- Topic management ---
 
