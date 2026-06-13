@@ -244,7 +244,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (buf (clatter-get-buffer
                  (clatter-connection-network-id conn)
                  (if is-dm sender target)))
-           (is-current (and buf (eq buf (window-buffer (selected-window)))))
+           (is-current (and buf (eq buf (window-buffer (selected-window)))
+                            (frame-focus-state (window-frame (selected-window)))))
            (is-muted-channel (and is-channel
                                   (member target clatter-notify-muted-channels)))
            (is-muted-nick (member sender clatter-notify-muted-nicks))
