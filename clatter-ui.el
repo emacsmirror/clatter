@@ -226,6 +226,11 @@ Returns (sender . text) or nil."
     (when found
       (goto-char found))))
 
+(defvar clatter--suppress-image-scan nil
+  "When non-nil, `clatter-insert-privmsg' skips inline image scanning.
+Bound around history/batch playback so a reconnect backlog does not scan
+and fetch images for hundreds of old messages at once.")
+
 (defun clatter-insert-privmsg (buffer sender text conn &optional server-time)
   "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
 SERVER-TIME overrides the current time for the timestamp."
@@ -279,7 +284,8 @@ SERVER-TIME overrides the current time for the timestamp."
     (when msgid
       (setq props (plist-put props 'clatter-msgid msgid)))
     (clatter--insert-message buffer formatted nil props server-time)
-    (when (fboundp 'clatter-image--scan-message)
+    (when (and (not clatter--suppress-image-scan)
+               (fboundp 'clatter-image--scan-message))
       (let ((img-marker (with-current-buffer buffer
                           (copy-marker
                            (if (eq clatter-message-order 'oldest-first)
@@ -874,12 +880,15 @@ Renders a visual separator before and after history playback."
                         'face 'shadow))
              (count (length messages)))
         (clatter--insert-message buf sep-text t)
-        ;; Insert each message with dimmed style
-        (dolist (msg messages)
-          (let ((sender (plist-get msg :sender))
-                (text (plist-get msg :text))
-                (time (plist-get msg :time)))
-            (clatter-insert-privmsg buf sender text conn time)))
+        ;; Insert each message with dimmed style.  Suppress inline image
+        ;; scanning/fetching for history playback: a large backlog would
+        ;; otherwise scan every old message and stampede curl subprocesses.
+        (let ((clatter--suppress-image-scan t))
+          (dolist (msg messages)
+            (let ((sender (plist-get msg :sender))
+                  (text (plist-get msg :text))
+                  (time (plist-get msg :time)))
+              (clatter-insert-privmsg buf sender text conn time))))
         ;; Insert end separator
         (clatter--insert-message
          buf

@@ -46,6 +46,17 @@ Images larger than this are skipped.  Default: 5 MB."
   :type '(repeat string)
   :group 'clatter)
 
+(defcustom clatter-image-max-concurrent-fetches 4
+  "Maximum number of image downloads to run at once.
+Image URLs beyond this limit are skipped rather than queued, so a burst
+of URLs (for example when a bouncer replays a large backlog) cannot spawn
+a flood of curl subprocesses."
+  :type 'integer
+  :group 'clatter)
+
+(defvar clatter-image--active-fetches 0
+  "Number of image download subprocesses currently in flight.")
+
 ;; --- URL normalization ---
 
 (defun clatter-image--normalize-url (url)
@@ -85,10 +96,18 @@ Uses simple string parsing to avoid `url-generic-parse-url' which can block."
          ;; Strip fragment
          (no-frag (car (split-string clean "#")))
          ;; Strip query string
-         (base (downcase (car (split-string no-frag "?")))))
-    (cl-some (lambda (ext)
-               (string-suffix-p (concat "." ext) base))
-             clatter-image-extensions)))
+         (base (downcase (car (split-string no-frag "?"))))
+         (exts clatter-image-extensions)
+         (match nil))
+    ;; Plain loop instead of `cl-some' with a lambda: this runs once per
+    ;; URL in every incoming message, and an interpreted lambda here forces
+    ;; `cconv-make-interpreted-closure' (free-variable analysis + GC) on
+    ;; every call, which pegs the CPU during bouncer playback.
+    (while (and exts (not match))
+      (when (string-suffix-p (concat "." (car exts)) base)
+        (setq match t))
+      (setq exts (cdr exts)))
+    match))
 
 ;; --- Async fetch and display ---
 
@@ -118,6 +137,7 @@ URL-STR is used for the alt-text fallback."
 Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
   (when (and clatter-image-enable
              (display-graphic-p)
+             (< clatter-image--active-fetches clatter-image-max-concurrent-fetches)
              (clatter-image--url-p url))
     (let* ((clean-url (clatter-image--normalize-url url))
            (proc-buf (generate-new-buffer " *clatter-image-fetch*"))
@@ -130,11 +150,13 @@ Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
                   "--max-filesize" (number-to-string clatter-image-max-size)
                   "-o" "-"
                   clean-url)))
+      (cl-incf clatter-image--active-fetches)
       (set-process-coding-system proc 'binary 'binary)
       (set-process-sentinel
        proc
        (lambda (process _event)
          (when (memq (process-status process) '(exit signal))
+           (cl-decf clatter-image--active-fetches)
            (let ((pbuf (process-buffer process)))
              (when (and (eq (process-exit-status process) 0)
                         (buffer-live-p pbuf))
