@@ -140,8 +140,11 @@ Accumulates partial lines and dispatches complete ones."
       (let ((data (concat (string-to-multibyte
                           (or (clatter-connection-recv-buffer conn) ""))
                          (string-to-multibyte string))))
-        ;; Process complete lines (terminated by \r\n or \n)
-        (while (string-match "\r?\n" data)
+        ;; Process complete lines (terminated by CRLF or LF).  Strip any
+        ;; number of trailing CRs: the builtin network transport auto
+        ;; converts CRLF to LF, but the external subprocess pipe does not,
+        ;; so the raw CR must be removed here to avoid trailing ^M.
+        (while (string-match "\r*\n" data)
           (let ((line (substring data 0 (match-beginning 0))))
             (setq data (substring data (match-end 0)))
             (when (> (length line) 0)
@@ -198,6 +201,78 @@ This is the main entry point from the process filter into the handler layer."
                                      (expt 2 attempts))
                                   clatter-reconnect-max-delay))
           (clatter--schedule-reconnect conn))))))
+
+;; --- External TLS helper subprocess ---
+
+(defun clatter--tls-external-args (server port client-cert)
+  "Build the command list for an external TLS client to SERVER:PORT.
+CLIENT-CERT, when non-nil and existing, is presented to the server.
+The program is selected by `clatter-tls-external-command'."
+  (let ((have-cert (and client-cert (file-exists-p client-cert))))
+    (pcase clatter-tls-external-command
+      ("gnutls-cli"
+       (append (list "gnutls-cli" "--port" (number-to-string port))
+               (when have-cert
+                 (list (concat "--x509certfile=" client-cert)
+                       (concat "--x509keyfile=" client-cert)))
+               (list server)))
+      (_
+       (append (list (if (equal clatter-tls-external-command "openssl")
+                         "openssl" clatter-tls-external-command)
+                     "s_client" "-quiet"
+                     "-connect" (format "%s:%d" server port)
+                     "-servername" server)
+               (when have-cert
+                 (list "-cert" client-cert "-key" client-cert)))))))
+
+(defun clatter--make-external-tls-process (network-id server port client-cert)
+  "Spawn an external TLS subprocess for NETWORK-ID connecting to SERVER:PORT.
+CLIENT-CERT is an optional client certificate file.  Returns the process.
+IRC is spoken in plaintext over the subprocess pipe, so a dead network
+socket blocks the subprocess instead of Emacs's event loop."
+  (let* ((cmd (clatter--tls-external-args server port client-cert))
+         (program (car cmd)))
+    (unless (executable-find program)
+      (error "External TLS client not found: %s" program))
+    ;; Force line-buffered output so incoming IRC lines are not delayed by
+    ;; the helper's stdio block buffering when its stdout is a pipe.
+    (when (executable-find "stdbuf")
+      (setq cmd (append (list "stdbuf" "-oL" "-eL") cmd)))
+    (make-process
+     :name (format "clatter-%s" network-id)
+     :command cmd
+     :coding '(utf-8 . utf-8)
+     :connection-type 'pipe
+     :noquery t
+     :filter #'clatter--process-filter
+     :sentinel #'clatter--process-sentinel
+     :stderr (get-buffer-create (format " *clatter-tls-%s*" network-id)))))
+
+(defun clatter--connect-external (conn config network-id server port)
+  "Connect CONN to SERVER:PORT via an external TLS subprocess.
+CONFIG is the network plist; NETWORK-ID names the connection.
+Begins IRC registration once the subprocess is spawned."
+  (let ((proc (clatter--make-external-tls-process
+               network-id server port (plist-get config :client-cert))))
+    (setf (clatter-connection-process conn) proc)
+    (process-put proc :clatter-network-id network-id)
+    (clatter--watchdog "EXT-TLS-SPAWN %s via %s"
+                       network-id clatter-tls-external-command)
+    ;; The subprocess performs the TLS handshake; any plaintext we write
+    ;; is queued in the pipe and flushed once the tunnel is up, so it is
+    ;; safe to begin IRC registration immediately.
+    (clatter--begin-registration conn config)
+    ;; Readiness watchdog: if not fully connected (001 received) within
+    ;; 30s, tear down the subprocess and let reconnect logic take over.
+    (let ((wp proc))
+      (run-at-time 30 nil
+                   (lambda ()
+                     (when (and (process-live-p wp)
+                                (not (eq (clatter-connection-state conn) :connected)))
+                       (clatter--watchdog "EXT-WATCHDOG-KILL %s (not connected in 30s)"
+                                          network-id)
+                       (delete-process wp)))))
+    conn))
 
 ;; --- Connect ---
 
@@ -270,6 +345,10 @@ ARGS are keyword arguments that override `clatter-networks' config:
       (clatter--watchdog "CONNECT %s %s:%d tls=%s" network-id server port use-tls)
 
       (condition-case err
+          (if (and use-tls (eq clatter-tls-method 'external))
+              ;; External TLS subprocess path: TLS runs in a separate OS
+              ;; process so a dead socket cannot block Emacs's event loop.
+              (clatter--connect-external conn config network-id server port)
           (let* ((client-cert (plist-get config :client-cert))
                  ;; Always connect plain+nowait first - TLS handshake
                  ;; happens async in the sentinel to avoid blocking Emacs
@@ -328,7 +407,7 @@ ARGS are keyword arguments that override `clatter-networks' config:
                                         (eq (clatter-connection-state conn) :connecting))
                                (clatter--watchdog "WATCHDOG-KILL %s (stuck connecting)" network-id)
                                (delete-process watchdog-proc)))))
-            conn)
+            conn))
         (error
          (clatter--watchdog "CONNECT-FAIL %s %s" network-id (error-message-string err))
          (setf (clatter-connection-state conn) :disconnected)

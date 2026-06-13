@@ -82,9 +82,26 @@ All commands are typed in the input area prefixed with =/=.
 | =/msg nick text=       |            | Send private message                      |
 | =/say text=            |            | Send text to the current buffer (useful for text starting with =/=) |
 | =/me action=           |            | Send action (/me does something)          |
-| =/reply text=          | =/r=       | Reply to message at point (threaded)      |
-| =/react emoji=         |            | React to message at point with emoji      |
+| =/reply text=          | =/r=       | Reply to the selected message (threaded, see below) |
+| =/react emoji=         |            | React to the selected message with emoji (see below) |
 | =/ctcp nick command=   |            | Send CTCP query                           |
+
+*** Selecting a message for /reply and /react
+
+Both =/reply= and =/react= act on the message in the *secondary
+selection*, not on the message at point. Select a message first, then
+type the command in the input area:
+
+- Drag over a message with =M-<mouse-1>= (the standard Emacs secondary
+  selection), or
+- Put point on a message and run =M-x clatter-select-message= (also
+  reachable from the message action menu, =C-c C-a=), which copies that
+  message into the secondary selection.
+
+The selection is "sticky": it persists until you replace it, so you can
+fire several reactions at the same message. Clatter clears it
+automatically after a =/reply=. If nothing is selected, clatter prompts
+you to select a message first.
 
 ** Channel Management
 

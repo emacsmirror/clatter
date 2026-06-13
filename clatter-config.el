@@ -63,6 +63,33 @@ Example:
   :type 'boolean
   :group 'clatter)
 
+(defcustom clatter-tls-method 'builtin
+  "How to establish TLS connections.
+`builtin' uses Emacs's internal GnuTLS via `gnutls-negotiate'.  This is
+simple but, because Emacs is single-threaded, a write to a silently
+half-open socket can block the entire Emacs event loop for minutes.
+
+`external' runs an external TLS client subprocess (see
+`clatter-tls-external-command') and speaks plaintext IRC to it over a
+pipe.  TLS then lives in a separate OS process, so a dead network socket
+blocks that subprocess rather than Emacs."
+  :type '(choice (const :tag "Built-in GnuTLS" builtin)
+                 (const :tag "External subprocess" external))
+  :group 'clatter)
+
+(defcustom clatter-tls-external-command "gnutls-cli"
+  "External TLS client used when `clatter-tls-method' is `external'.
+Recognized values are \"gnutls-cli\" and \"openssl\" (which uses
+`openssl s_client').  \"gnutls-cli\" is recommended: it streams
+line-oriented data promptly and verifies certificates strictly.  Any
+other string is treated as an `openssl'-style program name.
+
+The chosen client is wrapped with `stdbuf' when available so its output
+is line-buffered and incoming IRC lines are not delayed by pipe
+buffering."
+  :type '(choice (const "gnutls-cli") (const "openssl") string)
+  :group 'clatter)
+
 (defcustom clatter-timestamp-format "%H:%M"
   "Format string for message timestamps.
 See `format-time-string' for format specifiers."

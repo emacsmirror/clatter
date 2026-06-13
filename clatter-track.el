@@ -57,6 +57,22 @@ Removes the clatter: prefix and network name."
   :type 'boolean
   :group 'clatter)
 
+(defcustom clatter-track-in-buffer-mode-line nil
+  "Show the activity crumbs in each clatter buffer's own mode line.
+By default the track indicator is appended to the global
+`mode-line-format', which clatter buffers override with their own
+buffer-local mode line, so the crumbs are not visible while you are in a
+clatter buffer.  When this is non-nil, the indicator is also inserted
+into each clatter buffer's mode line (just before the trailing spaces),
+so the crumbs appear everywhere.  Setting this through Customize or
+`setopt' updates all existing clatter buffers immediately."
+  :type 'boolean
+  :group 'clatter
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (fboundp 'clatter-track--refresh-mode-lines)
+           (clatter-track--refresh-mode-lines))))
+
 ;; --- Faces ---
 
 (defface clatter-track-mention
@@ -188,6 +204,31 @@ Returns list of plists sorted by priority: mentions > DMs > activity."
   "Mode-line construct showing clatter activity.")
 
 (put 'clatter-track-mode-line-item 'risky-local-variable t)
+
+(defun clatter-track--insert-mode-line-item (format)
+  "Return mode-line FORMAT with the track item before the trailing spaces.
+If the item is already present, FORMAT is returned unchanged."
+  (if (memq 'clatter-track-mode-line-item format)
+      format
+    (let ((tail (member 'mode-line-end-spaces format)))
+      (if tail
+          (append (butlast format (length tail))
+                  (list 'clatter-track-mode-line-item)
+                  tail)
+        (append format (list 'clatter-track-mode-line-item))))))
+
+(defun clatter-track--refresh-mode-lines ()
+  "Add or remove the track item in all clatter buffers' mode lines.
+The presence of the item follows `clatter-track-in-buffer-mode-line'."
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'clatter-mode)
+        (setq-local mode-line-format
+                    (if clatter-track-in-buffer-mode-line
+                        (clatter-track--insert-mode-line-item mode-line-format)
+                      (delq 'clatter-track-mode-line-item
+                            (copy-sequence mode-line-format))))
+        (force-mode-line-update)))))
 
 (defun clatter-track--update ()
   "Update the track string and force mode-line refresh."

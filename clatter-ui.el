@@ -483,12 +483,18 @@ If the input contains multiple lines and exceeds
     ;; never mutate the shared clatter-suppress-messages list.
     (setq buffer-invisibility-spec (copy-sequence clatter-suppress-messages))
     (clatter--setup-prompt buffer)
-    ;; Add mode-line
+    ;; Add mode-line.  Optionally include the activity crumbs (see
+    ;; `clatter-track-in-buffer-mode-line') so they are visible while
+    ;; inside a clatter buffer, not just in the global mode line.
     (setq-local mode-line-format
-                (list " " 'mode-line-buffer-identification
-                      clatter-mode-line-format
-                      '(:eval (clatter--typing-mode-line))
-                      " " 'mode-line-end-spaces))
+                (append
+                 (list " " 'mode-line-buffer-identification
+                       clatter-mode-line-format
+                       '(:eval (clatter--typing-mode-line)))
+                 (when (and (boundp 'clatter-track-in-buffer-mode-line)
+                            clatter-track-in-buffer-mode-line)
+                   (list 'clatter-track-mode-line-item))
+                 (list " " 'mode-line-end-spaces)))
     ;; Key bindings for input
     (let ((map (make-sparse-keymap)))
       (set-keymap-parent map clatter-mode-map)
