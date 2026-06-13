@@ -121,11 +121,17 @@ Called with (CONN SENDER NICK CHANNEL).")
 (defvar clatter-sent (make-hash-table :test #'equal)
   "Sent messages, keyed by network ID.")
 
+(defconst clatter-sent-tracking-limit 1024
+  "Fallback number of sent message IDs to remember per network.
+Used when `clatter-buffer-max-lines' is nil (buffer truncation disabled),
+so sent-message tracking still has a bounded ring size.")
+
 (defun clatter-sent-add (network msgid)
   "Record MSGID as a sent message within NETWORK."
   (let* ((messages-and-ring (or (gethash network clatter-sent)
                                 (puthash network (cons (make-hash-table :test #'equal)
-                                                       (make-ring clatter-buffer-max-lines))
+                                                       (make-ring (or clatter-buffer-max-lines
+                                                                      clatter-sent-tracking-limit)))
                                          clatter-sent)))
          (messages (car messages-and-ring))
          (inserted (cdr messages-and-ring)))
