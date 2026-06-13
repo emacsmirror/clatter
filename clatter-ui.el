@@ -231,10 +231,12 @@ Returns (sender . text) or nil."
 SERVER-TIME overrides the current time for the timestamp."
   (let* ((nick-face (clatter-hl-nick-face sender conn))
          (my-nick (clatter-connection-nick conn))
+         (is-reply-to-me (get-text-property 0 'clatter-reply-to-me text))
          (is-mention (and my-nick
-                          (string-match-p
-                           (regexp-quote (downcase my-nick))
-                           (downcase text))))
+                          (or is-reply-to-me
+                              (string-match-p
+                               (regexp-quote (downcase my-nick))
+                               (downcase text)))))
          (reply-to (get-text-property 0 'clatter-reply-to text))
          (msgid (get-text-property 0 'clatter-msgid text))
          (reply-context (when reply-to
