@@ -140,8 +140,11 @@ Accumulates partial lines and dispatches complete ones."
       (let ((data (concat (string-to-multibyte
                           (or (clatter-connection-recv-buffer conn) ""))
                          (string-to-multibyte string))))
-        ;; Process complete lines (terminated by \r\n or \n)
-        (while (string-match "\r?\n" data)
+        ;; Process complete lines (terminated by CRLF or LF).  Strip any
+        ;; number of trailing CRs: the builtin network transport auto
+        ;; converts CRLF to LF, but the external subprocess pipe does not,
+        ;; so the raw CR must be removed here to avoid trailing ^M.
+        (while (string-match "\r*\n" data)
           (let ((line (substring data 0 (match-beginning 0))))
             (setq data (substring data (match-end 0)))
             (when (> (length line) 0)
