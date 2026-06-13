@@ -149,7 +149,7 @@ Return nil when the ring is empty or N is out of range."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when clatter--nick-list
-        (puthash (downcase nick) (or prefix "") clatter--nick-list)))))
+        (puthash (downcase nick) (cons (or prefix "") nick) clatter--nick-list)))))
 
 (defun clatter-nick-remove (buffer nick)
   "Remove NICK from BUFFER's nick list."
@@ -163,9 +163,10 @@ Return nil when the ring is empty or N is out of range."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when clatter--nick-list
-        (let ((prefix (gethash (downcase old-nick) clatter--nick-list)))
+        (let* ((prefix-and-nick (gethash (downcase old-nick) clatter--nick-list))
+               (prefix (car prefix-and-nick)))
           (remhash (downcase old-nick) clatter--nick-list)
-          (puthash (downcase new-nick) (or prefix "") clatter--nick-list))))))
+          (puthash (downcase new-nick) (cons (or prefix "") new-nick) clatter--nick-list))))))
 
 (defun clatter-nick-list (buffer)
   "Return sorted list of (nick . prefix) pairs for BUFFER."
@@ -173,7 +174,7 @@ Return nil when the ring is empty or N is out of range."
     (with-current-buffer buffer
       (when clatter--nick-list
         (let ((nicks nil))
-          (maphash (lambda (k v) (push (cons k v) nicks)) clatter--nick-list)
+          (maphash (lambda (_k v) (push (cons (cdr v) (car v)) nicks)) clatter--nick-list)
           (sort nicks (lambda (a b) (string< (car a) (car b)))))))))
 
 (defun clatter-nick-count (buffer)
