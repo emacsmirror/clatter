@@ -139,6 +139,7 @@ append at the bottom like a traditional IRC client."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (let ((inhibit-read-only t)
+            (buffer-undo-list t)
             (oldest-first (eq clatter-message-order 'oldest-first)))
         (save-excursion
           (goto-char (if oldest-first
@@ -302,7 +303,8 @@ SERVER-TIME overrides the current time for the timestamp."
 (defun clatter--setup-prompt (buffer)
   "Set up the input prompt at the top of BUFFER."
   (with-current-buffer buffer
-    (let ((inhibit-read-only t))
+    (let ((inhibit-read-only t)
+          (buffer-undo-list t))
       (clatter-input-ring-setup)
       (goto-char (point-min))
       (setq clatter--prompt-marker (point-marker))
@@ -379,6 +381,7 @@ If the input contains multiple lines and exceeds
                                nlines (or clatter--target "?")))))
             (message "[clatter] Paste cancelled")
           (clatter--clear-input)
+          (setq buffer-undo-list nil)
           (if (string-prefix-p "/" (car lines))
               (clatter--handle-command (car lines))
             (dolist (line lines)
