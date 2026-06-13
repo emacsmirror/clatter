@@ -279,6 +279,68 @@ Or configure via =customize=:
 
 Or use =M-x customize-group RET clatter RET= for the full options UI.
 
+** Recommended Configuration (use-package)
+
+A complete =use-package= setup, adapted from one contributed by
+[[https://github.com/fmqa][fmqa]]. It binds the common commands, injects a
+client certificate into every network for SASL EXTERNAL, and shows activity
+crumbs in the mode line of all clatter buffers.
+
+#+BEGIN_SRC emacs-lisp
+(use-package clatter
+  ;; Installed from MELPA. To track git HEAD instead, add e.g.
+  ;; :vc (:url "https://github.com/parenworks/clatter.el.git" :rev :newest)
+  :defer t
+  :commands clatter-connect
+  :bind (:map clatter-mode-map
+              ("C-c ."   . clatter-track-switch)
+              ("C-c C-." . clatter-track-switch)
+              ("C-c :"   . clatter-track-list)
+              ("C-c n"   . clatter-nicklist-toggle)
+              ("C-c C-n" . clatter-nicklist-toggle))
+  :preface
+  (defun clatter-add-track-mode-line-item (buf)
+    "Show the clatter activity crumbs in the mode line of BUF."
+    (with-current-buffer buf
+      (unless (memq 'clatter-track-mode-line-item mode-line-format)
+        (setq-local
+         mode-line-format
+         (cl-loop for elt in mode-line-format
+                  if (eq 'mode-line-end-spaces elt)
+                  collect 'clatter-track-mode-line-item
+                  collect elt)))))
+  :config
+  ;; Ensure GnuTLS is loaded before connecting.
+  (require 'gnutls)
+  ;; Present the same client certificate on every configured network
+  ;; (for SASL EXTERNAL / CertFP). Adjust the path to your certificate.
+  (mapc (lambda (network)
+          (setf (cdr network)
+                (plist-put (cdr network)
+                           :client-cert
+                           (file-name-concat
+                            user-emacs-directory "clatter" "irc.pem"))))
+        clatter-networks)
+  ;; Show activity crumbs in all clatter buffers, not just the active one.
+  (advice-add 'clatter-ui-setup-buffer :after #'clatter-add-track-mode-line-item)
+  :custom
+  ;; (clatter-timestamp-format "%H:%M:%S")
+  (clatter-networks
+   '(("Libera.Chat"
+      :server "irc.libera.chat"
+      :nick "yournick" :realname "Your Name"
+      :sasl external
+      :autojoin ("#emacs" "#commonlisp" "#systemcrafters"))
+     ("OFTC"
+      :server "irc.oftc.net"
+      :nick "yournick" :realname "Your Name"
+      :autojoin ("#debian")))))
+#+END_SRC
+
+The =clatter-add-track-mode-line-item= advice is optional. It is shown here
+because there is not yet a built-in option for placing the activity crumbs in
+every buffer's mode line.
+
 ** Keybindings
 
 clatter does not impose any global keybindings. All commands are available via =M-x= and =/slash= commands in the input prompt.
