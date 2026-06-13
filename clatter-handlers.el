@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'ring)
 (require 'clatter-config)
 (require 'clatter-protocol)
 (require 'clatter-connection)
@@ -114,6 +115,31 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
 (defvar clatter-invite-hook nil
   "Hook for INVITE events.
 Called with (CONN SENDER NICK CHANNEL).")
+
+;; --- Sent message tracking --
+
+(defvar clatter-sent (make-hash-table :test #'equal)
+  "Sent messages, keyed by network ID.")
+
+(defun clatter-sent-add (network msgid)
+  "Record MSGID as a sent message within NETWORK."
+  (let* ((messages-and-ring (or (gethash network clatter-sent)
+                                (puthash network (cons (make-hash-table :test #'equal)
+                                                       (make-ring clatter-buffer-max-lines))
+                                         clatter-sent)))
+         (messages (car messages-and-ring))
+         (inserted (cdr messages-and-ring)))
+    ;; Evict older entries
+    (unless (gethash msgid messages)
+      (when (= (ring-length inserted) (ring-size inserted))
+        (remhash (ring-ref inserted 0) messages))
+      (ring-insert-at-beginning inserted msgid)
+      (puthash msgid t messages))))
+
+(defun clatter-sent-p (network msgid)
+  "Returns whether we sent MSGID to NETWORK."
+  (let ((messages-and-ring (gethash network clatter-sent)))
+    (and messages-and-ring (gethash msgid (car messages-and-ring)))))
 
 ;; --- Main Dispatch ---
 
@@ -308,7 +334,9 @@ Return the trimmed character."
 
       ;; --- PRIVMSG ---
       ("PRIVMSG"
-       (let* ((target (nth 0 params))
+       (let* ((parsed-tags (clatter-parse-tags tags))
+              (msgid (cdr (assoc "msgid" parsed-tags)))
+              (target (nth 0 params))
               (raw-text (nth 1 params))
               (parsed-prefix (clatter-parse-prefix prefix))
               (sender-nick (clatter-prefix-nick parsed-prefix))
@@ -317,6 +345,10 @@ Return the trimmed character."
               (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
                                  (when isup (gethash "STATUSMSG" isup))))
               (status-prefix (clatter--set-unprefixed target statusmsg-chars)))
+         ;; Record sent message
+         (when (and msgid
+                    (string-equal-ignore-case (clatter-connection-nick conn) sender-nick))
+           (clatter-sent-add (clatter-connection-network-id conn) msgid))
          ;; CTCP
          (if (and (> (length raw-text) 1)
                   (= (aref raw-text 0) 1)
@@ -324,13 +356,14 @@ Return the trimmed character."
              (clatter--handle-ctcp conn sender-nick target raw-text)
            (let* ((text (clatter--prepend-status-prefix status-prefix raw-text))
                   (server-time (clatter-get-server-time tags))
-                  (parsed-tags (clatter-parse-tags tags))
                   (batch-id (cdr (assoc "batch" parsed-tags)))
                   (is-bot (assoc "bot" parsed-tags))
-                  (msgid (cdr (assoc "msgid" parsed-tags)))
                   (reply-to (or (cdr (assoc "+draft/reply" parsed-tags))
                                 (cdr (assoc "+reply" parsed-tags))
-                                (cdr (assoc "draft/reply" parsed-tags)))))
+                                (cdr (assoc "draft/reply" parsed-tags))))
+                  (is-reply-to-me (and reply-to
+                                       (clatter-sent-p
+                                        (clatter-connection-network-id conn) reply-to))))
              ;; Mark sender as bot if draft/bot tag present
              (when is-bot
                (setq sender-nick (propertize sender-nick 'clatter-bot t)))
@@ -339,6 +372,8 @@ Return the trimmed character."
                (setq text (propertize text 'clatter-msgid msgid)))
              (when reply-to
                (setq text (propertize text 'clatter-reply-to reply-to)))
+             (when is-reply-to-me
+               (setq text (propertize text 'clatter-reply-to-me t)))
              (cond
               ;; Batched message
               (batch-id

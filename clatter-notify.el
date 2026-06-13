@@ -250,6 +250,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (is-muted-channel (and is-channel
                                   (member target clatter-notify-muted-channels)))
            (is-muted-nick (member sender clatter-notify-muted-nicks))
+           (is-reply-to-me (get-text-property 0 'clatter-reply-to-me text))
            (text-lower (downcase (or text ""))))
       (let ((reason
              (cond
@@ -264,8 +265,10 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
               ((and is-dm clatter-notify-on-dm) 'dm)
               ;; Mention
               ((and clatter-notify-on-mention
-                    my-nick
-                    (string-match-p (regexp-quote (downcase my-nick)) text-lower))
+                    (or is-reply-to-me
+                        (and my-nick
+                             (string-match-p (regexp-quote (downcase my-nick))
+                                             text-lower))))
                'mention)
               ;; Keyword
               ((and clatter-notify-on-keyword
