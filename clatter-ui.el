@@ -709,6 +709,11 @@ Emacs requires `set-window-margins' on the window, not just
       (push "  IRC Operator" parts))
     (when (plist-get data :away)
       (push (format "  Away: %s" (plist-get data :away)) parts))
+    (when (plist-get data :bot)
+      (push (if (string-empty-p (plist-get data :bot))
+                "  Is a bot."
+              (format "  Is a bot: %s" (plist-get data :bot)))
+            parts))
     (dolist (line (nreverse parts))
       (clatter-insert-system buf line))))
 

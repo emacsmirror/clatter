@@ -550,6 +550,10 @@ Called with (CONN BATCH-TYPE TARGET MESSAGES).")
        (let ((data (clatter-connection--whois-data conn)))
          (when data
            (plist-put data :account (nth 2 params)))))
+      ("335"  ; RPL_WHOISBOT
+       (let ((data (clatter-connection--whois-data conn)))
+         (when data
+           (plist-put data :bot (or (nth 2 params) t)))))
       ("671"  ; RPL_WHOISSECURE
        (let ((data (clatter-connection--whois-data conn)))
          (when data
