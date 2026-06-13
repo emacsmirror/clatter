@@ -6,7 +6,7 @@
 
 ;;; Commentary:
 ;; Provides a side window displaying channel members with nick colors
-;; and mode prefixes. Toggle with `clatter-nicklist-toggle' or SPC i n.
+;; and mode prefixes.  Toggle with `clatter-nicklist-toggle'.
 
 ;;; Code:
 
