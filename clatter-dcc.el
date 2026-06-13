@@ -1,5 +1,9 @@
 ;;; clatter-dcc.el --- DCC file transfer and chat for clatter -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2026 Glenn Thompson
+;; Author: Glenn Thompson
+;; License: MIT
+
 ;;; Commentary:
 ;; Direct Client-to-Client (DCC) protocol support.
 ;; - DCC SEND: receive files from IRC users and XDCC bots

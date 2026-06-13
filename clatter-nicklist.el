@@ -1,5 +1,9 @@
 ;;; clatter-nicklist.el --- Channel member sidebar for clatter -*- lexical-binding: t; -*-
 
+;; Copyright (C) 2026 Glenn Thompson
+;; Author: Glenn Thompson
+;; License: MIT
+
 ;;; Commentary:
 ;; Provides a side window displaying channel members with nick colors
 ;; and mode prefixes. Toggle with `clatter-nicklist-toggle' or SPC i n.
