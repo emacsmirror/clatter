@@ -410,6 +410,13 @@ If the input contains multiple lines and exceeds
   ;; Forward to clatter-commands.el
   (clatter-execute-command input))
 
+(defun clatter-bol ()
+  "Move `point' to the beginning of the current line."
+  (interactive)
+  (and (forward-line 0)
+       (equal (point-marker) clatter--prompt-marker)
+       (goto-char clatter--input-marker)))
+
 ;; Forward declaration
 (declare-function clatter-execute-command "clatter-commands")
 
@@ -460,6 +467,8 @@ If the input contains multiple lines and exceeds
       (define-key map (kbd "TAB") #'completion-at-point)
       (define-key map (kbd "M-p") #'clatter-set-prev-input)
       (define-key map (kbd "M-n") #'clatter-set-next-input)
+      (define-key map (kbd "C-a") #'clatter-bol)
+      (define-key map [home] #'clatter-bol)
       (use-local-map map))
     ;; Ensure window margins are synced for timestamp display
     (add-hook 'window-configuration-change-hook
