@@ -117,6 +117,23 @@ Called with (CONN SENDER NICK CHANNEL).")
 
 ;; --- Main Dispatch ---
 
+(defmacro clatter--set-unprefixed (target prefixes)
+  "Trim TARGET's prefix character if within PREFIXES and return the trimmed character."
+  `(when (and ,prefixes
+              (> (length ,target) 1)
+              (seq-contains-p ,prefixes (aref ,target 0)))
+     (prog1 (string (aref ,target 0))
+       (setq ,target (substring ,target 1)))))
+
+(defun clatter--prepend-status-prefix (status-prefix text)
+  "Prepend a human-readable description of STATUS-PREFIX to TEXT."
+  (if status-prefix
+      (let ((label (cond ((string= status-prefix "@") "[ops]")
+                         ((string= status-prefix "+") "[voiced]")
+                         (t (format "[%s]" status-prefix)))))
+        (concat (propertize label 'face 'clatter-notice) " " text))
+    text))
+
 (defun clatter-dispatch-message (conn msg)
   "Dispatch parsed MSG on CONN to the appropriate handler."
   (let ((command (clatter-message-command msg))
@@ -292,60 +309,56 @@ Called with (CONN SENDER NICK CHANNEL).")
       ("PRIVMSG"
        (let* ((target (nth 0 params))
               (raw-text (nth 1 params))
-              (text (clatter-strip-irc-formatting raw-text))
               (parsed-prefix (clatter-parse-prefix prefix))
               (sender-nick (clatter-prefix-nick parsed-prefix))
-              (server-time (clatter-get-server-time tags))
-              (parsed-tags (clatter-parse-tags tags))
-              (batch-id (cdr (assoc "batch" parsed-tags)))
-              (is-bot (assoc "bot" parsed-tags))
-              (msgid (cdr (assoc "msgid" parsed-tags)))
-              (reply-to (or (cdr (assoc "+draft/reply" parsed-tags))
-                            (cdr (assoc "+reply" parsed-tags))
-                            (cdr (assoc "draft/reply" parsed-tags))))
-              ;; STATUSMSG: detect prefix like @#channel or +#channel
+              ;; STATUSMSG: detect prefix like @#channel or +#channel and strip
+              ;; it from target
               (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
                                  (when isup (gethash "STATUSMSG" isup))))
-              (status-prefix nil))
-         ;; Strip STATUSMSG prefix from target
-         (when (and statusmsg-chars
-                    (> (length target) 1)
-                    (cl-find (aref target 0) statusmsg-chars))
-           (setq status-prefix (string (aref target 0)))
-           (setq target (substring target 1))
-           (let ((label (cond ((string= status-prefix "@") "[ops]")
-                              ((string= status-prefix "+") "[voiced]")
-                              (t (format "[%s]" status-prefix)))))
-             (setq text (concat (propertize label 'face 'clatter-notice) " " text))))
-         ;; Mark sender as bot if draft/bot tag present
-         (when is-bot
-           (setq sender-nick (propertize sender-nick 'clatter-bot t)))
-         ;; Attach msgid and reply-to as text properties
-         (when msgid
-           (setq text (propertize text 'clatter-msgid msgid)))
-         (when reply-to
-           (setq text (propertize text 'clatter-reply-to reply-to)))
-         (cond
-          ;; CTCP
-          ((and (> (length raw-text) 1)
-                (= (aref raw-text 0) 1)
-                (= (aref raw-text (1- (length raw-text))) 1))
-           (clatter--handle-ctcp conn sender-nick target raw-text))
-          ;; Batched message
-          (batch-id
-           (clatter--accumulate-batch conn batch-id sender-nick text server-time))
-          ;; Normal message
-          (t
-           (run-hook-with-args 'clatter-privmsg-hook
-                               conn sender-nick target text server-time)))))
+              (status-prefix (clatter--set-unprefixed target statusmsg-chars)))
+         ;; CTCP
+         (if (and (> (length raw-text) 1)
+                  (= (aref raw-text 0) 1)
+                  (= (aref raw-text (1- (length raw-text))) 1))
+             (clatter--handle-ctcp conn sender-nick target raw-text)
+           (let* ((text (clatter--prepend-status-prefix status-prefix raw-text))
+                  (server-time (clatter-get-server-time tags))
+                  (parsed-tags (clatter-parse-tags tags))
+                  (batch-id (cdr (assoc "batch" parsed-tags)))
+                  (is-bot (assoc "bot" parsed-tags))
+                  (msgid (cdr (assoc "msgid" parsed-tags)))
+                  (reply-to (or (cdr (assoc "+draft/reply" parsed-tags))
+                                (cdr (assoc "+reply" parsed-tags))
+                                (cdr (assoc "draft/reply" parsed-tags)))))
+             ;; Mark sender as bot if draft/bot tag present
+             (when is-bot
+               (setq sender-nick (propertize sender-nick 'clatter-bot t)))
+             ;; Attach msgid and reply-to as text properties
+             (when msgid
+               (setq text (propertize text 'clatter-msgid msgid)))
+             (when reply-to
+               (setq text (propertize text 'clatter-reply-to reply-to)))
+             (cond
+              ;; Batched message
+              (batch-id
+               (clatter--accumulate-batch conn batch-id sender-nick text server-time))
+              ;; Normal message
+              (t
+               (run-hook-with-args 'clatter-privmsg-hook
+                                   conn sender-nick target text server-time)))))))
 
       ;; --- NOTICE ---
       ("NOTICE"
        (let* ((target (nth 0 params))
               (raw-text (nth 1 params))
-              (text (clatter-strip-irc-formatting raw-text))
               (parsed-prefix (clatter-parse-prefix prefix))
-              (sender-nick (or (clatter-prefix-nick parsed-prefix) "*")))
+              (sender-nick (or (clatter-prefix-nick parsed-prefix) "*"))
+              ;; STATUSMSG: detect prefix like @#channel or +#channel and strip
+              ;; it from target
+              (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
+                                 (when isup (gethash "STATUSMSG" isup))))
+              (status-prefix (clatter--set-unprefixed target statusmsg-chars))
+              (text (clatter--prepend-status-prefix status-prefix raw-text)))
          ;; Check for CTCP reply in NOTICE (don't respond)
          (if (and (> (length raw-text) 1)
                   (= (aref raw-text 0) 1)
