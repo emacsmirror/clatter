@@ -141,7 +141,7 @@ Active when the word at point starts with #."
 ;; --- Combined CAPF ---
 
 (defun clatter-completion-at-point ()
-  "Main completion-at-point function for clatter buffers.
+  "Main `completion-at-point' function for clatter buffers.
 Dispatches to command, channel, or nick completion as appropriate."
   (or (clatter-completion--command-capf)
       (clatter-completion--channel-capf)
@@ -150,7 +150,7 @@ Dispatches to command, channel, or nick completion as appropriate."
 ;; --- Setup ---
 
 (defun clatter-completion-setup ()
-  "Set up completion-at-point in the current clatter buffer."
+  "Set up `completion-at-point' in the current clatter buffer."
   (setq-local completion-ignore-case t)
   (add-hook 'completion-at-point-functions
             #'clatter-completion-at-point nil t))

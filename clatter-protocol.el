@@ -258,11 +258,11 @@ The last param is treated as trailing if it contains spaces."
   (clatter-format-line "NICK" nick))
 
 (defun clatter-irc-user (username realname)
-  "Format USER command."
+  "Format USER command for USERNAME and REALNAME."
   (clatter-format-line "USER" username "0" "*" realname))
 
 (defun clatter-irc-pass (password)
-  "Format PASS command."
+  "Format PASS command with PASSWORD."
   (clatter-format-line "PASS" password))
 
 (defun clatter-irc-join (channel &optional key)

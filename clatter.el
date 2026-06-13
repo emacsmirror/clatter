@@ -37,7 +37,7 @@
 ;;        :tls t
 ;;        :nick "yournick"
 ;;        :sasl plain
-;;        :autojoin ("#emacs" "#commonlisp"))))
+;;        :autojoin ("#systemcrafters" "#commonlisp"))))
 ;;   (clatter-connect "libera")
 
 ;;; Code:

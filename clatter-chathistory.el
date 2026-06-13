@@ -151,7 +151,7 @@ COUNT defaults to `clatter-chathistory-limit'."
       (message "Not in a clatter buffer"))))
 
 (defun clatter-chathistory-more (&optional count)
-  "Fetch older messages (before the earliest in this buffer)."
+  "Fetch COUNT older messages (before the earliest in this buffer)."
   (interactive "P")
   (let ((conn (clatter-get-connection clatter--network))
         (target clatter--target)

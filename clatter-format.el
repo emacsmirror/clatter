@@ -228,6 +228,8 @@ If `clatter-format-enable' is nil, returns TEXT unchanged."
 (defun clatter-format--build-face (bold italic underline strikethrough
                                         reverse-video monospace fg-color bg-color)
   "Build a face spec from the current formatting state.
+BOLD, ITALIC, UNDERLINE, STRIKETHROUGH, REVERSE-VIDEO, MONOSPACE,
+FG-COLOR and BG-COLOR are the active formatting attributes.
 Returns nil if no formatting is active."
   (let ((face nil))
     (when bold (push :weight face) (push 'bold face))

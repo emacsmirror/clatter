@@ -136,7 +136,7 @@ Each entry is (CHANNEL USERS TOPIC).")
 ;; --- Entry point ---
 
 (defun clatter-list-request (conn &optional arg)
-  "Send LIST on CONN and prepare to display results."
+  "Send LIST on CONN and prepare to display results; ARG filters server-side."
   (setq clatter-list--entries nil)
   (setq clatter-list--conn conn)
   (setq clatter-list--filter "")

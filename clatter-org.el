@@ -57,7 +57,7 @@ including sender and message text."
 ;; --- org-capture helpers ---
 
 (defun clatter-org-capture-message ()
-  "Return formatted message at point for org-capture template.
+  "Return formatted message at point for `org-capture' template.
 For use in capture templates as %(clatter-org-capture-message)."
   (if (derived-mode-p 'clatter-mode)
       (let ((sender (get-text-property (point) 'clatter-sender))
@@ -74,7 +74,7 @@ For use in capture templates as %(clatter-org-capture-message)."
     "Not in a clatter buffer"))
 
 (defun clatter-org-capture-channel ()
-  "Return current channel/network for org-capture template.
+  "Return current channel/network for `org-capture' template.
 For use as %(clatter-org-capture-channel)."
   (if (derived-mode-p 'clatter-mode)
       (format "%s/%s" (or clatter--network "unknown")

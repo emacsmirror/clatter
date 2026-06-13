@@ -123,9 +123,10 @@ Example:
 
 (defcustom clatter-notify-dm-priority 'always
   "Priority for DM notifications.
-  always - always notify for DMs regardless of rules
-  rules  - apply rules to DMs as well
-  never  - never notify for DMs"
+The value is one of:
+always - always notify for DMs regardless of rules
+rules  - apply rules to DMs as well
+never  - never notify for DMs"
   :type '(choice (const :tag "Always notify" always)
                  (const :tag "Follow rules" rules)
                  (const :tag "Never" never))
@@ -234,7 +235,7 @@ Prevents notification spam from rapid messages."
 ;; --- Notification logic ---
 
 (defun clatter-notify--should-notify-p (sender target text conn)
-  "Determine if a notification should be sent.
+  "Determine if SENDER's TEXT to TARGET on CONN should notify.
 Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (when clatter-notify-enabled
     (let* ((my-nick (clatter-connection-nick conn))
@@ -302,7 +303,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
 ;; --- Hooks ---
 
 (defun clatter-notify--on-privmsg (conn sender target text &rest _args)
-  "Handle PRIVMSG for notifications."
+  "Notify for SENDER's PRIVMSG TEXT to TARGET on CONN."
   (let ((reason (clatter-notify--should-notify-p sender target text conn)))
     (when reason
       (let* ((is-channel (and target (string-match-p "^[#&!+]" target)))
@@ -313,7 +314,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (format "<%s> %s" sender text)))))))
 
 (defun clatter-notify--on-action (conn sender target text &rest _args)
-  "Handle ACTION for notifications."
+  "Notify for SENDER's ACTION TEXT to TARGET on CONN."
   (let ((reason (clatter-notify--should-notify-p sender target text conn)))
     (when reason
       (let* ((is-channel (and target (string-match-p "^[#&!+]" target)))
@@ -324,7 +325,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (format "* %s %s" sender text)))))))
 
 (defun clatter-notify--on-invite (conn sender nick channel)
-  "Handle INVITE for notifications."
+  "Notify when SENDER invites NICK to CHANNEL on CONN."
   (when (and clatter-notify-on-invite
              (string-equal (clatter-connection-nick conn) nick))
     (when (clatter-notify--rate-ok-p sender)

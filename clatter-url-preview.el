@@ -123,7 +123,7 @@ Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
 ;; --- Hook Handler ---
 
 (defun clatter-url-preview--on-privmsg (conn sender target text _server-time)
-  "Check TEXT for URLs and fetch titles for TARGET buffer on CONN."
+  "Check TEXT from SENDER for URLs and fetch titles for TARGET buffer on CONN."
   (when clatter-url-preview-enable
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))

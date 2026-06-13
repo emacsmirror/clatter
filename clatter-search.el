@@ -232,7 +232,7 @@ With prefix arg, prompt for network to filter."
 ;; --- Completing-read interface ---
 
 (defun clatter-search-completing (query)
-  "Search IRC logs for QUERY with completing-read interface.
+  "Search IRC logs for QUERY with a `completing-read' interface.
 Select a result to jump to it in the log file."
   (interactive "sSearch IRC logs: ")
   (when (string-empty-p query)

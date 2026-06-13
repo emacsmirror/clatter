@@ -76,7 +76,7 @@ See `format-time-string' for format specifiers."
 
 (defcustom clatter-nick-column-width 20
   "Width of the nick column for right-aligned nick display.
-Nicks are right-aligned within this column. Increase if you
+Nicks are right-aligned within this column.  Increase if you
 have channels with very long nicknames."
   :type 'integer
   :group 'clatter)
@@ -234,7 +234,7 @@ types at runtime without losing any history."
   :group 'clatter)
 
 (defcustom clatter-prefix-rank "~&@%+"
-  "Default prefix ranking. This may be overriden by the server."
+  "Default prefix ranking.  This may be overridden by the server."
   :type 'string
   :group 'clatter)
 

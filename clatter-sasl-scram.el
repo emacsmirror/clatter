@@ -91,7 +91,7 @@ Full SASLprep (RFC 4013) is complex; this handles the common case."
   salted-password)
 
 (defun clatter-scram-client-first (username password)
-  "Create SCRAM client-first-message.
+  "Create SCRAM client-first-message for USERNAME and PASSWORD.
 Returns (STATE . BASE64-MESSAGE) cons."
   (let* ((nonce (clatter-scram--generate-nonce))
          (bare (format "n=%s,r=%s" username nonce))
@@ -147,7 +147,7 @@ Returns BASE64-MESSAGE string, or signals error on failure."
       (base64-encode-string client-final t))))
 
 (defun clatter-scram-verify-server (state server-final-b64)
-  "Verify server-final-message.
+  "Verify server-final-message in SERVER-FINAL-B64 against STATE.
 Returns t if server proof is valid, nil otherwise."
   (let* ((server-final (decode-coding-string
                         (base64-decode-string server-final-b64) 'utf-8))

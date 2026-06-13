@@ -121,6 +121,7 @@ TYPE is server, channel, or query (auto-detected if nil)."
   "Current position in the input history.")
 
 (defun clatter-input-ring-setup ()
+  "Initialize the buffer-local input history ring."
   (setq clatter-input-ring
         (if (and (ring-p clatter-input-ring)
                  (= (ring-size clatter-input-ring)
@@ -209,7 +210,7 @@ Uses format: WHO #channel %tcnuhraf,TOKEN to get account names."
                               channel clatter-whox-token)))
 
 (defun clatter-parse-names (names-str &optional prefixes)
-  "Parse NAMES reply string into list of (nick . prefix).
+  "Parse NAMES-STR into a list of (nick . prefix), honoring PREFIXES.
 Handles prefixes like @nick, +nick, ~nick."
   (unless prefixes
     (setq prefixes clatter-prefix-rank))

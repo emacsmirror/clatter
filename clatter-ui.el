@@ -366,6 +366,7 @@ SERVER-TIME overrides the current time for the timestamp."
                      (1- (marker-position clatter--messages-marker))))))
 
 (defun clatter--set-input (input)
+  "Replace the prompt input with INPUT."
   (clatter--clear-input)
   (insert input))
 
@@ -548,7 +549,7 @@ Emacs requires `set-window-margins' on the window, not just
 ;; --- Wire up event hooks ---
 
 (defun clatter-ui--on-privmsg (conn sender target text server-time)
-  "Handle PRIVMSG event for UI."
+  "Display SENDER's PRIVMSG TEXT to TARGET on CONN at SERVER-TIME."
   (unless (clatter-ignored-p sender)
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))
@@ -560,7 +561,7 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-insert-privmsg buf sender text conn server-time))))
 
 (defun clatter-ui--on-action (conn sender target text _server-time)
-  "Handle ACTION event for UI."
+  "Display SENDER's ACTION TEXT to TARGET on CONN."
   (unless (clatter-ignored-p sender)
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))
@@ -572,7 +573,7 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-insert-action buf sender text conn))))
 
 (defun clatter-ui--on-notice (conn sender target text)
-  "Handle NOTICE event for UI."
+  "Display SENDER's NOTICE TEXT to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network)
@@ -581,7 +582,7 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-insert-notice buf sender text conn)))
 
 (defun clatter-ui--on-invite (conn sender nick channel)
-  "Handle INVITE event for UI."
+  "Show that SENDER invited NICK to CHANNEL on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (buf (or (clatter-get-buffer network channel)
@@ -595,7 +596,7 @@ Emacs requires `set-window-margins' on the window, not just
                            'invite)))
 
 (defun clatter-ui--on-join (conn nick channel _account realname)
-  "Handle JOIN event for UI."
+  "Show NICK joining CHANNEL on CONN, noting REALNAME when present."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (buf (clatter-get-or-create-buffer network channel)))
@@ -611,7 +612,7 @@ Emacs requires `set-window-margins' on the window, not just
                            'join)))
 
 (defun clatter-ui--on-part (conn nick channel message)
-  "Handle PART event for UI."
+  "Show NICK leaving CHANNEL on CONN with optional MESSAGE."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network channel)))
     (when buf
@@ -622,7 +623,7 @@ Emacs requires `set-window-margins' on the window, not just
                              'part))))
 
 (defun clatter-ui--on-quit (conn nick message)
-  "Handle QUIT event for UI."
+  "Show NICK quitting on CONN with optional MESSAGE."
   (let ((network (clatter-connection-network-id conn)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase nick)
@@ -634,7 +635,7 @@ Emacs requires `set-window-margins' on the window, not just
                                'quit)))))
 
 (defun clatter-ui--on-nick (conn old-nick new-nick)
-  "Handle NICK change event for UI."
+  "Show OLD-NICK renaming to NEW-NICK on CONN."
   (let ((network (clatter-connection-network-id conn)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase old-nick)
@@ -646,7 +647,7 @@ Emacs requires `set-window-margins' on the window, not just
                                'nick)))))
 
 (defun clatter-ui--on-topic (conn channel nick topic at)
-  "Handle TOPIC event for UI."
+  "Show TOPIC for CHANNEL set by NICK at AT on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network channel)))
     (when buf
@@ -663,7 +664,7 @@ Emacs requires `set-window-margins' on the window, not just
         (clatter-insert-system buf (format "%s: %s" prefix hl-text) 'topic)))))
 
 (defun clatter-ui--on-kick (conn channel nick kicked reason)
-  "Handle KICK event for UI."
+  "Show NICK kicking KICKED from CHANNEL on CONN with REASON."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network channel)))
     (when buf
@@ -674,7 +675,7 @@ Emacs requires `set-window-margins' on the window, not just
                              'kick))))
 
 (defun clatter-ui--on-names (conn channel names-str)
-  "Handle NAMES reply for UI."
+  "Populate the CHANNEL nick list on CONN from NAMES-STR."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network channel))
          (prefixes (or (let ((isup (clatter-connection-isupport conn)))
@@ -690,7 +691,7 @@ Emacs requires `set-window-margins' on the window, not just
         (clatter-nick-add buf (car entry) (cdr entry))))))
 
 (defun clatter-ui--on-system (conn text)
-  "Handle system message for UI."
+  "Show system message TEXT on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server))))
@@ -698,7 +699,7 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-insert-system buf text)))
 
 (defun clatter-ui--on-welcome (conn _nick)
-  "Handle 001 welcome for UI."
+  "Handle 001 welcome for UI on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-or-create-buffer network "*server*" 'server)))
     (clatter-ui-setup-buffer-if-needed buf)
@@ -716,7 +717,7 @@ Emacs requires `set-window-margins' on the window, not just
 ;; --- Register hooks ---
 
 (defun clatter-ui--on-away (conn nick away-msg)
-  "Handle AWAY event for UI."
+  "Show NICK away state (AWAY-MSG) on CONN."
   (let ((network (clatter-connection-network-id conn)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase nick)
@@ -728,7 +729,7 @@ Emacs requires `set-window-margins' on the window, not just
                                'away)))))
 
 (defun clatter-ui--on-mode (conn target setter modes)
-  "Handle MODE event for UI."
+  "Show SETTER applying MODES on TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network))))
@@ -739,7 +740,7 @@ Emacs requires `set-window-margins' on the window, not just
                              'mode))))
 
 (defun clatter-ui--on-motd (conn lines)
-  "Handle MOTD for UI: display in server buffer."
+  "Display MOTD LINES on CONN in the server buffer."
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server))))
@@ -750,7 +751,7 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-insert-system buf "--- End of MOTD ---")))
 
 (defun clatter-ui--on-whois (_conn nick data)
-  "Handle WHOIS reply for UI: display formatted info in current buffer."
+  "Handle WHOIS reply for UI: display NICK info from DATA in current buffer."
   (let ((buf (current-buffer))
         (parts nil))
     (push (format "WHOIS %s (%s@%s)"
@@ -792,20 +793,20 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-insert-system buf line))))
 
 (defun clatter-ui--on-disconnect (network-id event)
-  "Handle disconnect for UI: show message in all NETWORK-ID buffers."
+  "Handle disconnect EVENT for UI: show message in all NETWORK-ID buffers."
   (dolist (buf (clatter-all-buffers network-id))
     (clatter-insert-error buf
                            (format "Disconnected: %s" (string-trim event)))))
 
 (defun clatter-ui--on-reconnect (network-id delay attempt)
-  "Handle reconnect scheduling for UI: show in all NETWORK-ID buffers."
+  "Handle reconnect scheduling (DELAY, ATTEMPT) for UI in NETWORK-ID buffers."
   (dolist (buf (clatter-all-buffers network-id))
     (clatter-insert-system buf
                             (format "Reconnecting in %ds (attempt %d)..."
                                     delay attempt))))
 
 (defun clatter-ui--on-react (conn nick target emoji msgid)
-  "Handle reaction: display EMOJI from NICK on message MSGID in TARGET."
+  "Handle reaction on CONN: display EMOJI from NICK on message MSGID in TARGET."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network target)))
     (when (and buf (buffer-live-p buf))
@@ -884,7 +885,7 @@ Renders a visual separator before and after history playback."
 ;; --- CTCP replies ---
 
 (defun clatter-ui--on-ctcp-reply (conn sender command reply-text)
-  "Display CTCP reply from SENDER in the current clatter buffer.
+  "Display CTCP reply from SENDER on CONN in the current clatter buffer.
 COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-buffer network sender)
@@ -938,7 +939,7 @@ COMMAND is the numeric reply code, PARAMS its parameters on CONN."
 ;; --- Channel preview on hover (eldoc) ---
 
 (defun clatter-ui--eldoc-function (callback &rest _)
-  "Eldoc function for clatter buffers.
+  "Eldoc function for clatter buffers, returning info via CALLBACK.
 Shows channel topic and user count when point is on a #channel name.
 Shows sender info when point is on a message."
   (let ((channel (clatter-ui--channel-at-point))

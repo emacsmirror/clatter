@@ -225,7 +225,7 @@ Returns plist (:filename :port :position) or nil."
 ;;; --- DCC SEND Receive ---
 
 (defun clatter-dcc--recv-filter (proc data)
-  "Process filter for incoming DCC SEND data from PROC."
+  "Process incoming DCC SEND DATA from PROC."
   (let* ((id (process-get proc :clatter-dcc-id))
          (transfer (clatter-dcc--get-transfer id)))
     (when transfer
@@ -492,7 +492,7 @@ CTCP-CMD should be \"DCC\", CTCP-ARGS is the rest of the CTCP message."
 ;;; --- Slash Commands ---
 
 (defun clatter-cmd-dcc (args)
-  "Handle /dcc commands.
+  "Handle /dcc commands given in ARGS.
 Usage:
   /dcc list           - show all transfers
   /dcc accept [ID]    - accept pending transfer

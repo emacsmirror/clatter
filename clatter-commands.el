@@ -66,13 +66,13 @@ INPUT is the full string including the leading /."
 ;; --- Commands ---
 
 (defun clatter-cmd-say (args)
-  "Handle /say MESSAGE."
+  "Send ARGS to the current buffer as a message."
   (let ((trimmed (string-trim args)))
     (when (> (length trimmed) 0)
       (clatter--send-message trimmed))))
 
 (defun clatter-cmd-join (args)
-  "Handle /join CHANNEL [KEY]."
+  "Join a channel; ARGS is \"CHANNEL [KEY]\"."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let* ((parts (split-string args))
@@ -83,7 +83,7 @@ INPUT is the full string including the leading /."
           (clatter-insert-error (current-buffer) "Usage: /join #channel [key]"))))))
 
 (defun clatter-cmd-part (args)
-  "Handle /part [CHANNEL] [MESSAGE]."
+  "Leave a channel; ARGS is \"[CHANNEL] [MESSAGE]\"."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let* ((parts (split-string args " " t))
@@ -100,7 +100,7 @@ INPUT is the full string including the leading /."
                                                message)))))))
 
 (defun clatter-cmd-msg (args)
-  "Handle /msg TARGET TEXT."
+  "Send a private message; ARGS is \"TARGET TEXT\"."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let ((space-pos (cl-position ?\s args)))
@@ -116,7 +116,7 @@ INPUT is the full string including the leading /."
           (clatter-insert-error (current-buffer) "Usage: /msg target message"))))))
 
 (defun clatter-cmd-me (args)
-  "Handle /me ACTION."
+  "Send a CTCP ACTION using ARGS as the action text."
   (let ((conn (clatter--require-conn)))
     (when conn
       (when (and clatter--target (not (string= clatter--target "*server*")))
@@ -128,7 +128,7 @@ INPUT is the full string including the leading /."
                                    args conn)))))))
 
 (defun clatter-cmd-nick (args)
-  "Handle /nick NEWNICK."
+  "Change nick to the NEWNICK given in ARGS."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let ((new-nick (car (split-string args))))
@@ -137,7 +137,7 @@ INPUT is the full string including the leading /."
           (clatter-insert-error (current-buffer) "Usage: /nick newnick"))))))
 
 (defun clatter-cmd-topic (args)
-  "Handle /topic [NEWTOPIC]."
+  "View or set the channel topic; ARGS is the new topic."
   (let ((conn (clatter--require-conn)))
     (when conn
       (when clatter--target
@@ -146,7 +146,7 @@ INPUT is the full string including the leading /."
           (clatter-send conn (clatter-irc-topic clatter--target)))))))
 
 (defun clatter-cmd-kick (args)
-  "Handle /kick NICK [REASON]."
+  "Kick a user; ARGS is \"NICK [REASON]\"."
   (let ((conn (clatter--require-conn)))
     (when conn
       (when clatter--target
@@ -169,7 +169,7 @@ INPUT is the full string including the leading /."
           (clatter-send conn (clatter-irc-mode target)))))))
 
 (defun clatter-cmd-whois (args)
-  "Handle /whois NICK."
+  "Request WHOIS for the NICK in ARGS."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let ((nick (car (split-string args))))
@@ -178,19 +178,19 @@ INPUT is the full string including the leading /."
           (clatter-insert-error (current-buffer) "Usage: /whois nick"))))))
 
 (defun clatter-cmd-away (args)
-  "Handle /away [MESSAGE].  No message clears away."
+  "Set away using ARGS as the message.  Empty ARGS clears away."
   (let ((conn (clatter--require-conn)))
     (when conn
       (clatter-send conn (clatter-irc-away
                           (unless (string-empty-p args) args))))))
 
 (defun clatter-cmd-quit (args)
-  "Handle /quit [MESSAGE]."
+  "Disconnect, using ARGS as the optional quit message."
   (let ((network clatter--network))
     (clatter-disconnect network (if (string-empty-p args) nil args))))
 
 (defun clatter-cmd-raw (args)
-  "Handle /raw - send raw IRC line."
+  "Send ARGS to the server as a raw IRC line."
   (let ((conn (clatter--require-conn)))
     (when conn
       (if (> (length args) 0)
@@ -198,7 +198,7 @@ INPUT is the full string including the leading /."
         (clatter-insert-error (current-buffer) "Usage: /raw IRC-COMMAND")))))
 
 (defun clatter-cmd-query (args)
-  "Handle /query NICK - open a query buffer."
+  "Open a query buffer for the NICK given in ARGS."
   (let* ((nick (car (split-string args)))
          (network clatter--network))
     (if (and nick (> (length nick) 0))
@@ -208,7 +208,7 @@ INPUT is the full string including the leading /."
       (clatter-insert-error (current-buffer) "Usage: /query nick"))))
 
 (defun clatter-cmd-names (args)
-  "Handle /names [CHANNEL]."
+  "Request NAMES; ARGS is an optional channel."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let ((channel (if (> (length args) 0)
@@ -218,7 +218,7 @@ INPUT is the full string including the leading /."
           (clatter-send conn (clatter-irc-names channel)))))))
 
 (defun clatter-cmd-invite (args)
-  "Handle /invite NICK [CHANNEL]."
+  "Invite a user; ARGS is \"NICK [CHANNEL]\"."
   (let ((conn (clatter--require-conn)))
     (when conn
       (let* ((parts (split-string args))
@@ -245,7 +245,7 @@ INPUT is the full string including the leading /."
                                 "Usage: /ctcp target command [args]"))))))
 
 (defun clatter-cmd-monitor (args)
-  "Handle /monitor +nick,-nick,C,L,S."
+  "Control MONITOR; ARGS is \"+nick,-nick,C,L,S\"."
   (let ((conn (clatter--require-conn)))
     (when conn
       (cond
@@ -283,13 +283,13 @@ INPUT is the full string including the leading /."
 ;; --- NickServ shortcuts ---
 
 (defun clatter-cmd-ns (args)
-  "Handle /ns - shortcut for /msg NickServ."
+  "Send ARGS to NickServ (shortcut for /msg NickServ)."
   (let ((conn (clatter--require-conn)))
     (when conn
       (clatter-send conn (clatter-irc-privmsg "NickServ" args)))))
 
 (defun clatter-cmd-cs (args)
-  "Handle /cs - shortcut for /msg ChanServ."
+  "Send ARGS to ChanServ (shortcut for /msg ChanServ)."
   (let ((conn (clatter--require-conn)))
     (when conn
       (clatter-send conn (clatter-irc-privmsg "ChanServ" args)))))
@@ -307,7 +307,7 @@ Includes the network password if one is configured/available."
                            (format "Sent NickServ %s for %s" verb nick))))
 
 (defun clatter-cmd-ghost (args)
-  "Handle /ghost [NICK] - disconnect a ghost session holding NICK.
+  "Disconnect a ghost session holding a nick; ARGS is an optional NICK.
 With no NICK, uses your configured (desired) nick.  GHOST kills the
 other session but does NOT rename you; the reclaim timer (or a manual
 /nick) then takes the freed nick."
@@ -319,7 +319,7 @@ other session but does NOT rename you; the reclaim timer (or a manual
         (clatter--nickserv-recover conn "GHOST" nick)))))
 
 (defun clatter-cmd-regain (args)
-  "Handle /regain [NICK] - reclaim NICK, renaming you to it.
+  "Reclaim a nick, renaming you to it; ARGS is an optional NICK.
 With no NICK, uses your configured (desired) nick.  REGAIN both frees
 the nick from any other session and changes your nick to it.  Note: if
 another client authed to your account is online, it can REGAIN back,
@@ -332,8 +332,8 @@ causing a kill loop - use /ghost and wait instead in that case."
         (clatter--nickserv-recover conn "REGAIN" nick)))))
 
 (defun clatter-cmd-reclaim (args)
-  "Handle /reclaim [on|off] - control automatic nick reclaim.
-With no argument, reports the current state.  Turning it off also
+  "Control automatic nick reclaim; ARGS is \"[on|off]\".
+With no argument, report the current state.  Turning it off also
 cancels any reclaim timer that is currently running."
   (let ((arg (downcase (string-trim args))))
     (cond
@@ -354,7 +354,7 @@ cancels any reclaim timer that is currently running."
                (if clatter-nick-reclaim-enabled "enabled" "disabled")))))))
 
 (defun clatter-cmd-suppress (args)
-  "Handle /suppress [TYPE...] - suppress message types.
+  "Suppress the message types listed in ARGS (\"[TYPE...]\").
 With no args, show current suppressions.
 With `all', suppress join/part/quit/nick/mode/away.
 With `none', clear all suppressions."
@@ -380,7 +380,7 @@ With `none', clear all suppressions."
                           buffer-invisibility-spec " "))))))
 
 (defun clatter-cmd-unsuppress (args)
-  "Handle /unsuppress TYPE... - stop suppressing message types."
+  "Stop suppressing the message types listed in ARGS (\"TYPE...\")."
   (let ((types (split-string (string-trim args) " " t)))
     (dolist (type types)
       (setq buffer-invisibility-spec
@@ -424,9 +424,10 @@ With `none', clear all suppressions."
 ;; --- Ignore commands ---
 
 (defun clatter-cmd-ignore (args)
-  "Ignore a nick or pattern.  Usage: /ignore NICK-OR-PATTERN
+  "Ignore a nick or pattern given in ARGS.
+Usage: /ignore NICK-OR-PATTERN.
 Supports glob wildcards (* and ?).
-With no argument, shows the current ignore list."
+With no argument, show the current ignore list."
   (let ((pattern (string-trim args)))
     (if (string-empty-p pattern)
         (clatter-insert-system
@@ -442,7 +443,8 @@ With no argument, shows the current ignore list."
                                 (format "Now ignoring %s" pattern))))))
 
 (defun clatter-cmd-unignore (args)
-  "Remove a nick or pattern from the ignore list.  Usage: /unignore NICK-OR-PATTERN"
+  "Remove a nick or pattern (ARGS) from the ignore list.
+Usage: /unignore NICK-OR-PATTERN."
   (let ((pattern (string-trim args)))
     (if (string-empty-p pattern)
         (clatter-insert-error (current-buffer) "Usage: /unignore NICK-OR-PATTERN")
@@ -479,7 +481,7 @@ For channels, sends PART first."
 (clatter-defcommand "unignore" #'clatter-cmd-unignore)
 
 (defun clatter-cmd-list (args)
-  "Open the interactive channel list browser."
+  "Open the interactive channel list browser, filtered by ARGS."
   (let ((conn (clatter--current-conn)))
     (if conn
         (clatter-list-request conn (string-trim args))
@@ -488,14 +490,16 @@ For channels, sends PART first."
 (clatter-defcommand "list" #'clatter-cmd-list)
 
 (defun clatter-cmd-search (args)
-  "Search all IRC logs.  Usage: /search QUERY"
+  "Search all IRC logs for ARGS.
+Usage: /search QUERY."
   (let ((query (string-trim args)))
     (if (string-empty-p query)
         (call-interactively #'clatter-search)
       (clatter-search query))))
 
 (defun clatter-cmd-searchhere (args)
-  "Search current channel logs.  Usage: /searchhere QUERY"
+  "Search the current channel logs for ARGS.
+Usage: /searchhere QUERY."
   (let ((query (string-trim args)))
     (if (string-empty-p query)
         (call-interactively #'clatter-search-channel)
@@ -505,7 +509,8 @@ For channels, sends PART first."
 (clatter-defcommand "searchhere" #'clatter-cmd-searchhere)
 
 (defun clatter-cmd-reply (args)
-  "Reply to selected message.  Usage: /reply TEXT
+  "Reply to the selected message with ARGS as the text.
+Usage: /reply TEXT.
 Uses +draft/reply tag to thread the response."
   (let* ((text (string-trim args))
          (msgid (and mouse-secondary-overlay
@@ -534,7 +539,8 @@ Uses +draft/reply tag to thread the response."
 (clatter-defcommand "reply" #'clatter-cmd-reply "r")
 
 (defun clatter-cmd-react (args)
-  "React to selected message with an emoji.  Usage: /react EMOJI
+  "React to the selected message with the emoji in ARGS.
+Usage: /react EMOJI.
 Uses +draft/react tag via TAGMSG."
   (let* ((emoji (string-trim args))
          (msgid (and mouse-secondary-overlay
@@ -596,7 +602,7 @@ Persists the change to `custom-file' (or init file)."
                  channel network-id)))))
 
 (defun clatter-cmd-autojoin (args)
-  "Handle /autojoin commands.
+  "Handle /autojoin commands given in ARGS.
 Usage:
   /autojoin add #channel    - add channel to autojoin and persist
   /autojoin remove #channel - remove channel from autojoin and persist

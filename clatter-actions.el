@@ -54,7 +54,7 @@
 (defun clatter-action-reply (&optional arg)
   "Reply to the message at point.
 Inserts the sender's nick at the input prompt.
-With a prefix argument, uses a /reply command."
+With a prefix argument ARG, uses a /reply command."
   (interactive "P")
   (let* ((props (clatter-action--msg-at-point))
          (sender (plist-get props :sender)))

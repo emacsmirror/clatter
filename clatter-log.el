@@ -228,7 +228,7 @@ FILE is stored for flushing."
                                        (if message (format " (%s)" message) ""))))))))
 
 (defun clatter-log--on-nick (conn old-nick new-nick)
-  "Log NICK change on CONN."
+  "Log a nick change from OLD-NICK to NEW-NICK on CONN."
   (when clatter-log-system-messages
     (let ((network (clatter-connection-network-id conn)))
       (dolist (buf (clatter-channel-buffers network))
@@ -317,7 +317,7 @@ FILE is stored for flushing."
     (message "Not in a clatter buffer")))
 
 (defun clatter-log-open-directory ()
-  "Open the log directory in dired."
+  "Open the log directory in Dired."
   (interactive)
   (if (file-directory-p clatter-log-directory)
       (dired clatter-log-directory)

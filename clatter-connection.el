@@ -67,7 +67,7 @@
 ;; --- Debug Logging ---
 
 (defun clatter--debug (format-string &rest args)
-  "Log to *clatter-debug* buffer if `clatter-log-raw-protocol' is non-nil."
+  "Log FORMAT-STRING with ARGS if `clatter-log-raw-protocol' is non-nil."
   (when clatter-log-raw-protocol
     (with-current-buffer (get-buffer-create "*clatter-debug*")
       (goto-char (point-max))
@@ -83,7 +83,7 @@ This log persists across Emacs restarts to help diagnose lockups."
   :group 'clatter)
 
 (defun clatter--watchdog (format-string &rest args)
-  "Write a timestamped line to the watchdog log file.
+  "Write a timestamped line (FORMAT-STRING with ARGS) to the watchdog log file.
 Always writes regardless of `clatter-log-raw-protocol' setting."
   (let ((dir (file-name-directory clatter-watchdog-log))
         (line (concat (format-time-string "[%F %T] ")
@@ -131,7 +131,7 @@ to avoid blocking Emacs on a dead GnuTLS socket."
 ;; --- Receive (Process Filter) ---
 
 (defun clatter--process-filter (proc string)
-  "Process filter for incoming IRC data from PROC.
+  "Process filter for incoming IRC data (STRING) from PROC.
 Accumulates partial lines and dispatches complete ones."
   (let* ((network-id (process-get proc :clatter-network-id))
          (conn (clatter-get-connection network-id)))

@@ -179,21 +179,21 @@
               (clatter-nicklist-refresh))))))))
 
 (defun clatter-nicklist--on-join (conn _nick channel _account _realname)
-  "Refresh nicklist when someone joins CHANNEL."
+  "Refresh nicklist on CONN when someone joins CHANNEL."
   (let ((buf (clatter-get-buffer
               (clatter-connection-network-id conn) channel)))
     (when buf
       (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
 
 (defun clatter-nicklist--on-part (conn _nick channel _message)
-  "Refresh nicklist when someone parts CHANNEL."
+  "Refresh nicklist on CONN when someone parts CHANNEL."
   (let ((buf (clatter-get-buffer
               (clatter-connection-network-id conn) channel)))
     (when buf
       (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
 
 (defun clatter-nicklist--on-quit (conn nick _message)
-  "Refresh nicklist for all channels NICK was in."
+  "Refresh nicklist on CONN for all channels NICK was in."
   (let ((network (clatter-connection-network-id conn)))
     (dolist (buf (clatter-all-buffers))
       (when (buffer-live-p buf)
@@ -204,7 +204,7 @@
             (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf)))))))
 
 (defun clatter-nicklist--on-nick (conn _old-nick _new-nick)
-  "Refresh nicklist when someone changes nick."
+  "Refresh nicklist on CONN when someone changes nick."
   (let ((network (clatter-connection-network-id conn)))
     (dolist (buf (clatter-all-buffers))
       (when (buffer-live-p buf)
@@ -213,7 +213,7 @@
             (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf)))))))
 
 (defun clatter-nicklist--on-names (conn channel _names-str)
-  "Refresh nicklist after NAMES reply for CHANNEL."
+  "Refresh nicklist on CONN after NAMES reply for CHANNEL."
   (let ((buf (clatter-get-buffer
               (clatter-connection-network-id conn) channel)))
     (when buf
