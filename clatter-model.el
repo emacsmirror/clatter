@@ -322,7 +322,9 @@ Makes IRC channel prefixes and nick characters part of symbol syntax.")
   (and clatter--input-marker
        clatter--messages-marker
        (>= (point) (marker-position clatter--input-marker))
-       (< (point) (marker-position clatter--messages-marker))))
+       (<= (point) (if (eq clatter-message-order 'oldest-first)
+                       (point-max)
+                     (1- (marker-position clatter--messages-marker))))))
 
 (provide 'clatter-model)
 

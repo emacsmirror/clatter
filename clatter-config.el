@@ -247,6 +247,14 @@ like a traditional IRC client."
                  (const :tag "Oldest first (traditional)" oldest-first))
   :group 'clatter)
 
+(defcustom clatter-move-to-prompt t
+  "When non-nil, typing text anywhere in a clatter buffer jumps to the input.
+Like ERC's `erc-move-to-prompt': if point is outside the input area when
+you start typing a self-inserting character, point first moves to the
+prompt so the character is entered there."
+  :type 'boolean
+  :group 'clatter)
+
 (defcustom clatter-buffer-max-lines 10000
   "Maximum number of lines to keep in a clatter buffer.
 When exceeded, oldest messages are removed.

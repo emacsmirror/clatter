@@ -17,6 +17,7 @@
 (require 'clatter-config)
 (require 'clatter-model)
 (require 'clatter-format)
+(require 'clatter-pals)
 
 ;; --- Configuration ---
 
@@ -104,6 +105,14 @@ Each entry is a string.  Matching is case-insensitive."
 (defvar clatter--nick-color-cache (make-hash-table :test 'equal)
   "Cache of nick -> color mappings for fast lookup.")
 
+(defun clatter-hl-nick-index (nick)
+  "Return the palette index for NICK (deterministic, hash-based).
+Uses the canonical nick from `clatter-hl-nicks-alias-alist' if present."
+  (let* ((canonical (or (cdr (assoc nick clatter-hl-nicks-alias-alist))
+                        nick))
+         (hash (cl-reduce #'+ (mapcar #'identity (downcase canonical)))))
+    (mod hash (length clatter-hl-nick-colors))))
+
 (defun clatter-hl-nick-color (nick)
   "Return a stable color for NICK.
 Uses canonical nick from `clatter-hl-nicks-alias-alist' if present.
@@ -112,11 +121,52 @@ Colors are deterministic based on a hash of the nick string."
                         nick))
          (cached (gethash canonical clatter--nick-color-cache)))
     (or cached
-        (let* ((hash (cl-reduce #'+ (mapcar #'identity (downcase canonical))))
-               (idx (mod hash (length clatter-hl-nick-colors)))
-               (color (nth idx clatter-hl-nick-colors)))
+        (let ((color (nth (clatter-hl-nick-index nick) clatter-hl-nick-colors)))
           (puthash canonical color clatter--nick-color-cache)
           color))))
+
+;; --- Named nick faces ---
+;;
+;; Each palette color is exposed as a real, named face
+;; (`clatter-nick-color-0' ... `clatter-nick-color-N') so nick colors can
+;; be themed and customized like any other face, instead of being applied
+;; as anonymous (:foreground ...) specs.
+
+(defun clatter-hl--nick-face-name (idx)
+  "Return the face symbol for palette index IDX."
+  (intern (format "clatter-nick-color-%d" idx)))
+
+(defun clatter-hl-rebuild-nick-faces (&optional force)
+  "Define a named face for each color in `clatter-hl-nick-colors'.
+Face `clatter-nick-color-N' uses the Nth palette color as a bold
+foreground.  Existing faces are left alone unless FORCE is non-nil (as
+when called interactively), so user or theme customizations are
+preserved across reloads; call with a prefix arg to refresh them after
+changing the palette."
+  (interactive (list t))
+  (let ((idx 0))
+    (dolist (color clatter-hl-nick-colors)
+      (let ((face (clatter-hl--nick-face-name idx)))
+        (cond
+         ;; New face: declare it so it is themeable and shows up in Customize.
+         ((not (facep face))
+          (custom-declare-face
+           face `((t (:foreground ,color :weight bold)))
+           (format "Clatter nick highlight color %d." idx)
+           :group 'clatter))
+         ;; Existing face: only overwrite when explicitly forced, so user or
+         ;; theme customizations survive normal reloads.
+         (force
+          (set-face-attribute face nil :foreground color :weight 'bold))))
+      (setq idx (1+ idx)))))
+
+(defun clatter-hl-nick-face-symbol (nick)
+  "Return the named face symbol used to highlight NICK.
+A pal (see `clatter-pals') gets the `clatter-pal' face; otherwise the
+deterministic, hash-based `clatter-nick-color-N' palette face."
+  (if (clatter-pal-p nick)
+      'clatter-pal
+    (clatter-hl--nick-face-name (clatter-hl-nick-index nick))))
 
 ;; --- In-text highlighting ---
 
@@ -130,11 +180,10 @@ Only highlights nicks that are currently in the channel."
       (when clatter--nick-list
         (let ((nicks (clatter-hl--collect-nicks buffer)))
           (dolist (nick nicks)
-            (let* ((color (clatter-hl-nick-color nick))
-                   (re (concat "\\b" (regexp-quote nick) "\\b")))
+            (let ((re (concat "\\b" (regexp-quote nick) "\\b")))
               (setq text (clatter-hl--propertize-matches
                           text re
-                          (list 'face (list :foreground color :weight 'bold)
+                          (list 'face (clatter-hl-nick-face-symbol nick)
                                 'clatter-nick nick)))))))
       text)))
 
@@ -180,11 +229,12 @@ Skips regions that already have a face from `clatter-hl-nicks-skip-faces'."
 ;; --- Highlight nicks in the <nick> prefix too ---
 
 (defun clatter-hl-nick-face (nick conn)
-  "Return face properties for NICK on CONN.
-Uses the extended palette and alias resolution."
+  "Return the face used to highlight NICK on CONN.
+Returns `clatter-my-nick' for our own nick, otherwise a named
+`clatter-nick-color-N' face from the palette."
   (if (string-equal nick (clatter-connection-nick conn))
       'clatter-my-nick
-    (list :foreground (clatter-hl-nick-color nick) :weight 'bold)))
+    (clatter-hl-nick-face-symbol nick)))
 
 ;; --- URL detection and highlighting ---
 
@@ -314,6 +364,9 @@ Applies mIRC formatting first, then URLs, then nick highlighting."
     (setq result (clatter-hl-nicks-in-string result buffer))
     (setq result (clatter-hl-keywords-in-string result))
     result))
+
+;; Build the named nick faces once at load time.
+(clatter-hl-rebuild-nick-faces)
 
 (provide 'clatter-hl-nicks)
 

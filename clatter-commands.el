@@ -19,6 +19,7 @@
 (require 'clatter-ui)
 (require 'clatter-list)
 (require 'clatter-search)
+(require 'clatter-pals)
 
 ;; --- Command dispatch ---
 
@@ -458,6 +459,88 @@ Usage: /unignore NICK-OR-PATTERN."
           (clatter-insert-system (current-buffer)
                                   (format "%s was not in the ignore list" pattern)))))))
 
+;; --- Pals and fools commands ---
+
+(defun clatter-cmd-pal (args)
+  "Add nick ARGS to the pals list; with no argument, show the list.
+Pals' nicks are highlighted with the `clatter-pal' face."
+  (let ((nick (string-trim args)))
+    (cond
+     ((string-empty-p nick)
+      (clatter-insert-system
+       (current-buffer)
+       (if clatter-pals
+           (format "Pals: %s" (string-join clatter-pals ", "))
+         "Pals list is empty")))
+     ((clatter-pal-p nick)
+      (clatter-insert-system (current-buffer)
+                             (format "%s is already a pal" nick)))
+     (t
+      (setq clatter-pals (clatter--nick-list-add nick clatter-pals))
+      (clatter-insert-system (current-buffer)
+                             (format "%s is now a pal" nick))))))
+
+(defun clatter-cmd-unpal (args)
+  "Remove nick ARGS from the pals list."
+  (let ((nick (string-trim args)))
+    (if (string-empty-p nick)
+        (clatter-insert-error (current-buffer) "Usage: /unpal NICK")
+      (if (clatter-pal-p nick)
+          (progn
+            (setq clatter-pals (clatter--nick-list-remove nick clatter-pals))
+            (clatter-insert-system (current-buffer)
+                                   (format "%s is no longer a pal" nick)))
+        (clatter-insert-system (current-buffer)
+                               (format "%s was not a pal" nick))))))
+
+(defun clatter-cmd-pals (_args)
+  "Show the pals list."
+  (clatter-insert-system
+   (current-buffer)
+   (if clatter-pals
+       (format "Pals: %s" (string-join clatter-pals ", "))
+     "Pals list is empty")))
+
+(defun clatter-cmd-fool (args)
+  "Add nick ARGS to the fools list; with no argument, show the list.
+Messages from a fool are muted (hidden)."
+  (let ((nick (string-trim args)))
+    (cond
+     ((string-empty-p nick)
+      (clatter-insert-system
+       (current-buffer)
+       (if clatter-fools
+           (format "Fools: %s" (string-join clatter-fools ", "))
+         "Fools list is empty")))
+     ((clatter-fool-p nick)
+      (clatter-insert-system (current-buffer)
+                             (format "%s is already a fool" nick)))
+     (t
+      (setq clatter-fools (clatter--nick-list-add nick clatter-fools))
+      (clatter-insert-system (current-buffer)
+                             (format "Now muting %s" nick))))))
+
+(defun clatter-cmd-unfool (args)
+  "Remove nick ARGS from the fools list."
+  (let ((nick (string-trim args)))
+    (if (string-empty-p nick)
+        (clatter-insert-error (current-buffer) "Usage: /unfool NICK")
+      (if (clatter-fool-p nick)
+          (progn
+            (setq clatter-fools (clatter--nick-list-remove nick clatter-fools))
+            (clatter-insert-system (current-buffer)
+                                   (format "No longer muting %s" nick)))
+        (clatter-insert-system (current-buffer)
+                               (format "%s was not a fool" nick))))))
+
+(defun clatter-cmd-fools (_args)
+  "Show the fools list."
+  (clatter-insert-system
+   (current-buffer)
+   (if clatter-fools
+       (format "Fools: %s" (string-join clatter-fools ", "))
+     "Fools list is empty")))
+
 (defun clatter-cmd-close (_args)
   "Close (kill) the current clatter buffer.
 For channels, sends PART first."
@@ -479,6 +562,12 @@ For channels, sends PART first."
 (clatter-defcommand "close" #'clatter-cmd-close "wc")
 (clatter-defcommand "ignore" #'clatter-cmd-ignore)
 (clatter-defcommand "unignore" #'clatter-cmd-unignore)
+(clatter-defcommand "pal" #'clatter-cmd-pal)
+(clatter-defcommand "unpal" #'clatter-cmd-unpal)
+(clatter-defcommand "pals" #'clatter-cmd-pals)
+(clatter-defcommand "fool" #'clatter-cmd-fool)
+(clatter-defcommand "unfool" #'clatter-cmd-unfool)
+(clatter-defcommand "fools" #'clatter-cmd-fools)
 
 (defun clatter-cmd-list (args)
   "Open the interactive channel list browser, filtered by ARGS."

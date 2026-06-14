@@ -20,6 +20,7 @@
 (require 'clatter-handlers)
 (require 'clatter-hl-nicks)
 (require 'clatter-smart)
+(require 'clatter-pals)
 
 ;; --- Faces ---
 
@@ -143,9 +144,11 @@ append at the bottom like a traditional IRC client."
             (buffer-undo-list t)
             (oldest-first (eq clatter-message-order 'oldest-first)))
         (save-excursion
-          (goto-char (if oldest-first
-                         (point-max)
-                       (or clatter--messages-marker (point-max))))
+          ;; Messages always insert at the messages marker.  Its position
+          ;; and insertion type (set in `clatter--setup-prompt') determine
+          ;; the layout: below a top prompt for `newest-first', or above a
+          ;; bottom prompt for `oldest-first'.
+          (goto-char (or clatter--messages-marker (point-max)))
           (let* ((ts-str (unless no-timestamp
                            (format-time-string clatter-timestamp-format time)))
                  (wrap-col (1+ clatter-nick-column-width))
@@ -186,14 +189,15 @@ Removes oldest messages from the appropriate end of the buffer."
                            clatter-buffer-max-lines)))
       (save-excursion
         (if (eq clatter-message-order 'oldest-first)
-            ;; Oldest messages are near the top (after the prompt)
-            (let ((start (or clatter--messages-marker (point-min))))
-              (goto-char start)
+            ;; Bottom prompt: oldest messages are at the very top; delete
+            ;; from there, leaving the newest messages and the prompt.
+            (progn
+              (goto-char (point-min))
               (forward-line target-lines)
-              (dolist (ov (overlays-in start (point)))
+              (dolist (ov (overlays-in (point-min) (point)))
                 (delete-overlay ov))
-              (delete-region start (point)))
-          ;; newest-first: oldest messages are at the bottom
+              (delete-region (point-min) (point)))
+          ;; Top prompt (newest-first): oldest messages are at the bottom.
           (goto-char (point-max))
           (forward-line (- target-lines))
           (dolist (ov (overlays-in (point) (point-max)))
@@ -289,9 +293,7 @@ SERVER-TIME overrides the current time for the timestamp."
                (fboundp 'clatter-image--scan-message))
       (let ((img-marker (with-current-buffer buffer
                           (copy-marker
-                           (if (eq clatter-message-order 'oldest-first)
-                               (point-max)
-                             (or clatter--messages-marker (point-max)))))))
+                           (or clatter--messages-marker (point-max))))))
         (clatter-image--scan-message text buffer img-marker)))
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
@@ -338,46 +340,87 @@ SERVER-TIME overrides the current time for the timestamp."
 ;; --- Input prompt ---
 
 (defun clatter--setup-prompt (buffer)
-  "Set up the input prompt at the top of BUFFER."
+  "Set up the input prompt in BUFFER.
+For `newest-first' the prompt sits at the top with messages below it.
+For `oldest-first' the prompt is anchored at the bottom, like a
+conventional IRC client, with messages accumulating above it."
   (with-current-buffer buffer
     (let ((inhibit-read-only t)
-          (buffer-undo-list t))
+          (buffer-undo-list t)
+          (prompt (propertize (concat (or clatter--target "clatter") "> ")
+                              'face 'clatter-prompt
+                              'read-only t
+                              'front-sticky t
+                              'rear-nonsticky t)))
       (clatter-input-ring-setup)
-      (goto-char (point-min))
-      (setq clatter--prompt-marker (point-marker))
-      (set-marker-insertion-type clatter--prompt-marker nil)
-      (insert (propertize (concat (or clatter--target "clatter") "> ")
-                          'face 'clatter-prompt
-                          'read-only t
-                          'front-sticky t
-                          'rear-nonsticky t))
-      (setq clatter--input-marker (point-marker))
-      (set-marker-insertion-type clatter--input-marker nil)
-      ;; Newline separates input line from messages
-      (save-excursion
-        (goto-char clatter--input-marker)
-        (insert (propertize "\n" 'read-only t 'rear-nonsticky t))
-        (setq clatter--messages-marker (point-marker))
-        (set-marker-insertion-type clatter--messages-marker nil)))))
+      (if (eq clatter-message-order 'oldest-first)
+          ;; Bottom prompt: [messages...] then prompt+input on the last line.
+          (progn
+            (goto-char (point-min))
+            ;; Both markers start at the prompt; messages insert here.
+            (setq clatter--messages-marker (point-marker))
+            (setq clatter--prompt-marker (point-marker))
+            (insert prompt)
+            (setq clatter--input-marker (point-marker))
+            (set-marker-insertion-type clatter--input-marker nil)
+            ;; Type t so each inserted message advances the markers, keeping
+            ;; them (and the prompt) just below the growing message area.
+            (set-marker-insertion-type clatter--messages-marker t)
+            (set-marker-insertion-type clatter--prompt-marker t))
+        ;; Top prompt: prompt+input on line 1, messages below.
+        (goto-char (point-min))
+        (setq clatter--prompt-marker (point-marker))
+        (set-marker-insertion-type clatter--prompt-marker nil)
+        (insert prompt)
+        (setq clatter--input-marker (point-marker))
+        (set-marker-insertion-type clatter--input-marker nil)
+        ;; Newline separates input line from messages
+        (save-excursion
+          (goto-char clatter--input-marker)
+          (insert (propertize "\n" 'read-only t 'rear-nonsticky t))
+          (setq clatter--messages-marker (point-marker))
+          (set-marker-insertion-type clatter--messages-marker nil)))
+      (goto-char clatter--input-marker)
+      (add-hook 'pre-command-hook #'clatter--move-to-prompt nil t))))
+
+(defun clatter--input-end ()
+  "Return the buffer position just past the user input.
+For a bottom (oldest-first) prompt this is `point-max'; for a top
+prompt it is just before the newline that separates input from
+messages."
+  (if (eq clatter-message-order 'oldest-first)
+      (point-max)
+    (1- (marker-position clatter--messages-marker))))
 
 (defun clatter--get-input ()
   "Get user input text from the prompt."
   (when (and clatter--input-marker clatter--messages-marker)
     (buffer-substring-no-properties
      clatter--input-marker
-     (1- (marker-position clatter--messages-marker)))))
+     (clatter--input-end))))
 
 (defun clatter--clear-input ()
   "Clear the user input area."
   (when (and clatter--input-marker clatter--messages-marker)
     (let ((inhibit-read-only t))
-      (delete-region clatter--input-marker
-                     (1- (marker-position clatter--messages-marker))))))
+      (delete-region clatter--input-marker (clatter--input-end)))))
 
 (defun clatter--set-input (input)
   "Replace the prompt input with INPUT."
   (clatter--clear-input)
   (insert input))
+
+(defun clatter--move-to-prompt ()
+  "Move point to the input line before a self-inserting command.
+Installed on `pre-command-hook' so typing anywhere in the buffer starts
+editing at the prompt, like `erc-move-to-prompt'.  Controlled by
+`clatter-move-to-prompt'."
+  (when (and clatter-move-to-prompt
+             clatter--input-marker
+             (eq this-command 'self-insert-command)
+             (or (< (point) (marker-position clatter--input-marker))
+                 (> (point) (clatter--input-end))))
+    (goto-char (clatter--input-end))))
 
 (defun clatter-set-prev-input ()
   "Insert the previous (older) input history item at the prompt."
@@ -565,7 +608,7 @@ Emacs requires `set-window-margins' on the window, not just
 
 (defun clatter-ui--on-privmsg (conn sender target text server-time)
   "Display SENDER's PRIVMSG TEXT to TARGET on CONN at SERVER-TIME."
-  (unless (clatter-ignored-p sender)
+  (unless (clatter-muted-p sender)
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))
            (buf-target (if (clatter-channel-name-p target)
@@ -581,7 +624,7 @@ Emacs requires `set-window-margins' on the window, not just
 
 (defun clatter-ui--on-action (conn sender target text _server-time)
   "Display SENDER's ACTION TEXT to TARGET on CONN."
-  (unless (clatter-ignored-p sender)
+  (unless (clatter-muted-p sender)
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))
            (buf-target (if (clatter-channel-name-p target)
@@ -597,6 +640,7 @@ Emacs requires `set-window-margins' on the window, not just
 
 (defun clatter-ui--on-notice (conn sender target text)
   "Display SENDER's NOTICE TEXT to TARGET on CONN."
+  (unless (clatter-fool-p sender)
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network)
@@ -605,7 +649,7 @@ Emacs requires `set-window-margins' on the window, not just
     (clatter-insert-notice buf sender text conn)
     (when (and (listp (buffer-local-value 'buffer-invisibility-spec buf))
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-      (clatter-smart-put buf sender 'notice))))
+      (clatter-smart-put buf sender 'notice)))))
 
 (defun clatter-ui--on-invite (conn sender nick channel)
   "Show that SENDER invited NICK to CHANNEL on CONN."
