@@ -337,17 +337,6 @@ crumbs in the mode line of all clatter buffers.
               ("C-c :"   . clatter-track-list)
               ("C-c n"   . clatter-nicklist-toggle)
               ("C-c C-n" . clatter-nicklist-toggle))
-  :preface
-  (defun clatter-add-track-mode-line-item (buf)
-    "Show the clatter activity crumbs in the mode line of BUF."
-    (with-current-buffer buf
-      (unless (memq 'clatter-track-mode-line-item mode-line-format)
-        (setq-local
-         mode-line-format
-         (cl-loop for elt in mode-line-format
-                  if (eq 'mode-line-end-spaces elt)
-                  collect 'clatter-track-mode-line-item
-                  collect elt)))))
   :config
   ;; Install cleanup hooks and enable the bundled extras.  Required:
   ;; loading clatter alone has no side effects.
@@ -364,7 +353,7 @@ crumbs in the mode line of all clatter buffers.
                             user-emacs-directory "clatter" "irc.pem"))))
         clatter-networks)
   ;; Show activity crumbs in all clatter buffers, not just the active one.
-  (advice-add 'clatter-ui-setup-buffer :after #'clatter-add-track-mode-line-item)
+  (clatter-track-in-buffer-mode-line t)
   :custom
   ;; (clatter-timestamp-format "%H:%M:%S")
   (clatter-networks
@@ -378,10 +367,6 @@ crumbs in the mode line of all clatter buffers.
       :nick "yournick" :realname "Your Name"
       :autojoin ("#debian")))))
 #+END_SRC
-
-The =clatter-add-track-mode-line-item= advice is optional. It is shown here
-because there is not yet a built-in option for placing the activity crumbs in
-every buffer's mode line.
 
 ** Keybindings
 
@@ -451,6 +436,7 @@ With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= 
 | =clatter-org.el=        | Org-mode integration (links, capture, export)  |
 | =clatter-dcc.el=        | DCC file transfer (XDCC receive, resume)       |
 | =clatter-socks.el=      | SOCKS5 / Tor proxy support                     |
+| =clatter-smart.el=      | Adaptive / smart message filtering             |
 
 ** Companion Packages
 
