@@ -81,6 +81,85 @@ Return nil if not enough bytes yet to know, or `invalid' for a bad ATYP."
   (or (cdr (assq code clatter-socks--rep-messages))
       (format "unknown reply code %d" code)))
 
+;; --- Handshake session driver ---
+
+(cl-defstruct (clatter-socks--session (:constructor clatter-socks--session-create))
+  "State for one in-progress SOCKS5 handshake.
+STATE is one of :method :auth :reply :done :failed.  BUFFER accumulates raw
+input from the proxy.  SEND-FN is called with a unibyte string to transmit."
+  state buffer host port user pass send-fn on-success on-failure)
+
+(defun clatter-socks--consume (session n)
+  "Drop the first N bytes from SESSION's input buffer."
+  (setf (clatter-socks--session-buffer session)
+        (substring (clatter-socks--session-buffer session) n)))
+
+(defun clatter-socks--send (session bytes)
+  "Transmit BYTES via SESSION's send function."
+  (funcall (clatter-socks--session-send-fn session) bytes))
+
+(defun clatter-socks--succeed (session)
+  "Mark SESSION done and invoke its success continuation."
+  (setf (clatter-socks--session-state session) :done)
+  (funcall (clatter-socks--session-on-success session)))
+
+(defun clatter-socks--fail (session reason)
+  "Mark SESSION failed and invoke its failure continuation with REASON."
+  (setf (clatter-socks--session-state session) :failed)
+  (funcall (clatter-socks--session-on-failure session) reason))
+
+(defun clatter-socks--send-auth (session)
+  "Send the RFC 1929 auth request and move SESSION to :auth."
+  (setf (clatter-socks--session-state session) :auth)
+  (clatter-socks--send session
+                       (clatter-socks--encode-auth
+                        (clatter-socks--session-user session)
+                        (clatter-socks--session-pass session))))
+
+(defun clatter-socks--send-connect (session)
+  "Send the CONNECT request, move SESSION to :reply, then drain the buffer."
+  (setf (clatter-socks--session-state session) :reply)
+  (clatter-socks--send session
+                       (clatter-socks--encode-connect
+                        (clatter-socks--session-host session)
+                        (clatter-socks--session-port session)))
+  (clatter-socks--advance session))
+
+(defun clatter-socks--advance (session)
+  "Advance SESSION's handshake using whatever input is buffered."
+  (unless (memq (clatter-socks--session-state session) '(:done :failed))
+    (let ((buf (clatter-socks--session-buffer session)))
+      (pcase (clatter-socks--session-state session)
+        (:method
+         (let ((method (clatter-socks--parse-method-selection buf)))
+           (when method
+             (clatter-socks--consume session 2)
+             (pcase method
+               (0 (clatter-socks--send-connect session))
+               (2 (clatter-socks--send-auth session))
+               (_ (clatter-socks--fail
+                   session
+                   "no acceptable auth method (does the proxy require credentials?)"))))))
+        (:auth
+         (let ((status (clatter-socks--parse-auth-status buf)))
+           (pcase status
+             ('nil nil)
+             (:ok (clatter-socks--consume session 2)
+                  (clatter-socks--send-connect session))
+             (_ (clatter-socks--consume session 2)
+                (clatter-socks--fail session "proxy authentication failed")))))
+        (:reply
+         (let ((total (clatter-socks--reply-length buf)))
+           (cond
+            ((eq total 'invalid)
+             (clatter-socks--fail session "malformed SOCKS reply (bad address type)"))
+            ((null total) nil)
+            ((< (length buf) total) nil)
+            (t (let ((rep (aref buf 1)))
+                 (if (= rep 0)
+                     (clatter-socks--succeed session)
+                   (clatter-socks--fail session (clatter-socks--rep-message rep))))))))))))
+
 (provide 'clatter-socks)
 
 ;;; clatter-socks.el ends here

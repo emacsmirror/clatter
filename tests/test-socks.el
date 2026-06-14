@@ -77,4 +77,99 @@
   (should (equal "connection refused" (clatter-socks--rep-message 5)))
   (should (string-match-p "unknown" (clatter-socks--rep-message 42))))
 
+;; --- Driver (session-based, no real process) ---
+
+(defun clatter-socks-test--session (&rest overrides)
+  "Make a test session capturing sent bytes and the terminal result.
+Returns (cons session state-box) where state-box is a plist with
+:sent (list, newest-first) and :result (:ok or (cons :fail reason))."
+  (let* ((box (list :sent nil :result nil))
+         (session (apply #'clatter-socks--session-create
+                         :state :method :buffer (unibyte-string)
+                         :host "irc.example.org" :port 6697
+                         :send-fn (lambda (s) (push s (plist-get box :sent)))
+                         :on-success (lambda () (plist-put box :result :ok))
+                         :on-failure (lambda (r) (plist-put box :result (cons :fail r)))
+                         overrides)))
+    (cons session box)))
+
+(defun clatter-socks-test--feed (session bytes)
+  "Append BYTES to SESSION's buffer and advance the state machine."
+  (setf (clatter-socks--session-buffer session)
+        (concat (clatter-socks--session-buffer session) bytes))
+  (clatter-socks--advance session))
+
+(ert-deftest clatter-socks-test-driver-noauth-success ()
+  (pcase-let ((`(,session . ,box) (clatter-socks-test--session)))
+    (clatter-socks-test--feed session (unibyte-string 5 0))
+    (should (eq (clatter-socks--session-state session) :reply))
+    (should (equal (car (plist-get box :sent))
+                   (clatter-socks--encode-connect "irc.example.org" 6697)))
+    (clatter-socks-test--feed session (unibyte-string 5 0 0 1 0 0 0 0 0 0))
+    (should (eq (plist-get box :result) :ok))))
+
+(ert-deftest clatter-socks-test-driver-userpass-success ()
+  (pcase-let ((`(,session . ,box)
+               (clatter-socks-test--session :user "u" :pass "p")))
+    (clatter-socks-test--feed session (unibyte-string 5 2))
+    (should (eq (clatter-socks--session-state session) :auth))
+    (should (equal (car (plist-get box :sent)) (clatter-socks--encode-auth "u" "p")))
+    (clatter-socks-test--feed session (unibyte-string 1 0))
+    (should (eq (clatter-socks--session-state session) :reply))
+    (clatter-socks-test--feed session (unibyte-string 5 0 0 3 1 ?x 0 0))
+    (should (eq (plist-get box :result) :ok))))
+
+(ert-deftest clatter-socks-test-driver-auth-failure ()
+  (pcase-let ((`(,session . ,box)
+               (clatter-socks-test--session :user "u" :pass "p")))
+    (clatter-socks-test--feed session (unibyte-string 5 2))
+    (clatter-socks-test--feed session (unibyte-string 1 1))
+    (should (equal (plist-get box :result) '(:fail . "proxy authentication failed")))))
+
+(ert-deftest clatter-socks-test-driver-no-acceptable-method ()
+  (pcase-let ((`(,session . ,box) (clatter-socks-test--session)))
+    (clatter-socks-test--feed session (unibyte-string 5 255))
+    (should (eq (car (plist-get box :result)) :fail))
+    (should (string-match-p "no acceptable auth method"
+                            (cdr (plist-get box :result))))))
+
+(ert-deftest clatter-socks-test-driver-connect-refused ()
+  (pcase-let ((`(,session . ,box) (clatter-socks-test--session)))
+    (clatter-socks-test--feed session (unibyte-string 5 0))
+    (clatter-socks-test--feed session (unibyte-string 5 5 0 1 0 0 0 0 0 0))
+    (should (equal (plist-get box :result) '(:fail . "connection refused")))))
+
+(ert-deftest clatter-socks-test-driver-partial-reply ()
+  (pcase-let ((`(,session . ,box) (clatter-socks-test--session)))
+    (clatter-socks-test--feed session (unibyte-string 5 0))
+    (dolist (b '(5 0 0 1 0 0 0 0 0))
+      (clatter-socks-test--feed session (unibyte-string b))
+      (should (null (plist-get box :result))))
+    (clatter-socks-test--feed session (unibyte-string 0))
+    (should (eq (plist-get box :result) :ok))))
+
+(ert-deftest clatter-socks-test-driver-bad-atyp ()
+  (pcase-let ((`(,session . ,box) (clatter-socks-test--session)))
+    (clatter-socks-test--feed session (unibyte-string 5 0))
+    (clatter-socks-test--feed session (unibyte-string 5 0 0 9 0 0))
+    (should (string-match-p "malformed" (cdr (plist-get box :result))))))
+
+(ert-deftest clatter-socks-test-driver-no-reentry-after-terminal ()
+  (pcase-let ((`(,session . ,box) (clatter-socks-test--session)))
+    (clatter-socks-test--feed session (unibyte-string 5 0))
+    (clatter-socks-test--feed session (unibyte-string 5 0 0 1 0 0 0 0 0 0))
+    (should (eq (plist-get box :result) :ok))
+    (should (eq (clatter-socks--session-state session) :done))
+    ;; trailing bytes after a completed handshake must be ignored
+    (clatter-socks-test--feed session (unibyte-string 1 2 3 4))
+    (should (eq (plist-get box :result) :ok))
+    (should (eq (clatter-socks--session-state session) :done))))
+
+;; Hardening: explicit big-endian port packing (catches byte-swap regressions)
+(ert-deftest clatter-socks-test-encode-connect-port-bytes ()
+  (let ((out (clatter-socks--encode-connect "h" 256)))   ; 256 = 0x0100
+    (should (equal (substring out (- (length out) 2)) (unibyte-string 1 0))))
+  (let ((out (clatter-socks--encode-connect "h" 65535))) ; 0xFFFF
+    (should (equal (substring out (- (length out) 2)) (unibyte-string 255 255)))))
+
 ;;; test-socks.el ends here
