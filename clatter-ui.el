@@ -840,45 +840,42 @@ Emacs requires `set-window-margins' on the window, not just
       (with-current-buffer buf
         (save-excursion
           (goto-char (point-min))
-          (let ((found nil))
-            (while (and (not found) (not (eobp)))
-              (when (equal msgid (get-text-property (point) 'clatter-msgid))
-                (setq found (point)))
-              (forward-line 1))
-            (when found
-              (goto-char found)
-              (end-of-line)
-              (let ((inhibit-read-only t)
-                    (existing (get-text-property found 'clatter-reactions)))
-                (unless existing (setq existing nil))
-                ;; Add this reaction
-                (let* ((key emoji)
-                       (entry (assoc key existing))
-                       (new-reactions
-                        (if entry
-                            (progn (setcdr entry (cons nick (cdr entry)))
-                                   existing)
-                          (append existing (list (list key nick)))))
-                       (display (mapconcat
-                                 (lambda (r)
-                                   (format "%s %d" (car r) (length (cdr r))))
-                                 new-reactions " ")))
-                  ;; Remove old reaction overlay if any
-                  (dolist (ov (overlays-at found))
-                    (when (overlay-get ov 'clatter-reaction)
-                      (delete-overlay ov)))
-                  ;; Add new overlay showing reactions
-                  (let ((ov (make-overlay (line-beginning-position)
-                                          (line-end-position))))
-                    (overlay-put ov 'clatter-reaction t)
-                    (overlay-put ov 'after-string
-                                 (concat "\n"
-                                         (make-string clatter-nick-column-width ?\s)
-                                         " "
-                                         (propertize display 'face 'clatter-notice))))
-                  ;; Store reactions as property
-                  (add-text-properties found (1+ found)
-                                       (list 'clatter-reactions new-reactions)))))))))))
+          (when-let* ((found (clatter--find-message-position-by-msgid buf msgid))
+                      (change (or (next-single-property-change found 'clatter-msgid)
+                                  (point-max))))
+            (setq found (- change 2))
+            (goto-char found)
+            (let ((inhibit-read-only t)
+                  (existing (get-text-property found 'clatter-reactions)))
+              (unless existing (setq existing nil))
+              ;; Add this reaction
+              (let* ((key emoji)
+                     (entry (assoc key existing))
+                     (new-reactions
+                      (if entry
+                          (progn (setcdr entry (cons nick (cdr entry)))
+                                 existing)
+                        (append existing (list (list key nick)))))
+                     (display (mapconcat
+                               (lambda (r)
+                                 (format "%s %d" (car r) (length (cdr r))))
+                               new-reactions " ")))
+                ;; Remove old reaction overlay if any
+                (dolist (ov (overlays-at found))
+                  (when (overlay-get ov 'clatter-reaction)
+                    (delete-overlay ov)))
+                ;; Add new overlay showing reactions
+                (let ((ov (make-overlay (line-beginning-position)
+                                        (line-end-position))))
+                  (overlay-put ov 'clatter-reaction t)
+                  (overlay-put ov 'after-string
+                               (concat "\n"
+                                       (make-string clatter-nick-column-width ?\s)
+                                       " "
+                                       (propertize display 'face 'clatter-notice))))
+                ;; Store reactions as property
+                (add-text-properties found (1+ found)
+                                     (list 'clatter-reactions new-reactions))))))))))
 
 (defun clatter-ui--on-batch-complete (conn _batch-type target messages)
   "Handle completed batch: render MESSAGES for TARGET on CONN.
