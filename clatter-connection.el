@@ -346,6 +346,9 @@ ARGS are keyword arguments that override `clatter-networks' config:
           (setq port (plist-get sts-policy :port))
           (clatter--debug "STS: enforcing TLS on port %d for %s" port server))))
 
+    (when (and proxy (not (and (plist-get proxy :host) (plist-get proxy :port))))
+      (error "Invalid SOCKS proxy: both :host and :port are required"))
+
     (when (and proxy use-tls (eq clatter-tls-method 'external))
       (error "SOCKS proxy requires builtin TLS (set `clatter-tls-method' to \\='builtin)"))
 

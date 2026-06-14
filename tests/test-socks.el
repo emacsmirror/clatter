@@ -234,4 +234,30 @@ Returns (cons session state-box) where state-box is a plist with
     (should (equal (clatter-proxy-config '(:tor t))
                    '(:type socks5 :host "127.0.0.1" :port 9050)))))
 
+;; --- Connection-level guards ---
+
+(ert-deftest clatter-socks-test-external-tls-proxy-refused ()
+  "Configuring a proxy with external TLS must error, not connect."
+  (let ((clatter-tls-method 'external)
+        (clatter-networks nil))
+    (unwind-protect
+        (should-error
+         (clatter-connect "x-socks-test"
+                          :server "irc.example.org" :port 6697 :tls t
+                          :nick "n"
+                          :proxy '(:type socks5 :host "127.0.0.1" :port 9050)))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-socks-test-invalid-proxy-refused ()
+  "A proxy missing :host or :port must error."
+  (let ((clatter-tls-method 'builtin)
+        (clatter-networks nil))
+    (unwind-protect
+        (should-error
+         (clatter-connect "x-socks-test2"
+                          :server "irc.example.org" :port 6697 :tls t
+                          :nick "n"
+                          :proxy '(:type socks5 :host "127.0.0.1")))
+      (clatter-test-cleanup))))
+
 ;;; test-socks.el ends here
