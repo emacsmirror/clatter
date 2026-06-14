@@ -257,7 +257,8 @@ types at runtime without losing any history."
                          (const :tag "MODE" mode)
                          (const :tag "AWAY" away)
                          (const :tag "KICK" kick)
-                         (const :tag "TOPIC" topic)))
+                         (const :tag "TOPIC" topic)
+                         (const :tag "NOISE" noise)))
   :group 'clatter)
 
 (defcustom clatter-prefix-rank "~&@%+"
