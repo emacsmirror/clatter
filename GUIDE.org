@@ -15,12 +15,12 @@ To verify GnuTLS is available, evaluate:
 
 If it returns =nil=, install GnuTLS and rebuild Emacs:
 
-| OS               | Package                              |
-|------------------+--------------------------------------|
+| OS               | Package                                |
+|------------------+----------------------------------------|
 | Debian/Ubuntu    | =apt install gnutls-bin libgnutls28-dev= |
-| Fedora/RHEL      | =dnf install gnutls=                 |
-| Arch             | =pacman -S gnutls=                   |
-| macOS (Homebrew) | =brew install gnutls=                |
+| Fedora/RHEL      | =dnf install gnutls=                     |
+| Arch             | =pacman -S gnutls=                       |
+| macOS (Homebrew) | =brew install gnutls=                    |
 
 Most modern Emacs builds include GnuTLS support by default.
 
@@ -65,15 +65,15 @@ All commands are typed in the input area prefixed with =/=.
 
 ** Connection & Navigation
 
-| Command           | Aliases    | Description                             |
-|-------------------+------------+-----------------------------------------|
-| =/join #channel=  | =/j=       | Join a channel                          |
-| =/part [msg]=     | =/leave=   | Leave current channel                   |
-| =/query nick=     |            | Open a private message buffer           |
-| =/close=          | =/wc=      | Close current buffer (parts if channel) |
-| =/quit [msg]=     | =/q=       | Disconnect from network                 |
-| =/buffers=        |            | List all open buffers                   |
-| =/list [filter]=  |            | Open interactive channel list browser (optional server filter, e.g. =>100=) |
+| Command        | Aliases | Description                                                               |
+|----------------+---------+---------------------------------------------------------------------------|
+| =/join #channel= | =/j=      | Join a channel                                                            |
+| =/part [msg]=    | =/leave=  | Leave current channel                                                     |
+| =/query nick=    |         | Open a private message buffer                                             |
+| =/close=         | =/wc=     | Close current buffer (parts if channel)                                   |
+| =/quit [msg]=    | =/q=      | Disconnect from network                                                   |
+| =/buffers=       |         | List all open buffers                                                     |
+| =/list [filter]= |         | Open interactive channel list browser (optional server filter, e.g. =>100=) |
 
 Killing a clatter buffer the normal way (=C-x k=, ibuffer, etc.) now
 tears it down cleanly without needing =/close= or =/quit=: killing a
@@ -82,14 +82,14 @@ disconnects that network.
 
 ** Messaging
 
-| Command                | Aliases    | Description                               |
-|------------------------+------------+-------------------------------------------|
-| =/msg nick text=       |            | Send private message                      |
-| =/say text=            |            | Send text to the current buffer (useful for text starting with =/=) |
-| =/me action=           |            | Send action (/me does something)          |
-| =/reply text=          | =/r=       | Reply to the selected message (threaded, see below) |
-| =/react emoji=         |            | React to the selected message with emoji (see below) |
-| =/ctcp nick command=   |            | Send CTCP query                           |
+| Command            | Aliases | Description                                                       |
+|--------------------+---------+-------------------------------------------------------------------|
+| =/msg nick text=     |         | Send private message                                              |
+| =/say text=          |         | Send text to the current buffer (useful for text starting with =/=) |
+| =/me action=         |         | Send action (/me does something)                                  |
+| =/reply text=        | =/r=      | Reply to the selected message (threaded, see below)               |
+| =/react emoji=       |         | React to the selected message with emoji (see below)              |
+| =/ctcp nick command= |         | Send CTCP query                                                   |
 
 *** Selecting a message for /reply and /react
 
@@ -110,22 +110,22 @@ you to select a message first.
 
 ** Channel Management
 
-| Command              | Description                                    |
-|----------------------+------------------------------------------------|
-| =/topic [new topic]= | View or set channel topic                      |
-| =/kick nick [reason]= | Kick a user from channel                      |
-| =/mode [modes]=      | View or set channel/user modes                 |
-| =/invite nick=       | Invite user to current channel                 |
-| =/names=             | List channel members (alias: =/members=)       |
-| =/nick newnick=      | Change your nickname                           |
-| =/away [message]=    | Set or clear away status                       |
+| Command             | Description                            |
+|---------------------+----------------------------------------|
+| =/topic [new topic]=  | View or set channel topic              |
+| =/kick nick [reason]= | Kick a user from channel               |
+| =/mode [modes]=       | View or set channel/user modes         |
+| =/invite nick=        | Invite user to current channel         |
+| =/names=              | List channel members (alias: =/members=) |
+| =/nick newnick=       | Change your nickname                   |
+| =/away [message]=     | Set or clear away status               |
 
 ** Search
 
-| Command              | Aliases          | Description                        |
-|----------------------+------------------+------------------------------------|
-| =/search query=      | =/grep=, =/find= | Search all IRC logs                |
-| =/searchhere query=  |                  | Search current channel logs only   |
+| Command           | Aliases      | Description                      |
+|-------------------+--------------+----------------------------------|
+| =/search query=     | =/grep=, =/find= | Search all IRC logs              |
+| =/searchhere query= |              | Search current channel logs only |
 
 Also available as =M-x clatter-search=, =M-x clatter-search-channel=,
 and =M-x clatter-search-completing= (completing-read interface).
@@ -134,16 +134,20 @@ With prefix arg (=C-u=), =/search= prompts for a network filter.
 
 ** Moderation & Filtering
 
-| Command                | Description                                 |
-|------------------------+---------------------------------------------|
+| Command              | Description                                                   |
+|----------------------+---------------------------------------------------------------|
 | =/suppress type ...=   | Hide message types (join part quit nick mode away kick topic) |
-| =/suppress all=        | Suppress all noise                          |
-| =/suppress noise=      | Enable smart (adaptive) noise filtering (see below) |
-| =/suppress none=       | Show everything                             |
-| =/unsuppress type ...= | Stop suppressing specific types             |
-| =/ignore pattern=      | Ignore nick or hostmask (supports * and ?)  |
-| =/unignore pattern=    | Remove from ignore list                     |
-| =/ignore=              | Show current ignore list                    |
+| =/suppress all=        | Suppress all noise                                            |
+| =/suppress noise=      | Enable smart (adaptive) noise filtering (see below)           |
+| =/suppress none=       | Show everything                                               |
+| =/unsuppress type ...= | Stop suppressing specific types                               |
+| =/ignore pattern=      | Ignore nick or hostmask (supports * and ?)                    |
+| =/unignore pattern=    | Remove from ignore list                                       |
+| =/ignore=              | Show current ignore list                                      |
+| =/fool nick=           | Mute a nick (hide their messages); no arg shows the list      |
+| =/unfool nick=         | Stop muting a nick                                            |
+| =/pal nick=            | Highlight a nick as a pal; no arg shows the list              |
+| =/unpal nick=          | Remove a nick from the pals list                              |
 
 *** Smart noise filtering
 
@@ -168,30 +172,44 @@ filter gets more accurate the longer a channel stays open.
 
 Tuning:
 
-| Variable                  | Default                  | Description                                      |
-|---------------------------+--------------------------+--------------------------------------------------|
-| =clatter-smart-threshold= | =0.5=                    | Hide a nick's noise when its signal/noise ratio drops below this |
-| =clatter-smart-noise=     | =(join part quit nick away)= | Event types that count as noise              |
+| Variable                | Default                    | Description                                                      |
+|-------------------------+----------------------------+------------------------------------------------------------------|
+| =clatter-smart-threshold= | =0.5=                        | Hide a nick's noise when its signal/noise ratio drops below this |
+| =clatter-smart-noise=     | =(join part quit nick away)= | Event types that count as noise                                  |
+
+*** Pals and fools
+
+Two complementary nick lists:
+
+- *Pals* (friends) are highlighted with the =clatter-pal= face wherever
+  their nick appears, so you never miss them: =/pal nick= adds one,
+  =/unpal nick= removes one, and =/pals= shows the list.
+- *Fools* are muted: their messages are hidden, much like the ignore
+  list but tracked separately so they are easy to toggle. =/fool nick=
+  mutes a nick, =/unfool nick= un-mutes, and =/fools= shows the list.
+
+Both match case-insensitively and can be preset via the =clatter-pals=
+and =clatter-fools= variables.
 
 ** Services & Raw
 
-| Command           | Description                               |
-|-------------------+-------------------------------------------|
-| =/ns command=     | Send command to NickServ                  |
-| =/cs command=     | Send command to ChanServ                  |
-| =/raw line=       | Send raw IRC protocol line                |
-| =/monitor + nick= | Add nick to MONITOR watchlist            |
-| =/monitor - nick= | Remove nick from MONITOR                 |
-| =/whois nick=     | Query WHOIS information                   |
+| Command         | Description                   |
+|-----------------+-------------------------------|
+| =/ns command=     | Send command to NickServ      |
+| =/cs command=     | Send command to ChanServ      |
+| =/raw line=       | Send raw IRC protocol line    |
+| =/monitor + nick= | Add nick to MONITOR watchlist |
+| =/monitor - nick= | Remove nick from MONITOR      |
+| =/whois nick=     | Query WHOIS information       |
 
 ** DCC File Transfer
 
-| Command              | Description                                |
-|----------------------+--------------------------------------------|
-| =/dcc get BOT #PACK= | Request an XDCC pack from a bot            |
-| =/dcc list=          | Show all DCC transfers with status         |
-| =/dcc accept [N]=    | Accept a pending DCC transfer              |
-| =/dcc cancel N=      | Cancel a transfer by ID                    |
+| Command            | Description                        |
+|--------------------+------------------------------------|
+| =/dcc get BOT #PACK= | Request an XDCC pack from a bot    |
+| =/dcc list=          | Show all DCC transfers with status |
+| =/dcc accept [N]=    | Accept a pending DCC transfer      |
+| =/dcc cancel N=      | Cancel a transfer by ID            |
 
 Workflow: join an XDCC channel, search for packs (e.g. =!search query= in #nibl on Rizon),
 then request with =/dcc get BotName #PackNumber=. You will be prompted to accept.
@@ -199,11 +217,11 @@ Files are saved to =~/Downloads/= by default.
 
 ** Autojoin Persistence
 
-| Command                    | Description                                 |
-|----------------------------+---------------------------------------------|
-| =/autojoin add #channel=   | Add channel to autojoin and persist         |
-| =/autojoin remove #channel= | Remove from autojoin and persist           |
-| =/autojoin list=           | Show current autojoin for this network      |
+| Command                   | Description                            |
+|---------------------------+----------------------------------------|
+| =/autojoin add #channel=    | Add channel to autojoin and persist    |
+| =/autojoin remove #channel= | Remove from autojoin and persist       |
+| =/autojoin list=            | Show current autojoin for this network |
 
 If no channel is specified, the current channel is used.
 Changes are persisted via =customize-save-variable= to your
@@ -211,42 +229,44 @@ Changes are persisted via =customize-save-variable= to your
 
 ** Utility
 
-| Command    | Description                      |
-|------------+----------------------------------|
-| =/clear=   | Clear current buffer             |
+| Command | Description          |
+|---------+----------------------|
+| =/clear=  | Clear current buffer |
 
 * Configuration Reference
 
 ** Network Settings
 
-| Variable                       | Default            | Description                           |
-|--------------------------------+--------------------+---------------------------------------|
-| =clatter-networks=            | =nil=              | Network connection list (see Quick Start) |
-| =clatter-default-nick=        | =(user-login-name)= | Default nickname                    |
-| =clatter-default-realname=    | ="clatter.el user"= | Default realname                    |
-| =clatter-default-port=        | =6697=             | Default port                          |
-| =clatter-default-tls=         | =t=                | Use TLS by default                    |
-| =clatter-use-auth-source=     | =t=                | Look up passwords via auth-source     |
-| =clatter-reconnect-initial-delay= | =10=           | Seconds before first reconnect        |
-| =clatter-reconnect-max-delay= | =300=              | Max reconnect delay (exponential backoff) |
-| =clatter-ping-interval=       | =30=               | Seconds between health pings          |
-| =clatter-ping-timeout=        | =120=              | Seconds before ping timeout           |
+| Variable                        | Default           | Description                               |
+|---------------------------------+-------------------+-------------------------------------------|
+| =clatter-networks=                | =nil=               | Network connection list (see Quick Start) |
+| =clatter-default-nick=            | =(user-login-name)= | Default nickname                          |
+| =clatter-default-realname=        | ="clatter.el user"= | Default realname                          |
+| =clatter-default-port=            | =6697=              | Default port                              |
+| =clatter-default-tls=             | =t=                 | Use TLS by default                        |
+| =clatter-use-auth-source=         | =t=                 | Look up passwords via auth-source         |
+| =clatter-reconnect-initial-delay= | =10=                | Seconds before first reconnect            |
+| =clatter-reconnect-max-delay=     | =300=               | Max reconnect delay (exponential backoff) |
+| =clatter-ping-interval=           | =30=                | Seconds between health pings              |
+| =clatter-ping-timeout=            | =120=               | Seconds before ping timeout               |
 
 ** Display
 
-| Variable                     | Default   | Description                              |
-|------------------------------+-----------+------------------------------------------|
-| =clatter-timestamp-format=  | ="%H:%M"= | Timestamp format string                 |
-| =clatter-fill-column=       | =80=      | Fill column for message wrapping         |
-| =clatter-nick-column-width= | =20=      | Width of nick column                     |
-| =clatter-buffer-max-lines=  | =10000=   | Max lines before buffer truncation       |
-| =clatter-max-line-length=   | =400=     | Max IRC line length before splitting     |
+| Variable                  | Default      | Description                                                                                                                                                                          |
+|---------------------------+--------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =clatter-timestamp-format=  | ="%H:%M"=      | Timestamp format string                                                                                                                                                              |
+| =clatter-fill-column=       | =80=           | Fill column for message wrapping                                                                                                                                                     |
+| =clatter-nick-column-width= | =20=           | Width of nick column                                                                                                                                                                 |
+| =clatter-buffer-max-lines=  | =10000=        | Max lines before buffer truncation                                                                                                                                                   |
+| =clatter-max-line-length=   | =400=          | Max IRC line length before splitting                                                                                                                                                 |
+| =clatter-message-order=     | =newest-first= | =newest-first= keeps the input at the top with new messages below it; =oldest-first= is a conventional layout with the input line anchored at the *bottom* and messages scrolling above it |
+| =clatter-move-to-prompt=    | =t=            | Typing anywhere jumps to the input line first (like ERC's =erc-move-to-prompt=)                                                                                                        |
 
 ** Message Suppression
 
-| Variable                     | Default | Description                              |
-|------------------------------+---------+------------------------------------------|
-| =clatter-suppress-messages=  | =nil=  | List of symbols: join part quit nick mode away kick topic |
+| Variable                  | Default | Description                                               |
+|---------------------------+---------+-----------------------------------------------------------|
+| =clatter-suppress-messages= | =nil=     | List of symbols: join part quit nick mode away kick topic |
 
 Example:
 #+begin_src emacs-lisp
@@ -255,23 +275,23 @@ Example:
 
 ** Input
 
-| Variable                          | Default | Description                          |
-|-----------------------------------+---------+--------------------------------------|
-| =clatter-flyspell-enable=        | =t=     | Enable flyspell in input area        |
-| =clatter-paste-flood-threshold=  | =3=     | Lines before paste flood warning     |
+| Variable                      | Default | Description                      |
+|-------------------------------+---------+----------------------------------|
+| =clatter-flyspell-enable=       | =t=       | Enable flyspell in input area    |
+| =clatter-paste-flood-threshold= | =3=       | Lines before paste flood warning |
 
 ** Logging
 
-| Variable                       | Default                           | Description                     |
-|--------------------------------+-----------------------------------+---------------------------------|
-| =clatter-log-enable=          | =nil=                             | Enable channel logging          |
-| =clatter-log-directory=       | =~/.emacs.d/clatter/logs/=       | Log file directory              |
-| =clatter-log-rotate-daily=    | =t=                               | Daily log rotation              |
-| =clatter-log-timestamp-format= | ="%Y-%m-%d %H:%M:%S"=           | Log timestamp format            |
-| =clatter-log-system-messages= | =t=                               | Log joins/parts/quits           |
-| =clatter-log-server-buffer=   | =nil=                             | Log server buffer               |
-| =clatter-log-exclude-targets= | =nil=                             | Targets to skip logging         |
-| =clatter-log-flush-interval=  | =30=                              | Seconds between disk flushes    |
+| Variable                     | Default                  | Description                  |
+|------------------------------+--------------------------+------------------------------|
+| =clatter-log-enable=           | =nil=                      | Enable channel logging       |
+| =clatter-log-directory=        | =~/.emacs.d/clatter/logs/= | Log file directory           |
+| =clatter-log-rotate-daily=     | =t=                        | Daily log rotation           |
+| =clatter-log-timestamp-format= | ="%Y-%m-%d %H:%M:%S"=      | Log timestamp format         |
+| =clatter-log-system-messages=  | =t=                        | Log joins/parts/quits        |
+| =clatter-log-server-buffer=    | =nil=                      | Log server buffer            |
+| =clatter-log-exclude-targets=  | =nil=                      | Targets to skip logging      |
+| =clatter-log-flush-interval=   | =30=                       | Seconds between disk flushes |
 
 Enable logging:
 #+begin_src emacs-lisp
@@ -281,24 +301,24 @@ Enable logging:
 
 ** Notifications
 
-| Variable                       | Default   | Description                          |
-|--------------------------------+-----------+--------------------------------------|
-| =clatter-notify-enabled=      | =t=       | Enable desktop notifications         |
-| =clatter-notify-on-mention=   | =t=       | Notify on nick mentions              |
-| =clatter-notify-on-dm=        | =t=       | Notify on direct messages            |
-| =clatter-notify-on-keyword=   | =t=       | Notify on keyword matches            |
-| =clatter-notify-keywords=     | =nil=     | Extra keywords to notify on          |
-| =clatter-notify-muted-channels= | =nil=   | Channels to never notify             |
-| =clatter-notify-muted-nicks=  | =nil=     | Nicks to never notify                |
-| =clatter-notify-current-buffer= | =nil=   | Notify even if buffer is visible     |
-| =clatter-notify-timeout=      | =5000=    | Notification timeout (ms)            |
-| =clatter-notify-icon=         | =nil=     | Path to notification icon            |
-| =clatter-notify-urgency=      | ='normal= | Urgency: low, normal, critical       |
-| =clatter-notify-sound=        | =nil=     | Sound file for notifications         |
-| =clatter-notify-max-length=   | =80=      | Max message length in notification   |
-| =clatter-notify-cooldown=     | =3=       | Min seconds between notifications    |
-| =clatter-notify-dm-priority=  | ='always= | DM priority: always, rules, never   |
-| =clatter-notify-rules=        | =nil=     | Per-channel smart notification rules |
+| Variable                      | Default | Description                          |
+|-------------------------------+---------+--------------------------------------|
+| =clatter-notify-enabled=        | =t=       | Enable desktop notifications         |
+| =clatter-notify-on-mention=     | =t=       | Notify on nick mentions              |
+| =clatter-notify-on-dm=          | =t=       | Notify on direct messages            |
+| =clatter-notify-on-keyword=     | =t=       | Notify on keyword matches            |
+| =clatter-notify-keywords=       | =nil=     | Extra keywords to notify on          |
+| =clatter-notify-muted-channels= | =nil=     | Channels to never notify             |
+| =clatter-notify-muted-nicks=    | =nil=     | Nicks to never notify                |
+| =clatter-notify-current-buffer= | =nil=     | Notify even if buffer is visible     |
+| =clatter-notify-timeout=        | =5000=    | Notification timeout (ms)            |
+| =clatter-notify-icon=           | =nil=     | Path to notification icon            |
+| =clatter-notify-urgency=        | ='normal= | Urgency: low, normal, critical       |
+| =clatter-notify-sound=          | =nil=     | Sound file for notifications         |
+| =clatter-notify-max-length=     | =80=      | Max message length in notification   |
+| =clatter-notify-cooldown=       | =3=       | Min seconds between notifications    |
+| =clatter-notify-dm-priority=    | ='always= | DM priority: always, rules, never    |
+| =clatter-notify-rules=          | =nil=     | Per-channel smart notification rules |
 
 *** Smart Notification Rules
 
@@ -350,111 +370,111 @@ This is enabled automatically via =eldoc-mode= in clatter buffers.
 
 ** Nick Highlighting
 
-| Variable                        | Default | Description                           |
-|---------------------------------+---------+---------------------------------------|
-| =clatter-hl-nicks-enabled=     | =t=     | Colorize nicks in messages            |
-| =clatter-hl-nicks-minimum-length= | =3= | Min nick length to colorize           |
-| =clatter-hl-nicks-skip-nicks=  | =nil=   | Nicks to never colorize               |
-| =clatter-hl-nicks-skip-faces=  | =(...)= | Faces to skip colorizing              |
-| =clatter-hl-nicks-alias-alist= | =nil=   | Nick -> color alias mapping           |
-| =clatter-hl-keywords=          | =nil=   | Extra words to highlight              |
+| Variable                        | Default | Description                 |
+|---------------------------------+---------+-----------------------------|
+| =clatter-hl-nicks-enabled=        | =t=       | Colorize nicks in messages  |
+| =clatter-hl-nicks-minimum-length= | =3=       | Min nick length to colorize |
+| =clatter-hl-nicks-skip-nicks=     | =nil=     | Nicks to never colorize     |
+| =clatter-hl-nicks-skip-faces=     | =(...)=  | Faces to skip colorizing    |
+| =clatter-hl-nicks-alias-alist=    | =nil=     | Nick -> color alias mapping |
+| =clatter-hl-keywords=             | =nil=     | Extra words to highlight    |
 
 ** mIRC Formatting
 
-| Variable                    | Default | Description                             |
-|-----------------------------+---------+-----------------------------------------|
-| =clatter-format-enable=    | =t=     | Parse mIRC color/formatting codes       |
-| =clatter-format-strip-only= | =nil= | Strip codes without rendering           |
+| Variable                  | Default | Description                       |
+|---------------------------+---------+-----------------------------------|
+| =clatter-format-enable=     | =t=       | Parse mIRC color/formatting codes |
+| =clatter-format-strip-only= | =nil=     | Strip codes without rendering     |
 
 ** Inline Images
 
-| Variable                      | Default        | Description                      |
-|-------------------------------+----------------+----------------------------------|
-| =clatter-image-enable=       | =nil=          | Enable inline image previews     |
-| =clatter-image-max-width=    | =400=          | Max image width (pixels)         |
-| =clatter-image-max-height=   | =300=          | Max image height (pixels)        |
-| =clatter-image-max-size=     | =5242880= (5MB) | Max download size               |
-| =clatter-image-extensions=   | =(png jpg ...)= | Recognized image extensions     |
+| Variable                 | Default       | Description                  |
+|--------------------------+---------------+------------------------------|
+| =clatter-image-enable=     | =nil=           | Enable inline image previews |
+| =clatter-image-max-width=  | =400=           | Max image width (pixels)     |
+| =clatter-image-max-height= | =300=           | Max image height (pixels)    |
+| =clatter-image-max-size=   | =5242880= (5MB) | Max download size            |
+| =clatter-image-extensions= | =(png jpg ...)= | Recognized image extensions  |
 
 ** URL Preview
 
-| Variable                            | Default | Description                       |
-|-------------------------------------+---------+-----------------------------------|
-| =clatter-url-preview-enable=       | =nil=   | Fetch and display URL titles      |
-| =clatter-url-preview-max-length=   | =200=   | Max title length                  |
-| =clatter-url-preview-timeout=      | =10=    | Fetch timeout (seconds)           |
-| =clatter-url-preview-exclude-patterns= | =nil= | URL patterns to skip           |
+| Variable                             | Default | Description                  |
+|--------------------------------------+---------+------------------------------|
+| =clatter-url-preview-enable=           | =nil=     | Fetch and display URL titles |
+| =clatter-url-preview-max-length=       | =200=     | Max title length             |
+| =clatter-url-preview-timeout=          | =10=      | Fetch timeout (seconds)      |
+| =clatter-url-preview-exclude-patterns= | =nil=     | URL patterns to skip         |
 
 ** Search
 
-| Variable                        | Default | Description                        |
-|---------------------------------+---------+------------------------------------|
-| =clatter-search-max-results=   | =500=   | Max search results                 |
-| =clatter-search-context-lines= | =0=     | Context lines around matches       |
+| Variable                     | Default | Description                  |
+|------------------------------+---------+------------------------------|
+| =clatter-search-max-results=   | =500=     | Max search results           |
+| =clatter-search-context-lines= | =0=       | Context lines around matches |
 
 ** Activity Tracking
 
-| Variable                       | Default        | Description                      |
-|--------------------------------+----------------+----------------------------------|
-| =clatter-track-enabled=       | =t=            | Show activity in mode line       |
-| =clatter-track-position=      | ='after-modes= | Mode line position               |
-| =clatter-track-muted-channels= | =nil=         | Channels to ignore for tracking  |
-| =clatter-track-shorten-names= | =t=            | Abbreviate channel names         |
-| =clatter-track-show-counts=   | =t=            | Show unread message counts       |
+| Variable                     | Default      | Description                     |
+|------------------------------+--------------+---------------------------------|
+| =clatter-track-enabled=        | =t=            | Show activity in mode line      |
+| =clatter-track-position=       | ='after-modes= | Mode line position              |
+| =clatter-track-muted-channels= | =nil=          | Channels to ignore for tracking |
+| =clatter-track-shorten-names=  | =t=            | Abbreviate channel names        |
+| =clatter-track-show-counts=    | =t=            | Show unread message counts      |
 
 ** Chat History
 
-| Variable                          | Default | Description                       |
-|-----------------------------------+---------+-----------------------------------|
-| =clatter-chathistory-enabled=    | =t=     | Fetch backlog on join             |
-| =clatter-chathistory-limit=      | =50=    | Messages to fetch                 |
-| =clatter-chathistory-on-join=    | =t=     | Fetch on channel join             |
-| =clatter-chathistory-on-reconnect= | =t=   | Fetch on reconnect                |
+| Variable                         | Default | Description           |
+|----------------------------------+---------+-----------------------|
+| =clatter-chathistory-enabled=      | =t=       | Fetch backlog on join |
+| =clatter-chathistory-limit=        | =50=      | Messages to fetch     |
+| =clatter-chathistory-on-join=      | =t=       | Fetch on channel join |
+| =clatter-chathistory-on-reconnect= | =t=       | Fetch on reconnect    |
 
 ** Nick Completion
 
-| Variable                          | Default | Description                      |
-|-----------------------------------+---------+----------------------------------|
-| =clatter-completion-add-colon=   | =t=     | Append =:= after nick at start of line |
+| Variable                     | Default | Description                          |
+|------------------------------+---------+--------------------------------------|
+| =clatter-completion-add-colon= | =t=       | Append =:= after nick at start of line |
 
 ** Nick List Sidebar
 
-| Variable                  | Default   | Description                        |
-|---------------------------+-----------+------------------------------------|
-| =clatter-nicklist-width= | =20=      | Sidebar width                      |
-| =clatter-nicklist-side=  | ='right=  | Which side (left or right)         |
+| Variable               | Default | Description                |
+|------------------------+---------+----------------------------|
+| =clatter-nicklist-width= | =20=      | Sidebar width              |
+| =clatter-nicklist-side=  | ='right=  | Which side (left or right) |
 
 ** Raw Protocol Log
 
-| Variable                     | Default | Description                         |
-|------------------------------+---------+-------------------------------------|
-| =clatter-log-raw-protocol=  | =nil=   | Log raw IRC lines to debug buffer   |
-| =clatter-rawlog-enabled=    | =nil=   | Enable rawlog module                |
-| =clatter-rawlog-max-lines=  | =5000=  | Max rawlog buffer lines             |
-| =clatter-rawlog-show-parsed= | =t=    | Show parsed message breakdown       |
+| Variable                   | Default | Description                       |
+|----------------------------+---------+-----------------------------------|
+| =clatter-log-raw-protocol=   | =nil=     | Log raw IRC lines to debug buffer |
+| =clatter-rawlog-enabled=     | =nil=     | Enable rawlog module              |
+| =clatter-rawlog-max-lines=   | =5000=    | Max rawlog buffer lines           |
+| =clatter-rawlog-show-parsed= | =t=       | Show parsed message breakdown     |
 
 ** DCC File Transfer
 
-| Variable                         | Default           | Description                       |
-|----------------------------------+-------------------+-----------------------------------|
-| =clatter-dcc-download-directory= | =~/Downloads/=    | Where received files are saved    |
-| =clatter-dcc-auto-accept=       | =nil=             | Auto-accept DCC offers            |
-| =clatter-dcc-max-file-size=     | =nil=             | Max file size to accept (bytes), nil = no limit |
-| =clatter-dcc-progress-interval= | =2=               | Seconds between progress updates  |
+| Variable                       | Default      | Description                                     |
+|--------------------------------+--------------+-------------------------------------------------|
+| =clatter-dcc-download-directory= | =~/Downloads/= | Where received files are saved                  |
+| =clatter-dcc-auto-accept=        | =nil=          | Auto-accept DCC offers                          |
+| =clatter-dcc-max-file-size=      | =nil=          | Max file size to accept (bytes), nil = no limit |
+| =clatter-dcc-progress-interval=  | =2=            | Seconds between progress updates                |
 
 ** Strict Transport Security
 
-| Variable                  | Default                     | Description                    |
-|---------------------------+-----------------------------+--------------------------------|
-| =clatter-sts-enable=     | =t=                         | Auto-upgrade to TLS            |
+| Variable                | Default                            | Description         |
+|-------------------------+------------------------------------+---------------------|
+| =clatter-sts-enable=      | =t=                                  | Auto-upgrade to TLS |
 | =clatter-sts-policy-file= | =~/.emacs.d/clatter/sts-policies.el= | Cached STS policies |
 
 ** Read Marker
 
-| Variable                         | Default | Description                       |
-|----------------------------------+---------+-----------------------------------|
-| =clatter-read-marker-enabled=   | =t=     | Sync read position with server    |
-| =clatter-read-marker-auto-send= | =t=     | Auto-send read marker on switch   |
+| Variable                      | Default | Description                     |
+|-------------------------------+---------+---------------------------------|
+| =clatter-read-marker-enabled=   | =t=       | Sync read position with server  |
+| =clatter-read-marker-auto-send= | =t=       | Auto-send read marker on switch |
 
 * Modules
 
