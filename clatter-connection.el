@@ -15,6 +15,7 @@
 (require 'cl-lib)
 (require 'clatter-config)
 (require 'clatter-protocol)
+(require 'clatter-socks)
 
 (declare-function gnutls-negotiate "gnutls")
 
@@ -274,6 +275,43 @@ Begins IRC registration once the subprocess is spawned."
                        (delete-process wp)))))
     conn))
 
+(defun clatter--connect-abort (proc reason)
+  "Report REASON and delete in-progress PROC.
+Deleting PROC triggers its sentinel, which sets the disconnected state and
+schedules any reconnect, so callers must not duplicate that work here."
+  (message "[clatter] %s" reason)
+  (when (process-live-p proc)
+    (delete-process proc)))
+
+(defun clatter--after-tcp-open (conn proc config server use-tls)
+  "Continue connecting CONN once the TCP/tunnel to SERVER is open on PROC.
+Negotiate TLS when USE-TLS, then begin IRC registration.  CONFIG is the merged
+network configuration."
+  (let ((network-id (clatter-connection-network-id conn))
+        (ok t))
+    (when use-tls
+      (clatter--watchdog "TLS-START %s" network-id)
+      (condition-case tls-err
+          (with-timeout (10
+                         (clatter--watchdog "TLS-TIMEOUT %s" network-id)
+                         (error "TLS handshake timed out (10s)"))
+            (gnutls-negotiate
+             :process proc
+             :hostname server
+             :keylist (let ((client-cert (plist-get config :client-cert)))
+                        (when (and client-cert (file-exists-p client-cert))
+                          (list (list client-cert client-cert))))))
+        (error
+         (setq ok nil)
+         (clatter--watchdog "TLS-FAIL %s %s" network-id
+                            (error-message-string tls-err))
+         (clatter--connect-abort
+          proc (format "TLS failed: %s" (error-message-string tls-err))))))
+    (when (and ok (process-live-p proc))
+      (clatter--watchdog "TLS-OK %s" network-id)
+      (set-process-sentinel proc #'clatter--process-sentinel)
+      (clatter--begin-registration conn config))))
+
 ;; --- Connect ---
 
 (defun clatter-connect (network-id &rest args)
@@ -292,7 +330,8 @@ ARGS are keyword arguments that override `clatter-networks' config:
          (use-tls (if (plist-member config :tls)
                       (plist-get config :tls)
                     clatter-default-tls))
-         (nick (or (plist-get config :nick) clatter-default-nick)))
+         (nick (or (plist-get config :nick) clatter-default-nick))
+         (proxy (clatter-proxy-config config)))
     (unless server
       (error "No server specified for network %s" network-id))
     (unless nick
@@ -306,6 +345,12 @@ ARGS are keyword arguments that override `clatter-networks' config:
           (setq use-tls t)
           (setq port (plist-get sts-policy :port))
           (clatter--debug "STS: enforcing TLS on port %d for %s" port server))))
+
+    (when (and proxy (not (and (plist-get proxy :host) (plist-get proxy :port))))
+      (error "Invalid SOCKS proxy: both :host and :port are required"))
+
+    (when (and proxy use-tls (eq clatter-tls-method 'external))
+      (error "SOCKS proxy requires builtin TLS (set `clatter-tls-method' to \\='builtin)"))
 
     ;; Create or reuse connection struct
     (let ((conn (or (clatter-get-connection network-id)
@@ -349,15 +394,14 @@ ARGS are keyword arguments that override `clatter-networks' config:
               ;; External TLS subprocess path: TLS runs in a separate OS
               ;; process so a dead socket cannot block Emacs's event loop.
               (clatter--connect-external conn config network-id server port)
-          (let* ((client-cert (plist-get config :client-cert))
-                 ;; Always connect plain+nowait first - TLS handshake
+          (let* (;; Always connect plain+nowait first - TLS handshake
                  ;; happens async in the sentinel to avoid blocking Emacs
                  (proc (make-network-process
                         :name (format "clatter-%s" network-id)
-                        :host server
-                        :service port
+                        :host (if proxy (plist-get proxy :host) server)
+                        :service (if proxy (plist-get proxy :port) port)
                         :nowait t
-                        :coding '(utf-8 . utf-8)
+                        :coding (if proxy '(binary . binary) '(utf-8 . utf-8))
                         :filter #'clatter--process-filter
                         :sentinel
                         (lambda (p e)
@@ -365,35 +409,21 @@ ARGS are keyword arguments that override `clatter-networks' config:
                                              network-id (string-trim e)
                                              (process-status p))
                           (cond
-                           ;; TCP connected - upgrade to TLS if needed
+                           ;; TCP connected - run SOCKS handshake or go direct
                            ((string-match-p "open" e)
-                            (when use-tls
-                              (clatter--watchdog "TLS-START %s" network-id)
-                              (condition-case tls-err
-                                  (with-timeout
-                                      (10
-                                       (clatter--watchdog "TLS-TIMEOUT %s" network-id)
-                                       (error "TLS handshake timed out (10s)"))
-                                    (gnutls-negotiate
-                                     :process p
-                                     :hostname server
-                                     :keylist (when (and client-cert
-                                                        (file-exists-p client-cert))
-                                                (list (list client-cert client-cert)))))
-                                (error
-                                 (clatter--watchdog "TLS-FAIL %s %s"
-                                                     network-id
-                                                     (error-message-string tls-err))
-                                 (delete-process p)
-                                 (setf (clatter-connection-state conn) :disconnected)
-                                 (message "[clatter] TLS failed: %s"
-                                          (error-message-string tls-err))
-                                 (when (clatter-connection-reconnect-enabled conn)
-                                   (clatter--schedule-reconnect conn)))))
-                            (when (process-live-p p)
-                              (clatter--watchdog "TLS-OK %s" network-id)
-                              (set-process-sentinel p #'clatter--process-sentinel)
-                              (clatter--begin-registration conn config)))
+                            (if proxy
+                                (clatter-socks-begin
+                                 p server port proxy
+                                 (lambda ()
+                                   (set-process-coding-system p 'utf-8 'utf-8)
+                                   (set-process-filter p #'clatter--process-filter)
+                                   (clatter--watchdog "SOCKS-OK %s" network-id)
+                                   (clatter--after-tcp-open conn p config server use-tls))
+                                 (lambda (reason)
+                                   (clatter--watchdog "SOCKS-FAIL %s %s" network-id reason)
+                                   (clatter--connect-abort
+                                    p (format "SOCKS5: %s" reason))))
+                              (clatter--after-tcp-open conn p config server use-tls)))
                            ;; Connection failed or closed
                            (t
                             (clatter--process-sentinel p e)))))))

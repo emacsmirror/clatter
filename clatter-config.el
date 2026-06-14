@@ -31,6 +31,10 @@ Each entry is a list of (NAME . PLIST) where PLIST contains:
   :client-cert - Path to client certificate for SASL EXTERNAL
   :autojoin  - List of channels to join on connect
   :password  - Server password (or use auth-source)
+  :proxy     - SOCKS5 proxy plist (:type socks5 :host H :port P
+               [:user U] [:pass P]); see `clatter-proxy'
+  :tor       - When non-nil, shorthand for Tor's local SOCKS5
+               proxy (127.0.0.1:9050)
 
 Example:
   \\='((\"libera\"
@@ -61,6 +65,16 @@ Example:
 (defcustom clatter-default-tls t
   "Use TLS by default."
   :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-proxy nil
+  "Default SOCKS5 proxy for networks without a per-network `:proxy'.
+A plist of the form (:type socks5 :host HOST :port PORT [:user U] [:pass P]),
+or nil to connect directly.  A network's own `:proxy' (or `:tor t') takes
+precedence.  When a proxy is configured the connection is fail-closed: if the
+handshake fails clatter will not fall back to a direct connection.  The target
+hostname is always resolved by the proxy (remote DNS), so .onion works."
+  :type '(choice (const :tag "No proxy" nil) (plist :tag "Proxy plist"))
   :group 'clatter)
 
 (defcustom clatter-tls-method 'builtin
@@ -357,6 +371,14 @@ Checks the network config first, then auth-source."
           (let ((secret (plist-get found :secret)))
             (if (functionp secret) (funcall secret) secret)))))
      (t nil))))
+
+(defun clatter-proxy-config (config)
+  "Return the resolved SOCKS5 proxy plist for network CONFIG, or nil for direct.
+Precedence: per-network `:proxy', then `:tor' shorthand, then `clatter-proxy'."
+  (or (plist-get config :proxy)
+      (and (plist-get config :tor)
+           '(:type socks5 :host "127.0.0.1" :port 9050))
+      clatter-proxy))
 
 (provide 'clatter-config)
 
