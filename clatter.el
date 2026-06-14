@@ -45,6 +45,7 @@
 (require 'clatter-config)
 (require 'clatter-protocol)
 (require 'clatter-connection)
+(require 'clatter-socks)
 (require 'clatter-cap)
 (require 'clatter-handlers)
 (require 'clatter-model)
