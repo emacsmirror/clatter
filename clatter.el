@@ -112,6 +112,32 @@ Creates a transient network entry."
         (message "clatter connections:\n%s" (string-join (nreverse lines) "\n"))
       (message "No clatter connections"))))
 
+(defun clatter--on-kill-buffer ()
+  "Close this clatter buffer."
+  ;; Avoid infinite recursion
+  (remove-hook 'kill-buffer-hook #'clatter--on-kill-buffer t)
+  (cond
+   ((not (boundp 'clatter--buffer-type)) nil)
+   ((eq 'channel clatter--buffer-type)
+    (clatter-cmd-close nil))
+   ((and (eq 'server clatter--buffer-type)
+         (boundp 'clatter--network)
+         clatter--network)
+    (clatter-disconnect clatter--network))))
+
+(defun clatter--setup-kill-buffer-hook ()
+  "Install hooks that clean-up killed clatter buffers."
+  (add-hook 'kill-buffer-hook #'clatter--on-kill-buffer nil t))
+
+(defun clatter--on-disconnect (network _event)
+  "Remove dead network buffers from the buffer list."
+  (let ((buf (clatter-get-server-buffer network)))
+    (when (and buf (not (buffer-live-p buf)))
+      (clatter-remove-buffer network "*server*"))))
+
+(add-hook 'clatter-mode-hook #'clatter--setup-kill-buffer-hook)
+(add-hook 'clatter-disconnect-hook #'clatter--on-disconnect)
+
 (provide 'clatter)
 
 ;;; clatter.el ends here
