@@ -42,6 +42,11 @@
 
 (defun clatter-smart-put (buf nick elt)
   "Record ELT for NICK in BUF and return the SNR value."
+  ;; (stringp elt) => t implies NICK changed to ELT.
+  ;; Normalize nicks.
+  (setq nick (downcase nick))
+  (when (stringp elt)
+    (setq elt (downcase elt)))
   (let* ((is-nick-change (and (stringp nick)
                               (stringp elt)))
          (data (clatter-smart-on buf))
