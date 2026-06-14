@@ -110,6 +110,41 @@
       (clatter--move-to-prompt)
       (should (= (point) (point-min))))))
 
+(ert-deftest clatter-input-undo-survives-incoming-message ()
+  "Undo of typed input is not corrupted by a message inserted above it.
+Regression for the rcirc-style bug: a bottom-anchored prompt shifts the
+input down when messages arrive, so undo must shift its recorded
+positions or it deletes the wrong (message) text."
+  (clatter-input-test--with 'oldest-first
+    (buffer-enable-undo)
+    (goto-char (clatter--input-end))
+    (setq buffer-undo-list nil)
+    (insert "hello world")
+    (should (equal (clatter--get-input) "hello world"))
+    ;; A message arrives and pushes the input down.
+    (clatter--insert-message (current-buffer) "<bob> incoming line here")
+    (should (equal (clatter--get-input) "hello world"))
+    ;; Undo the typing: it must remove the input and leave the message.
+    (primitive-undo 1 buffer-undo-list)
+    (should (equal (clatter--get-input) ""))
+    (should (string-match-p "incoming line here" (buffer-string)))))
+
+(ert-deftest clatter-update-undo-list-shifts-positions ()
+  "`clatter--update-undo-list' shifts integer positions and (BEG . END)."
+  (with-temp-buffer
+    (let ((buffer-undo-list (list 10 (cons 5 8) (cons "txt" 12) nil)))
+      (clatter--update-undo-list 3)
+      (should (equal (nth 0 buffer-undo-list) 13))      ; POSITION
+      (should (equal (nth 1 buffer-undo-list) (cons 8 11)))  ; (BEG . END)
+      (should (equal (nth 2 buffer-undo-list) (cons "txt" 15))) ; (TEXT . POS)
+      (should (null (nth 3 buffer-undo-list))))))       ; boundary untouched
+
+(ert-deftest clatter-update-undo-list-noop-on-zero ()
+  "A zero shift leaves the undo list untouched."
+  (let ((buffer-undo-list (list 10 (cons 5 8))))
+    (clatter--update-undo-list 0)
+    (should (equal buffer-undo-list (list 10 (cons 5 8))))))
+
 (provide 'test-input)
 
 ;;; test-input.el ends here

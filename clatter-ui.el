@@ -130,6 +130,34 @@ Apply FACE and set clatter-sender property to SENDER if provided."
     (concat (make-string pad ?\s)
             (propertize prefix-str 'face 'clatter-system))))
 
+(defun clatter--update-undo-list (shift)
+  "Shift integer buffer positions in `buffer-undo-list' by SHIFT.
+Called after inserting messages above the input line (the bottom,
+oldest-first prompt) so the user's pending undo entries keep pointing at
+their input text instead of the freshly inserted message.  Based on the
+approach in `erc-update-undo-list'."
+  (unless (or (zerop shift) (atom buffer-undo-list))
+    (let ((list buffer-undo-list) elt)
+      (while list
+        (setq elt (car list))
+        (cond
+         ((integerp elt)                ; POSITION
+          (setcar list (+ elt shift)))
+         ((or (atom elt)                ; nil boundary, (t . TIME)
+              (markerp (car elt)))      ; (MARKER . DISTANCE) - auto-adjusted
+          nil)
+         ((integerp (car elt))          ; (BEGIN . END)
+          (setcar elt (+ (car elt) shift))
+          (setcdr elt (+ (cdr elt) shift)))
+         ((stringp (car elt))           ; (TEXT . POSITION)
+          (setcdr elt (+ (cdr elt)
+                         (* (if (natnump (cdr elt)) 1 -1) shift))))
+         ((null (car elt))              ; (nil PROPERTY VALUE BEG . END)
+          (let ((cons (nthcdr 3 elt)))
+            (setcar cons (+ (car cons) shift))
+            (setcdr cons (+ (cdr cons) shift)))))
+        (setq list (cdr list))))))
+
 (defun clatter--insert-message (buffer text &optional no-timestamp msg-props time invisible)
   "Insert formatted TEXT into BUFFER.
 Adds timestamp unless NO-TIMESTAMP is non-nil.
@@ -140,44 +168,54 @@ the input line with older ones scrolling down.  When `oldest-first', messages
 append at the bottom like a traditional IRC client."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (let ((inhibit-read-only t)
-            (buffer-undo-list t)
-            (oldest-first (eq clatter-message-order 'oldest-first)))
-        (save-excursion
-          ;; Messages always insert at the messages marker.  Its position
-          ;; and insertion type (set in `clatter--setup-prompt') determine
-          ;; the layout: below a top prompt for `newest-first', or above a
-          ;; bottom prompt for `oldest-first'.
-          (goto-char (or clatter--messages-marker (point-max)))
-          (let* ((ts-str (unless no-timestamp
-                           (format-time-string clatter-timestamp-format time)))
-                 (wrap-col (1+ clatter-nick-column-width))
-                 (wrap-prefix (make-string wrap-col ?\s))
-                 (start (point)))
-            (insert text "\n")
-            (when ts-str
-              (let ((ov (make-overlay start (1+ start) nil t)))
-                (overlay-put ov 'before-string
-                             (propertize " " 'display
-                                         `((margin right-margin)
-                                           ,(propertize ts-str 'face 'clatter-timestamp))))
-                (overlay-put ov 'clatter-timestamp t)
-                (overlay-put ov 'invisible invisible)))
-            (add-text-properties start (point)
-                                 (list 'read-only t
-                                       'front-sticky t
-                                       'wrap-prefix wrap-prefix
-                                       'line-prefix ""))
-            (when msg-props
-              (add-text-properties start (point) msg-props))
-            (put-text-property start (point) 'invisible invisible)))
-        (clatter--maybe-truncate buffer)
-        ;; Auto-scroll in oldest-first mode
-        (when oldest-first
-          (dolist (win (get-buffer-window-list buffer nil t))
-            (with-selected-window win
-              (goto-char (point-max))
-              (recenter -1))))))))
+      (let ((pre-input (and clatter--input-marker
+                            (marker-position clatter--input-marker))))
+        (let ((inhibit-read-only t)
+              (buffer-undo-list t)
+              (oldest-first (eq clatter-message-order 'oldest-first)))
+          (save-excursion
+            ;; Messages always insert at the messages marker.  Its position
+            ;; and insertion type (set in `clatter--setup-prompt') determine
+            ;; the layout: below a top prompt for `newest-first', or above a
+            ;; bottom prompt for `oldest-first'.
+            (goto-char (or clatter--messages-marker (point-max)))
+            (let* ((ts-str (unless no-timestamp
+                             (format-time-string clatter-timestamp-format time)))
+                   (wrap-col (1+ clatter-nick-column-width))
+                   (wrap-prefix (make-string wrap-col ?\s))
+                   (start (point)))
+              (insert text "\n")
+              (when ts-str
+                (let ((ov (make-overlay start (1+ start) nil t)))
+                  (overlay-put ov 'before-string
+                               (propertize " " 'display
+                                           `((margin right-margin)
+                                             ,(propertize ts-str 'face 'clatter-timestamp))))
+                  (overlay-put ov 'clatter-timestamp t)
+                  (overlay-put ov 'invisible invisible)))
+              (add-text-properties start (point)
+                                   (list 'read-only t
+                                         'front-sticky t
+                                         'wrap-prefix wrap-prefix
+                                         'line-prefix ""))
+              (when msg-props
+                (add-text-properties start (point) msg-props))
+              (put-text-property start (point) 'invisible invisible)))
+          (clatter--maybe-truncate buffer)
+          ;; Auto-scroll in oldest-first mode
+          (when oldest-first
+            (dolist (win (get-buffer-window-list buffer nil t))
+              (with-selected-window win
+                (goto-char (point-max))
+                (recenter -1)))))
+        ;; Messages inserted above the input (bottom/oldest-first prompt)
+        ;; push the input down.  Without this, the user's pending undo
+        ;; entries would still point at the old positions and an undo
+        ;; would corrupt the freshly inserted message instead of their
+        ;; input.  Shift those entries by the input's drift.
+        (when (and pre-input clatter--input-marker)
+          (clatter--update-undo-list
+           (- (marker-position clatter--input-marker) pre-input)))))))
 
 (defun clatter--maybe-truncate (_buffer)
   "Truncate the current buffer if it exceeds `clatter-buffer-max-lines'.
