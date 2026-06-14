@@ -3,7 +3,7 @@ BATCH = $(EMACS) --batch -L . -L tests
 
 TEST_FILES = $(wildcard tests/test-*.el)
 
-.PHONY: test test-protocol test-handlers test-scram test-sts test-dcc clean
+.PHONY: test test-protocol test-handlers test-scram test-sts test-dcc test-socks clean
 
 test: ## Run all tests
 	$(BATCH) -l test-helper $(foreach f,$(TEST_FILES),-l $(f)) -f ert-run-tests-batch-and-exit
@@ -22,6 +22,9 @@ test-sts: ## Run STS tests
 
 test-dcc: ## Run DCC tests
 	$(BATCH) -l test-helper -l tests/test-dcc.el -f ert-run-tests-batch-and-exit
+
+test-socks: ## Run SOCKS5 proxy tests
+	$(BATCH) -l test-helper -l tests/test-socks.el -f ert-run-tests-batch-and-exit
 
 lint: ## Byte-compile all files (warnings as errors)
 	$(BATCH) --eval '(setq byte-compile-error-on-warn t)' -f batch-byte-compile *.el

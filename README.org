@@ -47,6 +47,25 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 - =/close= command to kill current buffer (PARTs from channels first)
 - Reconnect/disconnect status shown inline in channel buffers
 
+*** SOCKS5 / Tor Proxy (clatter-socks)
+- Route connections through any SOCKS5 proxy (RFC 1928), including Tor
+- =:tor t= shorthand for Tor's local proxy (127.0.0.1:9050); .onion supported
+- Username/password auth (RFC 1929); password via plist or auth-source
+- Per-network =:proxy= plist, or a global =clatter-proxy= default
+- Fail-closed: never falls back to a direct connection if the proxy fails
+- Remote DNS (SOCKS5h): the proxy resolves the target, so DNS is not leaked
+- Requires builtin TLS (=clatter-tls-method 'builtin=); external-TLS users can
+  wrap the client with =torsocks= at the OS level instead
+
+Example:
+
+#+BEGIN_SRC emacs-lisp
+(setopt clatter-networks
+  '(("libera-tor"
+     :server "irc.libera.chat" :port 6697 :tls t :nick "yournick"
+     :tor t)))               ;; or :proxy (:type socks5 :host "..." :port 1080)
+#+END_SRC
+
 *** Nick Highlighting (clatter-hl-nicks)
 - 40-color palette optimized for dark themes
 - Hash-based stable colors (same nick = same color across sessions)
@@ -408,6 +427,7 @@ With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= 
 | =clatter-search.el=     | Full-text search across IRC log history        |
 | =clatter-org.el=        | Org-mode integration (links, capture, export)  |
 | =clatter-dcc.el=        | DCC file transfer (XDCC receive, resume)       |
+| =clatter-socks.el=      | SOCKS5 / Tor proxy support                     |
 
 ** Companion Packages
 
