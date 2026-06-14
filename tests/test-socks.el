@@ -172,4 +172,36 @@ Returns (cons session state-box) where state-box is a plist with
   (let ((out (clatter-socks--encode-connect "h" 65535))) ; 0xFFFF
     (should (equal (substring out (- (length out) 2)) (unibyte-string 255 255)))))
 
+;; --- Password helper ---
+
+(ert-deftest clatter-socks-test-password-explicit ()
+  (should (equal "sekret"
+                 (clatter-socks--password '(:host "h" :user "u" :pass "sekret")))))
+
+(ert-deftest clatter-socks-test-password-none-without-auth-source ()
+  (let ((clatter-use-auth-source nil))
+    (should (null (clatter-socks--password '(:host "h" :user "u"))))))
+
+;; --- begin: greeting is sent and a session is stored on the process ---
+
+(ert-deftest clatter-socks-test-begin-sends-greeting ()
+  (let ((proc (make-network-process
+               :name "clatter-socks-test" :server t :host 'local :service t)))
+    (unwind-protect
+        (let (sent)
+          (cl-letf (((symbol-function 'process-send-string)
+                     (lambda (_p s) (push s sent))))
+            (clatter-socks-begin proc "irc.example.org" 6697
+                                 '(:host "127.0.0.1" :port 1080)
+                                 #'ignore #'ignore)
+            ;; greeting sent, session stored, the real filter installed
+            (should (equal (car (last sent)) (unibyte-string 5 1 0)))
+            (should (clatter-socks--session-p (process-get proc :socks-session)))
+            (should (eq (process-filter proc) #'clatter-socks--filter))
+            ;; drive one step through the real filter: method selection -> CONNECT
+            (funcall (process-filter proc) proc (unibyte-string 5 0))
+            (should (equal (car sent)
+                           (clatter-socks--encode-connect "irc.example.org" 6697)))))
+      (delete-process proc))))
+
 ;;; test-socks.el ends here

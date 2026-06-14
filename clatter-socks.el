@@ -160,6 +160,48 @@ input from the proxy.  SEND-FN is called with a unibyte string to transmit."
                      (clatter-socks--succeed session)
                    (clatter-socks--fail session (clatter-socks--rep-message rep))))))))))))
 
+;; --- Proxy password ---
+
+(defun clatter-socks--password (proxy)
+  "Return the password for PROXY plist, from :pass or auth-source."
+  (or (plist-get proxy :pass)
+      (when (and clatter-use-auth-source (plist-get proxy :host))
+        (let ((found (car (auth-source-search
+                           :host (plist-get proxy :host)
+                           :user (plist-get proxy :user)
+                           :port (plist-get proxy :port)
+                           :max 1))))
+          (when found
+            (let ((secret (plist-get found :secret)))
+              (if (functionp secret) (funcall secret) secret)))))))
+
+;; --- Process glue ---
+
+(defun clatter-socks--filter (proc data)
+  "Process filter driving the SOCKS5 handshake on PROC with incoming DATA."
+  (when-let* ((session (process-get proc :socks-session)))
+    (setf (clatter-socks--session-buffer session)
+          (concat (clatter-socks--session-buffer session) data))
+    (clatter-socks--advance session)))
+
+(defun clatter-socks-begin (proc host port proxy on-success on-failure)
+  "Begin a SOCKS5 handshake on open PROC to reach HOST:PORT through PROXY.
+PROXY is a plist (:host :port [:user] [:pass]).  Call ON-SUCCESS (no args) once
+the tunnel is established, or ON-FAILURE with a reason string on any error.
+PROC must use binary coding for the duration of the handshake."
+  (let* ((user (plist-get proxy :user))
+         (auth (and user (> (length user) 0)))
+         (pass (and auth (clatter-socks--password proxy)))
+         (methods (if auth '(0 2) '(0)))
+         (session (clatter-socks--session-create
+                   :state :method :buffer (unibyte-string)
+                   :host host :port port :user user :pass pass
+                   :send-fn (lambda (s) (process-send-string proc s))
+                   :on-success on-success :on-failure on-failure)))
+    (process-put proc :socks-session session)
+    (set-process-filter proc #'clatter-socks--filter)
+    (clatter-socks--send session (clatter-socks--encode-greeting methods))))
+
 (provide 'clatter-socks)
 
 ;;; clatter-socks.el ends here
