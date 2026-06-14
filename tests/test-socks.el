@@ -204,4 +204,34 @@ Returns (cons session state-box) where state-box is a plist with
                            (clatter-socks--encode-connect "irc.example.org" 6697)))))
       (delete-process proc))))
 
+;; --- Proxy config resolution ---
+
+(ert-deftest clatter-socks-test-config-tor-sugar ()
+  (let ((clatter-proxy nil))
+    (should (equal (clatter-proxy-config '(:tor t))
+                   '(:type socks5 :host "127.0.0.1" :port 9050)))))
+
+(ert-deftest clatter-socks-test-config-explicit-overrides-tor ()
+  (let ((clatter-proxy nil)
+        (p '(:type socks5 :host "10.0.0.1" :port 1080)))
+    (should (equal (clatter-proxy-config (list :proxy p :tor t)) p))))
+
+(ert-deftest clatter-socks-test-config-global-fallback ()
+  (let ((clatter-proxy '(:type socks5 :host "g" :port 1)))
+    (should (equal (clatter-proxy-config nil) clatter-proxy))))
+
+(ert-deftest clatter-socks-test-config-direct ()
+  (let ((clatter-proxy nil))
+    (should (null (clatter-proxy-config '(:server "x"))))))
+
+(ert-deftest clatter-socks-test-config-proxy-overrides-global ()
+  (let ((clatter-proxy '(:type socks5 :host "g" :port 1))
+        (p '(:type socks5 :host "10.0.0.1" :port 1080)))
+    (should (equal (clatter-proxy-config (list :proxy p)) p))))
+
+(ert-deftest clatter-socks-test-config-tor-overrides-global ()
+  (let ((clatter-proxy '(:type socks5 :host "g" :port 1)))
+    (should (equal (clatter-proxy-config '(:tor t))
+                   '(:type socks5 :host "127.0.0.1" :port 9050)))))
+
 ;;; test-socks.el ends here
