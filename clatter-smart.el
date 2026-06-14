@@ -1,4 +1,19 @@
-;; -*- lexical-binding: t; -*-
+;;; clatter-smart.el --- Smart noise suppression for clatter -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Glenn Thompson
+;; Author: Glenn Thompson
+;; License: MIT
+;; URL: https://github.com/parenworks/clatter.el
+
+;;; Commentary:
+
+;; A simple signal-to-noise filter for clatter buffers.  Each nick
+;; accumulates a count of signal messages (for example PRIVMSG) versus
+;; noise messages (for example JOIN, PART, QUIT).  When a nick's
+;; signal-to-noise ratio falls below `clatter-smart-threshold', its
+;; noisy events are hidden via the buffer invisibility spec.
+
+;;; Code:
 
 (defcustom clatter-smart-noise '(join part quit nick away)
   "Message types considered to be noise in clatter's smart filter."
@@ -40,7 +55,9 @@
     (setq signal-count (+ signal-count (if is-noise 0 1)))
     (setq noise-count (+ noise-count (if is-noise 1 0)))
     (puthash nick (cons signal-count noise-count) data)
-    (/ signal-count noise-count)))
+    ;; Float division: integer division would collapse the ratio to 0 or 1
+    ;; and make `clatter-smart-threshold' meaningless.
+    (/ (float signal-count) noise-count)))
 
 (defun clatter-smart-eval (buf nick elt)
   "Record ELT for NICK in BUF and return whether NICK is noisy."
