@@ -281,6 +281,8 @@ SERVER-TIME overrides the current time for the timestamp."
          (my-nick (clatter-connection-nick conn))
          (is-reply-to-me (get-text-property 0 'clatter-reply-to-me text))
          (is-mention (and my-nick
+                          ;; do not highlight self-mentions
+                          (not (string-equal-ignore-case sender my-nick))
                           (or is-reply-to-me
                               (string-match-p
                                (regexp-quote (downcase my-nick))
