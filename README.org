@@ -446,7 +446,11 @@ Works well with:
 Thanks to the people who have contributed to clatter.el:
 
 - [[https://github.com/fmqa][fmqa]] (F. Magsarian), non-destructive message
-  suppression, input history, and assorted nicklist fixes
+  suppression, smart noise filtering, input history, additional WHOIS
+  numerics, buffer cleanup hooks, reaction overlay fix, and assorted
+  nicklist fixes
+- [[https://github.com/trevarj][trevarj]] (Trevor Arjeski), SOCKS5 / Tor
+  proxy support
 
 ** License
 
