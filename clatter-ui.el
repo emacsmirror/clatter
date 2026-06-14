@@ -575,8 +575,8 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-ui-setup-buffer-if-needed buf)
       (clatter-insert-privmsg buf sender text conn server-time)
       (when (and (not (string-equal-ignore-case my-nick sender))
-                 (listp buffer-invisibility-spec)
-                 (memq 'noise buffer-invisibility-spec))
+                 (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                 (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
         (clatter-smart-put buf sender 'privmsg)))))
 
 (defun clatter-ui--on-action (conn sender target text _server-time)
@@ -591,8 +591,8 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-ui-setup-buffer-if-needed buf)
       (clatter-insert-action buf sender text conn)
       (when (and (not (string-equal-ignore-case my-nick sender))
-                 (listp buffer-invisibility-spec)
-                 (memq 'noise buffer-invisibility-spec))
+                 (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                 (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
         (clatter-smart-put buf sender 'privmsg)))))
 
 (defun clatter-ui--on-notice (conn sender target text)
@@ -603,8 +603,8 @@ Emacs requires `set-window-margins' on the window, not just
                   (clatter-get-or-create-buffer network "*server*" 'server))))
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-notice buf sender text conn)
-    (when (and (listp buffer-invisibility-spec)
-               (memq 'noise buffer-invisibility-spec))
+    (when (and (listp (buffer-local-value 'buffer-invisibility-spec buf))
+               (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
       (clatter-smart-put buf sender 'notice))))
 
 (defun clatter-ui--on-invite (conn sender nick channel)
@@ -637,8 +637,8 @@ Emacs requires `set-window-margins' on the window, not just
                              (format "%s has joined %s" nick channel))
                            (cons 'join
                                  (and (not (string-equal-ignore-case my-nick nick))
-                                      (listp buffer-invisibility-spec)
-                                      (memq 'noise buffer-invisibility-spec)
+                                      (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                      (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                                       (clatter-smart-eval buf nick 'join)
                                       '(noise))))))
 
@@ -654,8 +654,8 @@ Emacs requires `set-window-margins' on the window, not just
                                      (if message (format " (%s)" message) ""))
                              (cons 'part
                                    (and (not (string-equal-ignore-case my-nick nick))
-                                        (listp buffer-invisibility-spec)
-                                        (memq 'noise buffer-invisibility-spec)
+                                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                                         (clatter-smart-eval buf nick 'part)
                                         '(noise)))))))
 
@@ -672,8 +672,8 @@ Emacs requires `set-window-margins' on the window, not just
                                        (if message (format " (%s)" message) ""))
                                (cons 'quit
                                      (and (not (string-equal-ignore-case my-nick nick))
-                                          (listp buffer-invisibility-spec)
-                                          (memq 'noise buffer-invisibility-spec)
+                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                                           (clatter-smart-eval buf nick 'quit)
                                           '(noise))))))))
 
@@ -690,8 +690,8 @@ Emacs requires `set-window-margins' on the window, not just
                                        old-nick new-nick)
                                (cons 'nick
                                      (and (not (string-equal-ignore-case my-nick new-nick))
-                                          (listp buffer-invisibility-spec)
-                                          (memq 'noise buffer-invisibility-spec)
+                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                                           (clatter-smart-eval buf old-nick new-nick)
                                           '(noise))))))))
 
@@ -715,8 +715,8 @@ Emacs requires `set-window-margins' on the window, not just
         (when (and (not (string-equal-ignore-case my-nick nick))
                    ;; avoid recording nick!user@host from RPL_TOPICWHOTIME
                    (not at)
-                   (listp buffer-invisibility-spec)
-                   (memq 'noise buffer-invisibility-spec))
+                   (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                   (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
           (clatter-smart-put buf nick 'topic))))))
 
 (defun clatter-ui--on-kick (conn channel nick kicked reason)
@@ -786,8 +786,8 @@ Emacs requires `set-window-margins' on the window, not just
                                  (format "%s is back" nick))
                                (cons 'away
                                      (and (not (string-equal-ignore-case my-nick nick))
-                                          (listp buffer-invisibility-spec)
-                                          (memq 'noise buffer-invisibility-spec)
+                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                                           (clatter-smart-eval buf nick 'away)
                                           '(noise))))))))
 
@@ -803,8 +803,8 @@ Emacs requires `set-window-margins' on the window, not just
                                      setter (string-join modes " "))
                              (cons 'mode
                                    (and (not (string-equal-ignore-case my-nick setter))
-                                        (listp buffer-invisibility-spec)
-                                        (memq 'noise buffer-invisibility-spec)
+                                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
                                         (clatter-smart-eval buf setter 'mode)
                                         '(noise)))))))
 
@@ -893,8 +893,8 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-buffer network target)))
     (when (and buf (buffer-live-p buf))
       (when (and (not (string-equal-ignore-case my-nick nick))
-                 (listp buffer-invisibility-spec)
-                 (memq 'noise buffer-invisibility-spec))
+                 (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                 (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
         (clatter-smart-put buf nick 'react))
       (with-current-buffer buf
         (save-excursion
