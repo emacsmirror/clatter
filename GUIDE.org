@@ -75,6 +75,11 @@ All commands are typed in the input area prefixed with =/=.
 | =/buffers=        |            | List all open buffers                   |
 | =/list [filter]=  |            | Open interactive channel list browser (optional server filter, e.g. =>100=) |
 
+Killing a clatter buffer the normal way (=C-x k=, ibuffer, etc.) now
+tears it down cleanly without needing =/close= or =/quit=: killing a
+channel buffer parts the channel, and killing a server buffer
+disconnects that network.
+
 ** Messaging
 
 | Command                | Aliases    | Description                               |
@@ -133,11 +138,40 @@ With prefix arg (=C-u=), =/search= prompts for a network filter.
 |------------------------+---------------------------------------------|
 | =/suppress type ...=   | Hide message types (join part quit nick mode away kick topic) |
 | =/suppress all=        | Suppress all noise                          |
+| =/suppress noise=      | Enable smart (adaptive) noise filtering (see below) |
 | =/suppress none=       | Show everything                             |
 | =/unsuppress type ...= | Stop suppressing specific types             |
 | =/ignore pattern=      | Ignore nick or hostmask (supports * and ?)  |
 | =/unignore pattern=    | Remove from ignore list                     |
 | =/ignore=              | Show current ignore list                    |
+
+*** Smart noise filtering
+
+=/suppress all= hides join/part/quit/etc. unconditionally. Smart
+filtering instead hides that noise *only for nicks who are mostly
+noise*. Each nick accumulates a signal-to-noise ratio: "signal" is
+talking (PRIVMSG, notice, topic, reactions) and "noise" is
+join/part/quit/nick/mode/away. When a nick's ratio falls below the
+threshold, their noise lines are hidden, while people who actually talk
+stay fully visible.
+
+Enable it per buffer:
+
+#+begin_src
+/suppress noise
+#+end_src
+
+Turn it off with =/unsuppress noise=. Suppression is buffer-local, so
+run it in each channel where you want it (it is most useful on busy
+channels like =#emacs=). The ratios build up as messages arrive, so the
+filter gets more accurate the longer a channel stays open.
+
+Tuning:
+
+| Variable                  | Default                  | Description                                      |
+|---------------------------+--------------------------+--------------------------------------------------|
+| =clatter-smart-threshold= | =0.5=                    | Hide a nick's noise when its signal/noise ratio drops below this |
+| =clatter-smart-noise=     | =(join part quit nick away)= | Event types that count as noise              |
 
 ** Services & Raw
 
