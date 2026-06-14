@@ -179,22 +179,36 @@ Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
 
 ;; --- Hook into message insertion ---
 
+(defun clatter-image--extract-urls (text)
+  "Return the list of http(s) URLs found in TEXT, in order of appearance.
+This scan reads the match end and the matched substring before doing
+anything else, so it never relies on global match data surviving a call
+to another function.  An earlier version advanced the loop with
+`match-end' *after* calling `clatter-image--url-p' (which runs
+`split-string' on the URL and clobbers the match data); when a URL
+contained a query string or fragment and was preceded by other text,
+the position reset behind the URL and the same URL matched forever,
+spinning the CPU at 100%."
+  (let ((pos 0)
+        (urls nil))
+    (while (string-match "https?://[^ \t\n]+" text pos)
+      (setq pos (match-end 0))
+      (push (match-string 0 text) urls))
+    (nreverse urls)))
+
 (defun clatter-image--scan-message (text buffer &optional insert-marker)
   "Scan TEXT for image URLs and fetch them for inline display in BUFFER.
 INSERT-MARKER is the position right after the message line.
 Should be called after message insertion."
   (when (and clatter-image-enable (display-graphic-p))
-    (let ((pos 0))
-      (while (string-match "https?://[^ \t\n]+" text pos)
-        (let ((url (match-string 0 text))
-              (marker (or insert-marker
-                         (with-current-buffer buffer
-                           (save-excursion
-                             (goto-char (point-max))
-                             (point-marker))))))
-          (when (clatter-image--url-p url)
-            (clatter-image--fetch url buffer marker)))
-        (setq pos (match-end 0))))))
+    (dolist (url (clatter-image--extract-urls text))
+      (when (clatter-image--url-p url)
+        (let ((marker (or insert-marker
+                          (with-current-buffer buffer
+                            (save-excursion
+                              (goto-char (point-max))
+                              (point-marker))))))
+          (clatter-image--fetch url buffer marker))))))
 
 (provide 'clatter-image)
 
