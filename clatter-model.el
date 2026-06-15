@@ -310,7 +310,8 @@ Installed buffer-locally on `kill-buffer-hook' by `clatter-mode'."
   (remove-hook 'kill-buffer-hook #'clatter--on-kill-buffer t)
   (cond
    ((not (boundp 'clatter--buffer-type)) nil)
-   ((eq 'channel clatter--buffer-type)
+   ((or (eq 'channel clatter--buffer-type)
+        (eq 'query clatter--buffer-type))
     (when (fboundp 'clatter-cmd-close)
       (clatter-cmd-close nil)))
    ((and (eq 'server clatter--buffer-type)
