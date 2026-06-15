@@ -1,8 +1,8 @@
 ;;; clatter-rawlog.el --- Raw IRC protocol inspector -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -96,7 +96,7 @@ DIRECTION is :in or :out."
       (when (buffer-live-p buf)
         (with-current-buffer buf
           (let ((inhibit-read-only t)
-                (at-end (= (point) (point-max)))
+                (at-end (eobp))
                 (ts (propertize (format-time-string "%H:%M:%S ")
                                 'face 'clatter-rawlog-timestamp))
                 (dir-str (if (eq direction :in)
@@ -148,7 +148,7 @@ DIRECTION is :in or :out."
 ;; --- Hook into connection layer ---
 
 (defvar clatter-rawlog--original-send nil
-  "Storage for the original clatter-send function when wrapping.")
+  "Storage for the original `clatter-send' function when wrapping.")
 
 (defun clatter-rawlog--on-incoming (network line)
   "Log incoming LINE from NETWORK."

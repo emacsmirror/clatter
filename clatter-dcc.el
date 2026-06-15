@@ -1,8 +1,8 @@
 ;;; clatter-dcc.el --- DCC file transfer and chat for clatter -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 ;; Direct Client-to-Client (DCC) protocol support.

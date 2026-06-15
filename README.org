@@ -183,6 +183,15 @@ Example:
 - =org-store-link= support: store links to IRC messages (=irc:network/channel#msgid=)
 - =org-capture= helpers: =%(clatter-org-capture-message)= and =%(clatter-org-capture-channel)=
 - Log export: =M-x clatter-org-export-log= converts logs to org format grouped by date
+- Opt-in: load =clatter-org= and call =clatter-org-setup= to register the
+  =irc:= link type with Org (it is not registered automatically, and Org
+  is not a hard dependency of clatter):
+
+  #+BEGIN_SRC emacs-lisp
+  (with-eval-after-load 'org
+    (require 'clatter-org)
+    (clatter-org-setup))
+  #+END_SRC
 
 *** DCC File Transfer (clatter-dcc)
 - DCC SEND receive (XDCC pack downloads)
@@ -269,7 +278,18 @@ Clone this repository and add to your =load-path=:
 #+BEGIN_SRC emacs-lisp
 (add-to-list 'load-path "~/SourceCode/clatter.el")
 (require 'clatter)
+(clatter-setup)
 #+END_SRC
+
+Loading clatter has no side effects: it installs no global hooks and
+enables no features.  Call =clatter-setup= once to install the
+disconnect/exit cleanup handlers and enable the bundled extras.  Each
+extra is gated by its own user option: activity tracking
+(=clatter-track-enabled=), notifications (=clatter-notify-enabled=),
+chathistory (=clatter-chathistory-enabled=) and read markers
+(=clatter-read-marker-enabled=) default on, while channel logging
+(=clatter-log-enable=) and URL previews (=clatter-url-preview-enable=)
+default off.  Set the relevant option before calling =clatter-setup=.
 
 ** Quick Start
 
@@ -329,6 +349,9 @@ crumbs in the mode line of all clatter buffers.
                   collect 'clatter-track-mode-line-item
                   collect elt)))))
   :config
+  ;; Install cleanup hooks and enable the bundled extras.  Required:
+  ;; loading clatter alone has no side effects.
+  (clatter-setup)
   ;; Ensure GnuTLS is loaded before connecting.
   (require 'gnutls)
   ;; Present the same client certificate on every configured network

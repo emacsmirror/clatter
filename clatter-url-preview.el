@@ -1,8 +1,8 @@
 ;;; clatter-url-preview.el --- URL title preview -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -155,10 +155,8 @@ Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
   "Remove URL preview hooks."
   (remove-hook 'clatter-privmsg-hook #'clatter-url-preview--on-privmsg))
 
-;; --- Auto-init ---
-
-(when clatter-url-preview-enable
-  (clatter-url-preview-init))
+;; Enabled by `clatter-setup' when `clatter-url-preview-enable' is
+;; non-nil, so that merely loading this file has no side effects.
 
 (provide 'clatter-url-preview)
 

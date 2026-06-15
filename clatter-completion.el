@@ -1,8 +1,8 @@
 ;;; clatter-completion.el --- Modern completion for clatter -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -155,8 +155,9 @@ Dispatches to command, channel, or nick completion as appropriate."
   (add-hook 'completion-at-point-functions
             #'clatter-completion-at-point nil t))
 
-;; Auto-hook into clatter-mode
-(add-hook 'clatter-mode-hook #'clatter-completion-setup)
+;; `clatter-completion-setup' is called from the `clatter-mode' body
+;; (see clatter-model.el) so that merely loading this file installs no
+;; global hooks.
 
 (provide 'clatter-completion)
 

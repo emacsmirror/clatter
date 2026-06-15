@@ -1,10 +1,10 @@
 ;;; clatter.el --- An IRCv3-compliant IRC client -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 ;; URL: https://github.com/parenworks/clatter.el
-;; Version: 0.4.1
+;; Version: 0.4.2
 ;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: comm, irc
 
@@ -113,31 +113,46 @@ Creates a transient network entry."
         (message "clatter connections:\n%s" (string-join (nreverse lines) "\n"))
       (message "No clatter connections"))))
 
-(defun clatter--on-kill-buffer ()
-  "Close this clatter buffer."
-  ;; Avoid infinite recursion
-  (remove-hook 'kill-buffer-hook #'clatter--on-kill-buffer t)
-  (cond
-   ((not (boundp 'clatter--buffer-type)) nil)
-   ((eq 'channel clatter--buffer-type)
-    (clatter-cmd-close nil))
-   ((and (eq 'server clatter--buffer-type)
-         (boundp 'clatter--network)
-         clatter--network)
-    (clatter-disconnect clatter--network))))
-
-(defun clatter--setup-kill-buffer-hook ()
-  "Install hooks that clean-up killed clatter buffers."
-  (add-hook 'kill-buffer-hook #'clatter--on-kill-buffer nil t))
-
 (defun clatter--on-disconnect (network _event)
-  "Remove dead network buffers from the buffer list."
+  "Remove dead buffers for NETWORK from the buffer list.
+Added to `clatter-disconnect-hook' by `clatter-setup'.  The disconnect
+EVENT string is ignored."
   (let ((buf (clatter-get-server-buffer network)))
     (when (and buf (not (buffer-live-p buf)))
       (clatter-remove-buffer network "*server*"))))
 
-(add-hook 'clatter-mode-hook #'clatter--setup-kill-buffer-hook)
-(add-hook 'clatter-disconnect-hook #'clatter--on-disconnect)
+;; --- Setup ---
+
+;;;###autoload
+(defun clatter-setup ()
+  "Enable clatter's global hooks and optional features.
+
+Merely loading clatter has no side effects: it installs no global hooks,
+enables no optional features, and prints nothing.  Call this once from
+your configuration to wire everything up:
+
+  (require \\='clatter)
+  (clatter-setup)
+
+This installs the disconnect and Emacs-exit cleanup handlers and enables
+the optional extras that are turned on through their own user options:
+activity tracking, desktop notifications, chathistory, read markers,
+per-buffer logging and URL previews.  To leave a feature off, customize
+the corresponding option (for example `clatter-track-enabled' or
+`clatter-log-enable') to nil before calling this function.
+
+Calling it more than once is harmless."
+  (interactive)
+  ;; Cleanup handlers.
+  (add-hook 'clatter-disconnect-hook #'clatter--on-disconnect)
+  (add-hook 'kill-emacs-hook #'clatter--quit-on-exit)
+  ;; Optional features, each gated by its own user option.
+  (when clatter-track-enabled (clatter-track-enable))
+  (when clatter-notify-enabled (clatter-notify-enable))
+  (when clatter-chathistory-enabled (clatter-chathistory-enable))
+  (when clatter-read-marker-enabled (clatter-read-marker-enable))
+  (when clatter-log-enable (clatter-log-init))
+  (when clatter-url-preview-enable (clatter-url-preview-init)))
 
 (provide 'clatter)
 

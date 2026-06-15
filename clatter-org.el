@@ -1,8 +1,8 @@
 ;;; clatter-org.el --- Org-mode integration for clatter -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -164,7 +164,19 @@ For use as %(clatter-org-capture-channel)."
 (declare-function org-link-set-parameters "ol")
 (declare-function org-link-store-props "ol")
 
-(with-eval-after-load 'org
+;;;###autoload
+(defun clatter-org-setup ()
+  "Register the clatter \"irc:\" link type with Org.
+Call this from your configuration to enable storing and following IRC
+links, for example:
+
+  (with-eval-after-load \\='org
+    (require \\='clatter-org)
+    (clatter-org-setup))
+
+This is intentionally not done at load time so that loading clatter-org
+has no global side effects."
+  (require 'ol)
   (org-link-set-parameters
    "irc"
    :store #'clatter-org-store-link

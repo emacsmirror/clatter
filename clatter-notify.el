@@ -1,8 +1,8 @@
 ;;; clatter-notify.el --- Desktop notifications -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -386,7 +386,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (add-hook 'clatter-privmsg-hook #'clatter-notify--on-privmsg)
   (add-hook 'clatter-action-hook #'clatter-notify--on-action)
   (add-hook 'clatter-invite-hook #'clatter-notify--on-invite)
-  (message "[clatter-notify] Notification hooks enabled"))
+  (when (called-interactively-p 'interactive)
+    (message "[clatter-notify] Notification hooks enabled")))
 
 (defun clatter-notify-disable ()
   "Disable notification hooks."
@@ -396,10 +397,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (remove-hook 'clatter-invite-hook #'clatter-notify--on-invite)
   (message "[clatter-notify] Notification hooks disabled"))
 
-;; --- Auto-enable ---
-
-(when clatter-notify-enabled
-  (clatter-notify-enable))
+;; Enabled by `clatter-setup' when `clatter-notify-enabled' is non-nil,
+;; so that merely loading this file has no side effects.
 
 (provide 'clatter-notify)
 

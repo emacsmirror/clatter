@@ -1,8 +1,8 @@
 ;;; clatter-read-marker.el --- IRCv3 read-marker support -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -161,23 +161,29 @@ Uses SERVER-TIME as a proxy when msgid tags are not available."
 
 ;; --- Enable/disable ---
 
+(defun clatter-read-marker--window-change (&rest _)
+  "Send MARKREAD when the selected window's buffer changes.
+Ignores its arguments; suitable for `window-buffer-change-functions'."
+  (clatter-read-marker--on-buffer-switch))
+
 (defun clatter-read-marker-enable ()
   "Enable read-marker hooks."
   (interactive)
-  (add-hook 'window-buffer-change-functions
-            (lambda (_frame) (clatter-read-marker--on-buffer-switch)))
+  (add-hook 'window-buffer-change-functions #'clatter-read-marker--window-change)
   (add-hook 'clatter-privmsg-hook #'clatter-read-marker--track-msgid)
-  (message "[clatter-read-marker] Enabled"))
+  (when (called-interactively-p 'interactive)
+    (message "[clatter-read-marker] Enabled")))
 
 (defun clatter-read-marker-disable ()
   "Disable read-marker hooks."
   (interactive)
+  (remove-hook 'window-buffer-change-functions #'clatter-read-marker--window-change)
   (remove-hook 'clatter-privmsg-hook #'clatter-read-marker--track-msgid)
-  (message "[clatter-read-marker] Disabled"))
+  (when (called-interactively-p 'interactive)
+    (message "[clatter-read-marker] Disabled")))
 
-;; Auto-enable
-(when clatter-read-marker-enabled
-  (clatter-read-marker-enable))
+;; Enabled by `clatter-setup' when `clatter-read-marker-enabled' is
+;; non-nil, so that merely loading this file has no side effects.
 
 (provide 'clatter-read-marker)
 

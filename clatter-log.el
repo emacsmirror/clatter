@@ -1,8 +1,8 @@
 ;;; clatter-log.el --- Channel logging to file -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -286,6 +286,8 @@ FILE is stored for flushing."
   (add-hook 'clatter-topic-hook #'clatter-log--on-topic)
   (add-hook 'clatter-kick-hook #'clatter-log--on-kick)
   (add-hook 'clatter-irc-mode-hook #'clatter-log--on-mode)
+  ;; Flush any buffered lines when Emacs exits.
+  (add-hook 'kill-emacs-hook #'clatter-log-flush)
   (clatter-log--start-flush-timer))
 
 (defun clatter-log-teardown ()
@@ -300,6 +302,7 @@ FILE is stored for flushing."
   (remove-hook 'clatter-topic-hook #'clatter-log--on-topic)
   (remove-hook 'clatter-kick-hook #'clatter-log--on-kick)
   (remove-hook 'clatter-irc-mode-hook #'clatter-log--on-mode)
+  (remove-hook 'kill-emacs-hook #'clatter-log-flush)
   (clatter-log-flush)
   (clatter-log--stop-flush-timer)
   (clrhash clatter-log--buffers))
@@ -323,13 +326,9 @@ FILE is stored for flushing."
       (dired clatter-log-directory)
     (message "Log directory does not exist yet: %s" clatter-log-directory)))
 
-;; --- Auto-init ---
-
-(when clatter-log-enable
-  (clatter-log-init))
-
-;; Flush on kill
-(add-hook 'kill-emacs-hook #'clatter-log-flush)
+;; Logging is started by `clatter-setup' when `clatter-log-enable' is
+;; non-nil.  `clatter-log-init' also installs the `kill-emacs-hook'
+;; flush, so that merely loading this file has no side effects.
 
 (provide 'clatter-log)
 

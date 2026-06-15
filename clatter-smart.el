@@ -1,8 +1,8 @@
 ;;; clatter-smart.el --- Smart noise suppression for clatter -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 ;; URL: https://github.com/parenworks/clatter.el
 
 ;;; Commentary:

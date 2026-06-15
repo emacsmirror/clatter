@@ -1,8 +1,8 @@
 ;;; clatter-actions.el --- Message actions at point -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -198,7 +198,7 @@ With a prefix argument ARG, uses a /reply command."
   (let ((urls nil))
     (save-excursion
       (goto-char (point-min))
-      (while (< (point) (point-max))
+      (while (not (eobp))
         (let ((url (get-text-property (point) 'clatter-url)))
           (when (and url (not (member url urls)))
             (push url urls)))
@@ -277,7 +277,6 @@ Key bindings:
 (defun clatter-actions-setup-keys ()
   "Add action keybindings to `clatter-mode-map'."
   (define-key clatter-mode-map (kbd "C-c C-a") #'clatter-action-menu)
-  (define-key clatter-mode-map (kbd "C-c a") #'clatter-action-menu)
   (define-key clatter-mode-map (kbd "C-c C-r") #'clatter-action-reply)
   (define-key clatter-mode-map (kbd "C-c C-e") #'clatter-action-react)
   (define-key clatter-mode-map (kbd "C-c C-u") #'clatter-action-collect-urls)

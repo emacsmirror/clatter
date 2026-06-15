@@ -1,8 +1,8 @@
 ;;; clatter-connection.el --- IRC network connection management -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -525,7 +525,8 @@ Added to `kill-emacs-hook'.  No-op unless `clatter-quit-on-exit'."
   (when clatter-quit-on-exit
     (clatter-disconnect-all)))
 
-(add-hook 'kill-emacs-hook #'clatter--quit-on-exit)
+;; `clatter--quit-on-exit' is installed on `kill-emacs-hook' by
+;; `clatter-setup', so that merely loading clatter adds no global hooks.
 
 ;; --- Reconnection ---
 

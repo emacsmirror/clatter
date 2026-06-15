@@ -1,8 +1,8 @@
 ;;; clatter-track.el --- Buffer activity tracking -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -353,8 +353,7 @@ Priority: mentions > DMs > highest unread count."
   (setq clatter-track--timer
         (run-with-timer 1 2 #'clatter-track--update))
   ;; Hook into buffer switches
-  (add-hook 'window-buffer-change-functions
-            (lambda (_frame) (clatter-track--on-buffer-switch)))
+  (add-hook 'window-buffer-change-functions #'clatter-track--window-change)
   ;; Hook into clatter activity
   (add-hook 'clatter-privmsg-hook #'clatter-track--on-activity)
   (add-hook 'clatter-action-hook #'clatter-track--on-activity-action)
@@ -364,7 +363,8 @@ Priority: mentions > DMs > highest unread count."
              (boundp 'consult-buffer-sources)
              clatter-track--consult-source)
     (add-to-list 'consult-buffer-sources clatter-track--consult-source))
-  (message "[clatter-track] Activity tracking enabled"))
+  (when (called-interactively-p 'interactive)
+    (message "[clatter-track] Activity tracking enabled")))
 
 (defun clatter-track-disable ()
   "Disable the activity tracker."
@@ -372,9 +372,19 @@ Priority: mentions > DMs > highest unread count."
   (when clatter-track--timer
     (cancel-timer clatter-track--timer)
     (setq clatter-track--timer nil))
+  (remove-hook 'window-buffer-change-functions #'clatter-track--window-change)
+  (remove-hook 'clatter-privmsg-hook #'clatter-track--on-activity)
+  (remove-hook 'clatter-action-hook #'clatter-track--on-activity-action)
+  (remove-hook 'clatter-notice-hook #'clatter-track--on-activity-notice)
   (setq clatter-track--string "")
   (force-mode-line-update t)
-  (message "[clatter-track] Activity tracking disabled"))
+  (when (called-interactively-p 'interactive)
+    (message "[clatter-track] Activity tracking disabled")))
+
+(defun clatter-track--window-change (&rest _)
+  "Update the tracker when the selected window's buffer changes.
+Ignores its arguments; suitable for `window-buffer-change-functions'."
+  (clatter-track--on-buffer-switch))
 
 ;; --- Activity hooks ---
 
@@ -390,10 +400,8 @@ Priority: mentions > DMs > highest unread count."
   "Update track on NOTICE activity."
   (clatter-track--update))
 
-;; --- Auto-enable ---
-
-(when clatter-track-enabled
-  (clatter-track-enable))
+;; Tracking is enabled by `clatter-setup' when `clatter-track-enabled'
+;; is non-nil, so that merely loading this file has no side effects.
 
 (provide 'clatter-track)
 

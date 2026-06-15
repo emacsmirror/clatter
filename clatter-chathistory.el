@@ -1,8 +1,8 @@
 ;;; clatter-chathistory.el --- IRCv3 CHATHISTORY support -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -174,7 +174,8 @@ COUNT defaults to `clatter-chathistory-limit'."
   (interactive)
   (add-hook 'clatter-join-hook #'clatter-chathistory--on-join)
   (add-hook 'clatter-privmsg-hook #'clatter-chathistory--track-timestamp)
-  (message "[clatter-chathistory] Enabled"))
+  (when (called-interactively-p 'interactive)
+    (message "[clatter-chathistory] Enabled")))
 
 (defun clatter-chathistory-disable ()
   "Disable chathistory hooks."
@@ -183,9 +184,8 @@ COUNT defaults to `clatter-chathistory-limit'."
   (remove-hook 'clatter-privmsg-hook #'clatter-chathistory--track-timestamp)
   (message "[clatter-chathistory] Disabled"))
 
-;; Auto-enable
-(when clatter-chathistory-enabled
-  (clatter-chathistory-enable))
+;; Enabled by `clatter-setup' when `clatter-chathistory-enabled' is
+;; non-nil, so that merely loading this file has no side effects.
 
 (provide 'clatter-chathistory)
 

@@ -1,8 +1,8 @@
 ;;; clatter-model.el --- Buffer and channel state management -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Glenn Thompson
-;; Author: Glenn Thompson
-;; License: MIT
+;; Author: Glenn Thompson <glenn@paren.works>
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 
@@ -17,6 +17,10 @@
 (require 'clatter-config)
 (require 'clatter-protocol)
 (require 'clatter-connection)
+
+(declare-function clatter-cmd-close "clatter-commands")
+(declare-function clatter-disconnect "clatter-connection")
+(declare-function clatter-completion-setup "clatter-completion")
 
 ;; --- Buffer naming ---
 
@@ -299,6 +303,22 @@ Handles prefixes like @nick, +nick, ~nick."
   "Syntax table for `clatter-mode'.
 Makes IRC channel prefixes and nick characters part of symbol syntax.")
 
+(defun clatter--on-kill-buffer ()
+  "Close this clatter buffer, disconnecting or parting as appropriate.
+Installed buffer-locally on `kill-buffer-hook' by `clatter-mode'."
+  ;; Avoid infinite recursion when the cleanup itself kills the buffer.
+  (remove-hook 'kill-buffer-hook #'clatter--on-kill-buffer t)
+  (cond
+   ((not (boundp 'clatter--buffer-type)) nil)
+   ((eq 'channel clatter--buffer-type)
+    (when (fboundp 'clatter-cmd-close)
+      (clatter-cmd-close nil)))
+   ((and (eq 'server clatter--buffer-type)
+         (boundp 'clatter--network)
+         clatter--network
+         (fboundp 'clatter-disconnect))
+    (clatter-disconnect clatter--network))))
+
 (define-derived-mode clatter-mode fundamental-mode "CLatter"
   "Major mode for clatter.el IRC buffers."
   (setq-local scroll-conservatively 101)
@@ -310,6 +330,11 @@ Makes IRC channel prefixes and nick characters part of symbol syntax.")
   ;; Right margin for timestamps (always on first visual line)
   (let ((ts-width (1+ (length (format-time-string clatter-timestamp-format)))))
     (setq-local right-margin-width ts-width))
+  ;; Per-buffer setup (kept here, not on a global hook, so that loading
+  ;; clatter has no side effects).
+  (add-hook 'kill-buffer-hook #'clatter--on-kill-buffer nil t)
+  (when (fboundp 'clatter-completion-setup)
+    (clatter-completion-setup))
   ;; Flyspell: only check words in the input area (not read-only messages)
   (when clatter-flyspell-enable
     (require 'flyspell)

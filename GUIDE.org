@@ -40,6 +40,22 @@ Most modern Emacs builds include GnuTLS support by default.
           :nick "yournick"
           :sasl plain
           :autojoin ("#emacs" "#lisp"))))
+
+;; Loading clatter has no side effects: it installs no global hooks and
+;; enables no extras.  Call clatter-setup once to wire everything up.
+(clatter-setup)
+#+end_src
+
+Note: ~clatter-setup~ is required.  Without it the optional features
+(activity tracking, notifications, chathistory, read markers, logging,
+URL previews) are not enabled and no exit/disconnect cleanup hooks are
+installed.  To leave a particular extra off, set its user option to ~nil~
+before calling ~clatter-setup~, for example:
+
+#+begin_src emacs-lisp
+(setopt clatter-notify-enabled nil   ; no desktop notifications
+        clatter-track-enabled  nil)  ; no mode-line activity crumbs
+(clatter-setup)
 #+end_src
 
 ** Connecting
@@ -293,11 +309,16 @@ Example:
 | =clatter-log-exclude-targets=  | =nil=                      | Targets to skip logging      |
 | =clatter-log-flush-interval=   | =30=                       | Seconds between disk flushes |
 
-Enable logging:
+Logging is enabled by ~clatter-setup~ when =clatter-log-enable= is
+non-nil (the default).  To turn it off, set the option to ~nil~ before
+calling ~clatter-setup~:
+
 #+begin_src emacs-lisp
-(setopt clatter-log-enable t)
-(clatter-log-init)
+(setopt clatter-log-enable nil)
 #+end_src
+
+To toggle logging in a running session, use =M-x clatter-log-init= and
+=M-x clatter-log-teardown=.
 
 ** Notifications
 
@@ -497,19 +518,37 @@ by =clatter.el=. Optional modules need explicit =(require)=:
 - =clatter-chathistory.el= - IRCv3 CHATHISTORY
 - =clatter-read-marker.el= - IRCv3 read markers
 
+** Enabling the bundled extras
+
+Activity tracking, desktop notifications, chathistory, read markers,
+channel logging and URL previews are bundled with clatter but enabled
+only when you call ~clatter-setup~ (see Quick Start).  Each is gated by
+its own user option:
+
+| Option                      | Feature                     | Default |
+|-----------------------------+-----------------------------+---------|
+| =clatter-track-enabled=       | Mode-line activity tracking | on      |
+| =clatter-notify-enabled=      | Desktop notifications       | on      |
+| =clatter-chathistory-enabled= | IRCv3 CHATHISTORY on join   | on      |
+| =clatter-read-marker-enabled= | IRCv3 read markers          | on      |
+| =clatter-log-enable=          | Channel logging to file     | off     |
+| =clatter-url-preview-enable=  | Inline URL title previews   | off     |
+
+Set an option to ~nil~ (or ~t~ for the off-by-default ones) before
+calling ~clatter-setup~.  You can also toggle a feature at runtime with its
+=clatter-FEATURE-enable= / =clatter-FEATURE-disable= command.
+
 ** Optional (require explicitly)
 
 #+begin_src emacs-lisp
-;; Channel logging
-(setopt clatter-log-enable t)
-(clatter-log-init)
-
 ;; Inline images (GUI only)
 (require 'clatter-image)
 (setopt clatter-image-enable t)
 
-;; Org-mode integration
-(require 'clatter-org)
+;; Org-mode integration: register the "irc:" link type with Org.
+(with-eval-after-load 'org
+  (require 'clatter-org)
+  (clatter-org-setup))
 
 ;; Full-text search (auto-loaded by commands, but can require directly)
 (require 'clatter-search)
