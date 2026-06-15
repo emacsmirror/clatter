@@ -641,7 +641,7 @@ Return the trimmed character."
       ("378"  ; RPL_WHOISHOST
        (let ((data (clatter-connection--whois-data conn)))
          (when data
-           (plist-put data :host (string-join (cddr params) " ")))))
+           (plist-put data :conn (string-join (cddr params) " ")))))
       ("379"  ; RPL_WHOISMODES
        (let ((data (clatter-connection--whois-data conn)))
          (when data
