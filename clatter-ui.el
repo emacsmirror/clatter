@@ -358,14 +358,14 @@ SERVER-TIME overrides the current time for the timestamp."
       (unless (eq buffer (current-buffer))
         (clatter-mark-activity buffer nil)))))
 
-(defun clatter-insert-notice (buffer sender text conn)
+(defun clatter-insert-notice (buffer sender text conn &optional invisible)
   "Insert a NOTICE from SENDER with TEXT into BUFFER."
   (let ((hl-text (clatter-hl-format-text text buffer conn))
         (prefix (clatter--format-nick-column
                  (format "-%s-" sender) 'clatter-notice)))
     (add-face-text-property 0 (length hl-text) 'clatter-notice nil hl-text)
     (let ((formatted (concat prefix (propertize " " 'face 'clatter-notice) hl-text)))
-      (clatter--insert-message buffer formatted))))
+      (clatter--insert-message buffer formatted nil nil nil invisible))))
 
 (defun clatter-insert-system (buffer text &optional invisible)
   "Insert a system message TEXT into BUFFER."
@@ -689,17 +689,17 @@ Emacs requires `set-window-margins' on the window, not just
 
 (defun clatter-ui--on-notice (conn sender target text)
   "Display SENDER's NOTICE TEXT to TARGET on CONN."
-  (unless (clatter-fool-p sender)
   (let* ((network (clatter-connection-network-id conn))
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network)
-                  (clatter-get-or-create-buffer network "*server*" 'server))))
+                  (clatter-get-or-create-buffer network "*server*" 'server)))
+         (is-muted (clatter-muted-p sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-notice buf sender text conn)
+    (clatter-insert-notice buf sender text conn (and is-muted 'muted))
     (when (and (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (listp (buffer-local-value 'buffer-invisibility-spec buf))
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-      (clatter-smart-put buf sender 'notice)))))
+      (clatter-smart-put buf sender 'notice))))
 
 (defun clatter-ui--on-invite (conn sender nick channel)
   "Show that SENDER invited NICK to CHANNEL on CONN."
