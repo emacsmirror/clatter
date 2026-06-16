@@ -262,7 +262,7 @@ Set to nil to disable truncation."
   :type '(choice integer (const nil))
   :group 'clatter)
 
-(defcustom clatter-suppress-messages nil
+(defcustom clatter-suppress-messages '(muted)
   "Default message types hidden in new channel buffers.
 Valid values: join, part, quit, nick, mode, away, kick, topic.
 Example: \\='(join part quit away) to hide join/part/quit/away noise.

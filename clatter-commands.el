@@ -368,7 +368,7 @@ With `none', clear all suppressions."
                               buffer-invisibility-spec " ")
                  "none")))
      ((string-equal (car types) "all")
-      (setq buffer-invisibility-spec (list 'join 'part 'quit 'nick 'mode 'away)))
+      (setq buffer-invisibility-spec (list 'join 'part 'quit 'nick 'mode 'away 'muted)))
      ((string-equal (car types) "none")
       (setq buffer-invisibility-spec nil))
      (t

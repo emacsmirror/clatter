@@ -49,6 +49,11 @@
   "Face for NOTICE messages."
   :group 'clatter)
 
+(defface clatter-reaction
+  '((t :foreground "#ffcb6b"))
+  "Face for reactions."
+  :group 'clatter)
+
 (defface clatter-system
   '((t :foreground "#546e7a"))
   "Face for system/status messages."
@@ -73,6 +78,11 @@
   '((t :foreground "#89ddff"))
   "Face for channel names."
   :group 'clatter)
+
+(defface clatter-muted-reaction
+  '((t :strike-through t))
+  "Face for muted reactions."
+  :group 'clatted)
 
 ;; --- Nick color palette (hash-based consistent colors) ---
 
@@ -690,13 +700,16 @@ Emacs requires `set-window-margins' on the window, not just
 (defun clatter-ui--on-notice (conn sender target text)
   "Display SENDER's NOTICE TEXT to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
+         (my-nick (clatter-connection-nick conn))
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server)))
          (is-muted (clatter-muted-p sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-notice buf sender text conn (and is-muted 'muted))
-    (when (and (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
+    (when (and (not is-muted)
+               (not (string-equal-ignore-case my-nick sender))
+               (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (listp (buffer-local-value 'buffer-invisibility-spec buf))
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
       (clatter-smart-put buf sender 'notice))))
@@ -707,19 +720,21 @@ Emacs requires `set-window-margins' on the window, not just
          (my-nick (clatter-connection-nick conn))
          (buf (or (clatter-get-buffer network channel)
                   (clatter-get-server-buffer network)
-                  (clatter-get-or-create-buffer network "*server*" 'server))))
+                  (clatter-get-or-create-buffer network "*server*" 'server)))
+         (is-muted (clatter-muted-p sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-system buf (format "%s invites %s to join %s"
                                        sender
                                        (if (string-equal nick my-nick) "you" nick)
                                        channel)
-                           'invite)))
+                           (if is-muted '(invite muted) 'invite))))
 
 (defun clatter-ui--on-join (conn nick channel _account realname)
   "Show NICK joining CHANNEL on CONN, noting REALNAME when present."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
-         (buf (clatter-get-or-create-buffer network channel)))
+         (buf (clatter-get-or-create-buffer network channel))
+         (is-muted (clatter-muted-p nick network)))
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-nick-add buf nick)
     (when (string-equal nick my-nick)
@@ -729,34 +744,38 @@ Emacs requires `set-window-margins' on the window, not just
                            (if (and realname (not (string= nick realname)))
                                (format "%s (%s) has joined %s" nick (clatter-format-parse realname) channel)
                              (format "%s has joined %s" nick channel))
-                           (cons 'join
-                                 (and (not (string-equal-ignore-case my-nick nick))
-                                      (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                      (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                      (clatter-smart-eval buf nick 'join)
-                                      '(noise))))))
+                           (append (if is-muted '(join muted) '(join))
+                                   (and (not is-muted)
+                                        (not (string-equal-ignore-case my-nick nick))
+                                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                        (clatter-smart-eval buf nick 'join)
+                                        '(noise))))))
 
 (defun clatter-ui--on-part (conn nick channel message)
   "Show NICK leaving CHANNEL on CONN with optional MESSAGE."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
-         (buf (clatter-get-buffer network channel)))
+         (buf (clatter-get-buffer network channel))
+         (is-muted (clatter-muted-p nick network)))
     (when buf
       (clatter-nick-remove buf nick)
       (clatter-insert-system buf
                              (format "%s has left %s%s" nick channel
                                      (if message (format " (%s)" message) ""))
-                             (cons 'part
-                                   (and (not (string-equal-ignore-case my-nick nick))
-                                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                        (clatter-smart-eval buf nick 'part)
-                                        '(noise)))))))
+                             (append (if is-muted '(part muted) '(part))
+                                     (and (not is-muted)
+                                          (not (string-equal-ignore-case my-nick nick))
+                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (clatter-smart-eval buf nick 'part)
+                                          '(noise)))))))
 
 (defun clatter-ui--on-quit (conn nick message)
   "Show NICK quitting on CONN with optional MESSAGE."
-  (let ((network (clatter-connection-network-id conn))
-        (my-nick (clatter-connection-nick conn)))
+  (let* ((network (clatter-connection-network-id conn))
+         (my-nick (clatter-connection-nick conn))
+         (is-muted (clatter-muted-p nick network)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase nick)
                      (buffer-local-value 'clatter--nick-list buf))
@@ -764,17 +783,20 @@ Emacs requires `set-window-margins' on the window, not just
         (clatter-insert-system buf
                                (format "%s has quit%s" nick
                                        (if message (format " (%s)" message) ""))
-                               (cons 'quit
-                                     (and (not (string-equal-ignore-case my-nick nick))
-                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (clatter-smart-eval buf nick 'quit)
-                                          '(noise))))))))
+                               (append (if is-muted '(quit muted) '(quit))
+                                       (and (not is-muted)
+                                            (not (string-equal-ignore-case my-nick nick))
+                                            (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                            (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                            (clatter-smart-eval buf nick 'quit)
+                                            '(noise))))))))
 
 (defun clatter-ui--on-nick (conn old-nick new-nick)
   "Show OLD-NICK renaming to NEW-NICK on CONN."
-  (let ((network (clatter-connection-network-id conn))
-        (my-nick (clatter-connection-nick conn)))
+  (let* ((network (clatter-connection-network-id conn))
+         (my-nick (clatter-connection-nick conn))
+         (is-muted (and (clatter-muted-p old-nick network)
+                        (clatter-muted-p new-nick network))))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase old-nick)
                      (buffer-local-value 'clatter--nick-list buf))
@@ -782,12 +804,13 @@ Emacs requires `set-window-margins' on the window, not just
         (clatter-insert-system buf
                                (format "%s is now known as %s"
                                        old-nick new-nick)
-                               (cons 'nick
-                                     (and (not (string-equal-ignore-case my-nick new-nick))
-                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (clatter-smart-eval buf old-nick new-nick)
-                                          '(noise))))))))
+                               (append (if is-muted '(nick muted) '(nick))
+                                       (and (not is-muted)
+                                            (not (string-equal-ignore-case my-nick new-nick))
+                                            (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                            (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                            (clatter-smart-eval buf old-nick new-nick)
+                                            '(noise))))))))
 
 (defun clatter-ui--on-topic (conn channel nick topic at)
   "Show TOPIC for CHANNEL set by NICK at AT on CONN."
@@ -816,13 +839,21 @@ Emacs requires `set-window-margins' on the window, not just
 (defun clatter-ui--on-kick (conn channel nick kicked reason)
   "Show NICK kicking KICKED from CHANNEL on CONN with REASON."
   (let* ((network (clatter-connection-network-id conn))
-         (buf (clatter-get-buffer network channel)))
+         (my-nick (clatter-connection-nick conn))
+         (buf (clatter-get-buffer network channel))
+         (is-muted (clatter-muted-p nick network)))
     (when buf
       (clatter-nick-remove buf kicked)
       (clatter-insert-system buf
                              (format "%s was kicked by %s%s" kicked nick
                                      (if reason (format " (%s)" reason) ""))
-                             'kick))))
+                             (append (if is-muted '(kick muted) '(kick))
+                                     (and (not is-muted)
+                                          (not (string-equal-ignore-case my-nick nick))
+                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (clatter-smart-eval buf nick 'kick)
+                                          '(noise)))))))
 
 (defun clatter-ui--on-names (conn channel names-str)
   "Populate the CHANNEL nick list on CONN from NAMES-STR."
@@ -869,8 +900,9 @@ Emacs requires `set-window-margins' on the window, not just
 
 (defun clatter-ui--on-away (conn nick away-msg)
   "Show NICK away state (AWAY-MSG) on CONN."
-  (let ((network (clatter-connection-network-id conn))
-        (my-nick (clatter-connection-nick conn)))
+  (let* ((network (clatter-connection-network-id conn))
+         (my-nick (clatter-connection-nick conn))
+         (is-muted (clatter-muted-p nick network)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase nick)
                      (buffer-local-value 'clatter--nick-list buf))
@@ -878,29 +910,32 @@ Emacs requires `set-window-margins' on the window, not just
                                (if away-msg
                                    (format "%s is away: %s" nick away-msg)
                                  (format "%s is back" nick))
-                               (cons 'away
-                                     (and (not (string-equal-ignore-case my-nick nick))
-                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (clatter-smart-eval buf nick 'away)
-                                          '(noise))))))))
+                               (append (if is-muted '(away muted) '(away))
+                                       (and (not is-muted)
+                                            (not (string-equal-ignore-case my-nick nick))
+                                            (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                            (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                            (clatter-smart-eval buf nick 'away)
+                                            '(noise))))))))
 
 (defun clatter-ui--on-mode (conn target setter modes)
   "Show SETTER applying MODES on TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (buf (or (clatter-get-buffer network target)
-                  (clatter-get-server-buffer network))))
+                  (clatter-get-server-buffer network)))
+         (is-muted (clatter-muted-p setter network)))
     (when buf
       (clatter-insert-system buf
                              (format "%s sets mode %s"
                                      setter (string-join modes " "))
-                             (cons 'mode
-                                   (and (not (string-equal-ignore-case my-nick setter))
-                                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                        (clatter-smart-eval buf setter 'mode)
-                                        '(noise)))))))
+                             (append (if is-muted '(mode muted) '(mode))
+                                     (and (not is-muted)
+                                          (not (string-equal-ignore-case my-nick setter))
+                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                                          (clatter-smart-eval buf setter 'mode)
+                                          '(noise)))))))
 
 (defun clatter-ui--on-motd (conn lines)
   "Display MOTD LINES on CONN in the server buffer."
@@ -984,9 +1019,11 @@ Emacs requires `set-window-margins' on the window, not just
   "Handle reaction on CONN: display EMOJI from NICK on message MSGID in TARGET."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
-         (buf (clatter-get-buffer network target)))
+         (buf (clatter-get-buffer network target))
+         (is-muted (clatter-muted-p nick network)))
     (when (and buf (buffer-live-p buf))
-      (when (and (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
+      (when (and (not is-muted)
+                 (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                  (not (string-equal-ignore-case my-nick nick))
                  (listp (buffer-local-value 'buffer-invisibility-spec buf))
                  (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
@@ -1002,8 +1039,11 @@ Emacs requires `set-window-margins' on the window, not just
             (let ((inhibit-read-only t)
                   (existing (get-text-property found 'clatter-reactions)))
               (unless existing (setq existing nil))
-              ;; Add this reaction
-              (let* ((key emoji)
+              ;; Add this reaction, with an indicator prefix.
+              ;; Prefix with - for reactions from muted senders.
+              ;; Prefix with + for reactions from non-muted senders.
+              (let* ((key (if is-muted (format "-%s" emoji)
+                            (format "+%s" emoji)))
                      (entry (assoc key existing))
                      (new-reactions
                       (if entry
@@ -1012,7 +1052,18 @@ Emacs requires `set-window-margins' on the window, not just
                         (append existing (list (list key nick)))))
                      (display (mapconcat
                                (lambda (r)
-                                 (format "%s %d" (car r) (length (cdr r))))
+                                 (let* ((label (car r))
+                                        (entries (cdr r))
+                                        (count (length entries))
+                                        (indicator (aref label 0))
+                                        (muted (eq ?- indicator)))
+                                   (setq label (substring label 1))
+                                   (let ((formatted (format "%s %d" label count)))
+                                     (when muted
+                                       (add-face-text-property 0 (length formatted)
+                                                               'clatter-muted-reaction nil
+                                                               formatted))
+                                       formatted)))
                                new-reactions " ")))
                 ;; Remove old reaction overlay if any
                 (dolist (ov (overlays-at found))
@@ -1022,11 +1073,11 @@ Emacs requires `set-window-margins' on the window, not just
                 (let ((ov (make-overlay (line-beginning-position)
                                         (line-end-position))))
                   (overlay-put ov 'clatter-reaction t)
+                  (add-face-text-property 0 (length display) 'clatter-reaction nil display)
                   (overlay-put ov 'after-string
                                (concat "\n"
                                        (make-string clatter-nick-column-width ?\s)
-                                       " "
-                                       (propertize display 'face 'clatter-notice))))
+                                       " " display)))
                 ;; Store reactions as property
                 (add-text-properties found (1+ found)
                                      (list 'clatter-reactions new-reactions))))))))))
