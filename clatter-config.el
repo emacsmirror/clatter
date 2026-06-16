@@ -327,22 +327,32 @@ types at runtime without losing any history."
 
 (defcustom clatter-ignore-list nil
   "List of ignored nick patterns.
-Each entry is a string.  Entries are matched case-insensitively.
+Each entry is a string or pair of (PATTERN . NETWORK).
+Entries are matched case-insensitively.
 Glob-style wildcards (* and ?) are supported.
 Example: (\"spambot\" \"*!*@bad.host.example.com\")"
-  :type '(repeat string)
+  :type '(repeat (choice (string :tag "Pattern Only")
+                         (cons :tag "Pattern and Network"
+                               (string :tag "Pattern")
+                               (string :tag "Network"))))
   :group 'clatter)
 
-(defun clatter-ignored-p (sender)
-  "Return non-nil if SENDER should be ignored.
+(defun clatter-ignored-p (sender &optional network)
+  "Return non-nil if SENDER should be ignored in NETWORK.
 Matches against `clatter-ignore-list' case-insensitively.
+If NETWORK is nil or not given, SENDER is ignored globally.
 Supports glob wildcards (* and ?)."
-  (let ((sender-down (downcase sender)))
-    (cl-some (lambda (pattern)
-               (let* ((pat-down (downcase pattern))
-                      (re (wildcard-to-regexp pat-down)))
-                 (string-match-p re sender-down)))
-             clatter-ignore-list)))
+  (and sender
+       (progn
+         (setq sender (downcase sender))
+         (cl-some (lambda (elt)
+                    (pcase elt
+                      (`(,pat . ,in)
+                       (and (string-match-p (wildcard-to-regexp (downcase pat)) sender)
+                            network (string-equal network in) t))
+                      (pat
+                       (string-match-p (wildcard-to-regexp (downcase pat)) sender))))
+                  clatter-ignore-list))))
 
 ;; --- IRC protocol constants ---
 
