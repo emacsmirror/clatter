@@ -277,7 +277,7 @@ Returns (sender . text) or nil."
 Bound around history/batch playback so a reconnect backlog does not scan
 and fetch images for hundreds of old messages at once.")
 
-(defun clatter-insert-privmsg (buffer sender text conn &optional server-time)
+(defun clatter-insert-privmsg (buffer sender text conn &optional server-time invisible)
   "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
 SERVER-TIME overrides the current time for the timestamp."
   (let* ((nick-face (clatter-hl-nick-face sender conn))
@@ -331,7 +331,7 @@ SERVER-TIME overrides the current time for the timestamp."
                       'clatter-text text)))
     (when msgid
       (setq props (plist-put props 'clatter-msgid msgid)))
-    (clatter--insert-message buffer formatted nil props server-time)
+    (clatter--insert-message buffer formatted nil props server-time invisible)
     (when (and (not clatter--suppress-image-scan)
                (fboundp 'clatter-image--scan-message))
       (let ((img-marker (with-current-buffer buffer
@@ -341,7 +341,7 @@ SERVER-TIME overrides the current time for the timestamp."
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
 
-(defun clatter-insert-action (buffer sender text conn)
+(defun clatter-insert-action (buffer sender text conn &optional invisible)
   "Insert a /me ACTION from SENDER with TEXT into BUFFER."
   (let* ((hl-text (clatter-hl-format-text text buffer conn))
          (prefix (clatter--format-nick-column "*" 'clatter-action sender)))
@@ -352,7 +352,9 @@ SERVER-TIME overrides the current time for the timestamp."
       (clatter--insert-message buffer formatted nil
                                (list 'clatter-msg-type 'action
                                      'clatter-sender sender
-                                     'clatter-text text))
+                                     'clatter-text text)
+                               nil
+                               invisible)
       (unless (eq buffer (current-buffer))
         (clatter-mark-activity buffer nil)))))
 
@@ -652,36 +654,38 @@ Emacs requires `set-window-margins' on the window, not just
 (defun clatter-ui--on-privmsg (conn sender target text server-time)
   "Display SENDER's PRIVMSG TEXT to TARGET on CONN at SERVER-TIME."
   (let ((network (clatter-connection-network-id conn)))
-    (unless (clatter-muted-p sender network)
-      (let* ((my-nick (clatter-connection-nick conn))
-             (buf-target (if (clatter-channel-name-p target)
-                             target
-                           (if (string-equal target my-nick) sender target)))
-             (buf (clatter-get-or-create-buffer network buf-target)))
-        (clatter-ui-setup-buffer-if-needed buf)
-        (clatter-insert-privmsg buf sender text conn server-time)
-        (when (and (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
-                   (not (string-equal-ignore-case my-nick sender))
-                   (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                   (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-          (clatter-smart-put buf sender 'privmsg)))))
+    (let* ((my-nick (clatter-connection-nick conn))
+           (buf-target (if (clatter-channel-name-p target)
+                           target
+                         (if (string-equal target my-nick) sender target)))
+           (buf (clatter-get-or-create-buffer network buf-target))
+           (is-muted (clatter-muted-p sender network)))
+      (clatter-ui-setup-buffer-if-needed buf)
+      (clatter-insert-privmsg buf sender text conn server-time (and is-muted 'muted))
+      (when (and (not is-muted)
+                 (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
+                 (not (string-equal-ignore-case my-nick sender))
+                 (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                 (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
+        (clatter-smart-put buf sender 'privmsg)))))
 
 (defun clatter-ui--on-action (conn sender target text _server-time)
   "Display SENDER's ACTION TEXT to TARGET on CONN."
   (let ((network (clatter-connection-network-id conn)))
-    (unless (clatter-muted-p sender network)
-      (let* ((my-nick (clatter-connection-nick conn))
-             (buf-target (if (clatter-channel-name-p target)
-                             target
-                           (if (string-equal target my-nick) sender target)))
-             (buf (clatter-get-or-create-buffer network buf-target)))
-        (clatter-ui-setup-buffer-if-needed buf)
-        (clatter-insert-action buf sender text conn)
-        (when (and (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
-                   (not (string-equal-ignore-case my-nick sender))
-                   (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                   (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-          (clatter-smart-put buf sender 'privmsg)))))
+    (let* ((my-nick (clatter-connection-nick conn))
+           (buf-target (if (clatter-channel-name-p target)
+                           target
+                         (if (string-equal target my-nick) sender target)))
+           (buf (clatter-get-or-create-buffer network buf-target))
+           (is-muted (clatter-muted-p sender network)))
+      (clatter-ui-setup-buffer-if-needed buf)
+      (clatter-insert-action buf sender text conn (and is-muted 'muted))
+      (when (and (not is-muted)
+                 (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
+                 (not (string-equal-ignore-case my-nick sender))
+                 (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                 (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
+        (clatter-smart-put buf sender 'privmsg))))
 
 (defun clatter-ui--on-notice (conn sender target text)
   "Display SENDER's NOTICE TEXT to TARGET on CONN."
