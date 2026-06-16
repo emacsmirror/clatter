@@ -340,13 +340,7 @@ Supports glob wildcards (* and ?)."
   (let ((sender-down (downcase sender)))
     (cl-some (lambda (pattern)
                (let* ((pat-down (downcase pattern))
-                      (re (concat "\\`"
-                                  (replace-regexp-in-string
-                                   "\\?" "."
-                                   (replace-regexp-in-string
-                                    "\\*" ".*"
-                                    (regexp-quote pat-down)))
-                                  "\\'")))
+                      (re (wildcard-to-regexp pat-down)))
                  (string-match-p re sender-down)))
              clatter-ignore-list)))
 
