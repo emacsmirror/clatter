@@ -58,9 +58,9 @@
 (ert-deftest clatter-muted-combines-ignore-and-fools ()
   (let ((clatter-ignore-list '("spammer"))
         (clatter-fools '("knighthk")))
-    (should (clatter-muted-p "spammer"))
-    (should (clatter-muted-p "KnightHK"))
-    (should-not (clatter-muted-p "friend"))))
+    (should (clatter-muted-p '("spammer" nil nil)))
+    (should (clatter-muted-p '("KnightHK" nil nil)))
+    (should-not (clatter-muted-p '("friend" nil nil)))))
 
 (ert-deftest clatter-pal-gets-pal-face ()
   "A pal's nick maps to the `clatter-pal' face; others to a palette face."

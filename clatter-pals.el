@@ -21,6 +21,7 @@
 
 (require 'cl-lib)
 (require 'clatter-config)
+(require 'clatter-protocol)
 
 ;; --- Lists ---
 
@@ -79,8 +80,8 @@ Also matches against NETWORK if given."
   "Return non-nil if SENDER's messages should be hidden.
 Also matches against NETWORK if given.
 True when SENDER is on the ignore list or the fools list."
-  (or (clatter-ignored-p sender network)
-      (clatter-fool-p sender network)))
+  (or (clatter-ignored-p (clatter-join-prefix sender) network)
+      (clatter-fool-p (clatter-prefix-nick sender) network)))
 
 ;; --- Pure add/remove helpers ---
 

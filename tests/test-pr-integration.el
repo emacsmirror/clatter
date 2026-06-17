@@ -73,7 +73,7 @@
                               ":bob!~b@host INVITE testnick #secret")))))
           (should (= (length calls) 1))
           (let ((args (car calls)))
-            (should (equal (nth 1 args) "bob"))
+            (should (equal (nth 1 args) '("bob" "~b" "host")))
             (should (equal (nth 2 args) "testnick"))
             (should (equal (nth 3 args) "#secret"))))
       (clatter-test-cleanup))))
@@ -101,11 +101,11 @@
         (let ((calls (clatter-test-capture-hook clatter-topic-hook
                        (clatter-dispatch-message
                         conn (clatter-test-parse
-                              ":server 333 testnick #emacs setter 1700000000")))))
+                              ":server 333 testnick #emacs setter!x@host 1700000000")))))
           (should (= (length calls) 1))
           (let ((args (car calls)))
             (should (equal (nth 1 args) "#emacs"))
-            (should (equal (nth 2 args) "setter"))
+            (should (equal (nth 2 args) '("setter" "x" "host")))
             (should (equal (nth 4 args) 1700000000))))
       (clatter-test-cleanup))))
 

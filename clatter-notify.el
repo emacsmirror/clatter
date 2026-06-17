@@ -16,6 +16,7 @@
 
 (require 'cl-lib)
 (require 'clatter-config)
+(require 'clatter-protocol)
 (require 'clatter-connection)
 (require 'clatter-model)
 (require 'clatter-pals)
@@ -64,13 +65,13 @@ Example: (\"#spam\" \"#bots\")"
   :group 'clatter)
 
 (defcustom clatter-notify-muted-nicks nil
-  "List of nicks or nick-network pairs that never trigger
+  "List of patterns or pattern-network pairs that never trigger
 notifications.
 Useful for bots.
 Example: (\"ChanServ\" (\"SaslServ\". \"Libera.Chat\") \"NickServ\" \"github-bot\")"
-  :type '(repeat (choice (string :tag "Nick Only")
-                         (cons :tag "Nick and Network"
-                               (string :tag "Nick")
+  :type '(repeat (choice (string :tag "Pattern Only")
+                         (cons :tag "Pattern and Network"
+                               (string :tag "Pattern")
                                (string :tag "Network"))))
   :group 'clatter)
 
@@ -247,8 +248,9 @@ Prevents notification spam from rapid messages."
 Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (when clatter-notify-enabled
     (let* ((my-nick (clatter-connection-nick conn))
+           (sender-nick (clatter-prefix-nick sender))
            (network (clatter-connection-network-id conn))
-           (is-self (and my-nick (string-equal-ignore-case sender my-nick)))
+           (is-self (and my-nick (string-equal-ignore-case sender-nick my-nick)))
            (channel-prefixes (let ((isup (clatter-connection-isupport conn)))
                                (or (and isup (gethash "CHANTYPES" isup))
                                    "#&!")))
@@ -256,7 +258,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (is-dm (not is-channel))
            (buf (clatter-get-buffer
                  (clatter-connection-network-id conn)
-                 (if is-dm sender target)))
+                 (if is-dm sender-nick target)))
            (is-current (and buf (eq buf (window-buffer (selected-window)))
                             (frame-focus-state (window-frame (selected-window)))))
            (is-muted-channel (and is-channel
@@ -303,7 +305,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            ;; Check per-target rules
            (t
             (unless (clatter-notify--rule-allows-p
-                     (if is-dm sender target) reason)
+                     (if is-dm sender-nick target) reason)
               (setq reason nil)))))
         reason))))
 
@@ -330,8 +332,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
              (source (if is-channel target sender-nick)))
         (when (clatter-notify--rate-ok-p source)
           (clatter-notify--send
-           (clatter-notify--format-title reason sender target)
-           (format "<%s> %s" sender text)))))))
+           (clatter-notify--format-title reason sender-nick target)
+           (format "<%s> %s" sender-nick text)))))))
 
 (defun clatter-notify--on-action (conn sender target text &rest _args)
   "Notify for SENDER's ACTION TEXT to TARGET on CONN."
@@ -345,17 +347,18 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
              (source (if is-channel target sender-nick)))
         (when (clatter-notify--rate-ok-p source)
           (clatter-notify--send
-           (clatter-notify--format-title reason sender target)
-           (format "* %s %s" sender text)))))))
+           (clatter-notify--format-title reason sender-nick target)
+           (format "* %s %s" sender-nick text)))))))
 
 (defun clatter-notify--on-invite (conn sender nick channel)
   "Notify when SENDER invites NICK to CHANNEL on CONN."
   (when (and clatter-notify-on-invite
              (string-equal (clatter-connection-nick conn) nick))
-    (when (clatter-notify--rate-ok-p sender)
-      (clatter-notify--send
-       (clatter-notify--format-title 'invite sender nick)
-       (format "%s invites you to join %s" sender channel)))))
+    (let ((sender-nick (clatter-prefix-nick sender)))
+      (when (clatter-notify--rate-ok-p sender-nick)
+        (clatter-notify--send
+         (clatter-notify--format-title 'invite sender-nick nick)
+         (format "%s invites you to join %s" sender-nick channel))))))
 
 ;; --- Interactive commands ---
 
@@ -399,17 +402,21 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (setq clatter-notify-muted-nicks (delete nick clatter-notify-muted-nicks))
   (message "Unmuted notifications from %s" nick))
 
-(defun clatter-notify-muted-p (nick &optional network)
-  "Returns whether NICK or the (NICK . NETWORK) pair
-is in the muted nicks list."
-  (cl-some (lambda (elt)
-             (pcase elt
-               (`(,n . ,in)
-                (and (string-equal-ignore-case n nick)
-                     network (string-equal network in) t))
-               (n
-                (string-equal-ignore-case n nick))))
-           clatter-notify-muted-nicks))
+(defun clatter-notify-muted-p (sender &optional network)
+  "Returns whether SENDER or the (SENDER . NETWORK) pair is muted."
+  (when (clatter-prefix-p sender)
+    (setq sender (clatter-join-prefix sender)))
+  (and sender
+       (progn
+         (setq sender (downcase sender))
+         (cl-some (lambda (elt)
+                    (pcase elt
+                      (`(,pat . ,in)
+                       (and (string-match-p (wildcard-to-regexp (downcase pat)) sender)
+                            network (string-equal network in) t))
+                      (pat
+                       (string-match-p (wildcard-to-regexp (downcase pat)) sender))))
+                  clatter-notify-muted-nicks))))
 
 (defun clatter-notify-muted-channel-p (channel &optional network)
   "Returns whether CHANNEL or the (CHANNEL . NETWORK) pair
