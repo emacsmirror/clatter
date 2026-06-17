@@ -61,10 +61,14 @@ Example: (\"#spam\" \"#bots\")"
   :group 'clatter)
 
 (defcustom clatter-notify-muted-nicks nil
-  "List of nicks that never trigger notifications.
+  "List of nicks or nick-network pairs that never trigger
+notifications.
 Useful for bots.
 Example: (\"ChanServ\" \"NickServ\" \"github-bot\")"
-  :type '(repeat string)
+  :type '(repeat (choice (string :tag "Nick Only")
+                         (cons :tag "Nick and Network"
+                               (string :tag "Nick")
+                               (string :tag "Network"))))
   :group 'clatter)
 
 (defcustom clatter-notify-current-buffer nil
@@ -251,7 +255,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
                             (frame-focus-state (window-frame (selected-window)))))
            (is-muted-channel (and is-channel
                                   (member target clatter-notify-muted-channels)))
-           (is-muted-nick (or (member sender clatter-notify-muted-nicks)
+           (is-muted-nick (or (clatter-notify-muted-p sender network)
                               (clatter-muted-p sender network)))
            (is-reply-to-me (get-text-property 0 'clatter-reply-to-me text))
            (text-lower (downcase (or text ""))))
@@ -380,6 +384,18 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
    (list (completing-read "Unmute nick: " clatter-notify-muted-nicks)))
   (setq clatter-notify-muted-nicks (delete nick clatter-notify-muted-nicks))
   (message "Unmuted notifications from %s" nick))
+
+(defun clatter-notify-muted-p (nick &optional network)
+  "Returns whether NICK or the (NICK . NETWORK) pair
+is in the muted nicks list."
+  (cl-some (lambda (elt)
+             (pcase elt
+               (`(,n . ,in)
+                (and (string-equal-ignore-case n nick)
+                     network (string-equal network in) t))
+               (n
+                (string-equal-ignore-case n nick))))
+           clatter-notify-muted-nicks))
 
 ;; --- Enable/disable ---
 
