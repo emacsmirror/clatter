@@ -18,6 +18,7 @@
 (require 'clatter-config)
 (require 'clatter-connection)
 (require 'clatter-model)
+(require 'clatter-pals)
 
 ;; --- Configuration ---
 
@@ -239,6 +240,7 @@ Prevents notification spam from rapid messages."
 Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (when clatter-notify-enabled
     (let* ((my-nick (clatter-connection-nick conn))
+           (network (clatter-connection-network-id conn))
            (is-self (and my-nick (string-equal-ignore-case sender my-nick)))
            (is-channel (and target (string-match-p "^[#&!+]" target)))
            (is-dm (not is-channel))
@@ -249,7 +251,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
                             (frame-focus-state (window-frame (selected-window)))))
            (is-muted-channel (and is-channel
                                   (member target clatter-notify-muted-channels)))
-           (is-muted-nick (member sender clatter-notify-muted-nicks))
+           (is-muted-nick (or (member sender clatter-notify-muted-nicks)
+                              (clatter-muted-p sender network)))
            (is-reply-to-me (get-text-property 0 'clatter-reply-to-me text))
            (text-lower (downcase (or text ""))))
       (let ((reason
