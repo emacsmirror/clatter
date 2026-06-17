@@ -249,7 +249,10 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
     (let* ((my-nick (clatter-connection-nick conn))
            (network (clatter-connection-network-id conn))
            (is-self (and my-nick (string-equal-ignore-case sender my-nick)))
-           (is-channel (and target (string-match-p "^[#&!+]" target)))
+           (channel-prefixes (let ((isup (clatter-connection-isupport conn)))
+                               (or (and isup (gethash "CHANTYPES" isup))
+                                   "#&!")))
+           (is-channel (and target (seq-contains-p channel-prefixes (aref target 0))))
            (is-dm (not is-channel))
            (buf (clatter-get-buffer
                  (clatter-connection-network-id conn)
@@ -319,8 +322,12 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   "Notify for SENDER's PRIVMSG TEXT to TARGET on CONN."
   (let ((reason (clatter-notify--should-notify-p sender target text conn)))
     (when reason
-      (let* ((is-channel (and target (string-match-p "^[#&!+]" target)))
-             (source (if is-channel target sender)))
+      (let* ((channel-prefixes (let ((isup (clatter-connection-isupport conn)))
+                                 (or (and isup (gethash "CHANTYPES" isup))
+                                     "#&!")))
+             (is-channel (and target (seq-contains-p channel-prefixes (aref target 0))))
+             (sender-nick (clatter-prefix-nick sender))
+             (source (if is-channel target sender-nick)))
         (when (clatter-notify--rate-ok-p source)
           (clatter-notify--send
            (clatter-notify--format-title reason sender target)
@@ -330,8 +337,12 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   "Notify for SENDER's ACTION TEXT to TARGET on CONN."
   (let ((reason (clatter-notify--should-notify-p sender target text conn)))
     (when reason
-      (let* ((is-channel (and target (string-match-p "^[#&!+]" target)))
-             (source (if is-channel target sender)))
+      (let* ((channel-prefixes (let ((isup (clatter-connection-isupport conn)))
+                                 (or (and isup (gethash "CHANTYPES" isup))
+                                     "#&!")))
+             (is-channel (and target (seq-contains-p channel-prefixes (aref target 0))))
+             (sender-nick (clatter-prefix-nick sender))
+             (source (if is-channel target sender-nick)))
         (when (clatter-notify--rate-ok-p source)
           (clatter-notify--send
            (clatter-notify--format-title reason sender target)
