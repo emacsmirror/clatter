@@ -57,14 +57,17 @@ Example: (\"parenworks\" \"fluxion\" \"lattice\" \"sextant\")"
 (defcustom clatter-notify-muted-channels nil
   "List of channels that never trigger notifications.
 Example: (\"#spam\" \"#bots\")"
-  :type '(repeat string)
+  :type '(repeat (choice (string :tag "Channel Only")
+                         (cons :tag "Channel and Network"
+                               (string :tag "Channel")
+                               (string :tag "Network"))))
   :group 'clatter)
 
 (defcustom clatter-notify-muted-nicks nil
   "List of nicks or nick-network pairs that never trigger
 notifications.
 Useful for bots.
-Example: (\"ChanServ\" \"NickServ\" \"github-bot\")"
+Example: (\"ChanServ\" (\"SaslServ\". \"Libera.Chat\") \"NickServ\" \"github-bot\")"
   :type '(repeat (choice (string :tag "Nick Only")
                          (cons :tag "Nick and Network"
                                (string :tag "Nick")
@@ -254,7 +257,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
            (is-current (and buf (eq buf (window-buffer (selected-window)))
                             (frame-focus-state (window-frame (selected-window)))))
            (is-muted-channel (and is-channel
-                                  (member target clatter-notify-muted-channels)))
+                                  (clatter-notify-muted-channel-p target network)))
            (is-muted-nick (or (clatter-notify-muted-p sender network)
                               (clatter-muted-p sender network)))
            (is-reply-to-me (get-text-property 0 'clatter-reply-to-me text))
@@ -396,6 +399,18 @@ is in the muted nicks list."
                (n
                 (string-equal-ignore-case n nick))))
            clatter-notify-muted-nicks))
+
+(defun clatter-notify-muted-channel-p (channel &optional network)
+  "Returns whether CHANNEL or the (CHANNEL . NETWORK) pair
+is in the muted channels list."
+  (cl-some (lambda (elt)
+             (pcase elt
+               (`(,c . ,in)
+                (and (string-equal-ignore-case c channel)
+                     network (string-equal network in) t))
+               (c
+                (string-equal-ignore-case c channel))))
+           clatter-notify-muted-channels))
 
 ;; --- Enable/disable ---
 
