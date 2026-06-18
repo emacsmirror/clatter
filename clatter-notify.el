@@ -388,19 +388,27 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   (interactive)
   (clatter-notify--send "CLatter Test" "Notifications are working"))
 
-(defun clatter-notify-mute-nick (nick)
-  "Add NICK to the muted nicks list."
+(defun clatter-notify-mute-nick (pattern)
+  "Add PATTERN to the muted nicks list."
   (interactive "sNick to mute: ")
-  (unless (member nick clatter-notify-muted-nicks)
-    (push nick clatter-notify-muted-nicks)
-    (message "Muted notifications from %s" nick)))
+  (unless (or (seq-contains-p pattern ?\*)
+              (seq-contains-p pattern ?\?)
+              (seq-contains-p pattern ?\[))
+    (setq pattern (format "%s!*@*" pattern)))
+  (unless (member pattern clatter-notify-muted-nicks)
+    (push pattern clatter-notify-muted-nicks)
+    (message "Muted notifications from %s" pattern)))
 
-(defun clatter-notify-unmute-nick (nick)
-  "Remove NICK from the muted nicks list."
+(defun clatter-notify-unmute-nick (pattern)
+  "Remove PATTERN from the muted nicks list."
   (interactive
    (list (completing-read "Unmute nick: " clatter-notify-muted-nicks)))
-  (setq clatter-notify-muted-nicks (delete nick clatter-notify-muted-nicks))
-  (message "Unmuted notifications from %s" nick))
+  (unless (or (seq-contains-p pattern ?\*)
+              (seq-contains-p pattern ?\?)
+              (seq-contains-p pattern ?\[))
+    (setq pattern (format "%s!*@*" pattern)))
+  (setq clatter-notify-muted-nicks (delete pattern clatter-notify-muted-nicks))
+  (message "Unmuted notifications from %s" pattern))
 
 (defun clatter-notify-muted-p (sender &optional network)
   "Returns whether SENDER or the (SENDER . NETWORK) pair is muted."
