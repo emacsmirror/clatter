@@ -1263,7 +1263,7 @@ STATE is \"active\", \"paused\", or \"done\"."
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network target))
          (nick (clatter-prefix-nick sender)))
-    (when (and buf (buffer-live-p buf))
+    (when (and buf (buffer-live-p buf) (not (clatter-muted-p sender network)))
       (with-current-buffer buf
         (unless clatter--typing-nicks
           (setq clatter--typing-nicks (make-hash-table :test 'equal)))
