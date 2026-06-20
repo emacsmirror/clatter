@@ -170,6 +170,14 @@ deterministic, hash-based `clatter-nick-color-N' palette face."
 
 ;; --- In-text highlighting ---
 
+(defvar clatter-hl-nicks-syntax-table
+  (let ((table (copy-syntax-table))
+        (extra-nick-chars '(?\[ ?\] ?{ ?} ?| ?- ?\\ ?` ?^)))
+    (dolist (char extra-nick-chars)
+      (modify-syntax-entry char "w" table))
+    table)
+  "Syntax table for IRC nicknames.")
+
 (defun clatter-hl-nicks-in-string (text buffer)
   "Return TEXT with nicks from BUFFER's nick list highlighted.
 Only highlights nicks that are currently in the channel."
@@ -179,12 +187,13 @@ Only highlights nicks that are currently in the channel."
     (with-current-buffer buffer
       (when clatter--nick-list
         (let ((nicks (clatter-hl--collect-nicks buffer)))
-          (dolist (nick nicks)
-            (let ((re (concat "\\b" (regexp-quote nick) "\\b")))
-              (setq text (clatter-hl--propertize-matches
-                          text re
-                          (list 'face (clatter-hl-nick-face-symbol nick)
-                                'clatter-nick nick)))))))
+          (with-syntax-table clatter-hl-nicks-syntax-table
+            (dolist (nick nicks)
+              (let ((re (concat "\\b" (regexp-quote nick) "\\b")))
+                (setq text (clatter-hl--propertize-matches
+                            text re
+                            (list 'face (clatter-hl-nick-face-symbol nick)
+                                  'clatter-nick nick))))))))
       text)))
 
 (defun clatter-hl--collect-nicks (buffer)
