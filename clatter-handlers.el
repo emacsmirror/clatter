@@ -28,7 +28,7 @@ Called with (CONN SENDER TARGET TEXT SERVER-TIME).")
 
 (defvar clatter-notice-hook nil
   "Hook for NOTICE events.
-Called with (CONN SENDER TARGET TEXT).")
+Called with (CONN SENDER TARGET TEXT SERVER-TIME).")
 
 (defvar clatter-join-hook nil
   "Hook for JOIN events.
@@ -395,15 +395,8 @@ Return the trimmed character."
 
       ;; --- NOTICE ---
       ("NOTICE"
-       (let* ((target (nth 0 params))
-              (raw-text (nth 1 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              ;; STATUSMSG: detect prefix like @#channel or +#channel and strip
-              ;; it from target
-              (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
-                                 (when isup (gethash "STATUSMSG" isup))))
-              (status-prefix (clatter--set-unprefixed target statusmsg-chars))
-              (text (clatter--prepend-status-prefix status-prefix raw-text)))
+       (let ((raw-text (nth 1 params))
+             (parsed-prefix (clatter-parse-prefix prefix)))
          ;; Check for CTCP reply in NOTICE (don't respond)
          (if (and (> (length raw-text) 1)
                   (= (aref raw-text 0) 1)
@@ -414,8 +407,39 @@ Return the trimmed character."
                     (ctcp-args (if space-pos (substring ctcp-content (1+ space-pos)) "")))
                (run-hook-with-args 'clatter-ctcp-reply-hook
                                    conn parsed-prefix ctcp-cmd ctcp-args))
-           (run-hook-with-args 'clatter-notice-hook
-                               conn parsed-prefix target text))))
+           (let* ((sender-nick (clatter-prefix-nick parsed-prefix))
+                  (parsed-tags (clatter-parse-tags tags))
+                  ;; --- >> EXTRACT MESSAGE TAGS ---
+                  (server-time (clatter-get-parsed-server-time parsed-tags))
+                  (msgid (clatter-get-parsed-tag parsed-tags "msgid"))
+                  (is-bot (assoc "bot" parsed-tags))
+                  (reply-to (or (clatter-get-parsed-tag parsed-tags "+draft/reply")
+                                (clatter-get-parsed-tag parsed-tags "+reply")
+                                (clatter-get-parsed-tag parsed-tags "draft/reply")))
+                  ;; --- << EXTRACT MESSAGE TAGS ---
+                  (is-reply-to-me (and reply-to
+                                       (clatter-sent-p
+                                        (clatter-connection-network-id conn) reply-to)))
+                  (target (nth 0 params))
+                  ;; STATUSMSG: detect prefix like @#channel or +#channel and strip
+                  ;; it from target
+                  (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
+                                     (when isup (gethash "STATUSMSG" isup))))
+                  (status-prefix (clatter--set-unprefixed target statusmsg-chars))
+                  (text (clatter--prepend-status-prefix status-prefix raw-text)))
+             ;; Mark sender as bot if draft/bot tag present
+             (when is-bot
+               (setq sender-nick (propertize sender-nick 'clatter-bot t))
+               (setf (car parsed-prefix) sender-nick))
+             ;; Attach msgid and reply-to as text properties
+             (when msgid
+               (setq text (propertize text 'clatter-msgid msgid)))
+             (when reply-to
+               (setq text (propertize text 'clatter-reply-to reply-to)))
+             (when is-reply-to-me
+               (setq text (propertize text 'clatter-reply-to-me t)))
+             (run-hook-with-args 'clatter-notice-hook
+                                 conn parsed-prefix target text server-time)))))
 
       ;; --- INVITE ---
       ("INVITE"
