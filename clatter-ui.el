@@ -354,15 +354,18 @@ SERVER-TIME overrides the current time for the timestamp."
 (defun clatter-insert-action (buffer sender text conn &optional server-time invisible)
   "Insert a /me ACTION from SENDER with TEXT into BUFFER."
   (let* ((hl-text (clatter-hl-format-text text buffer conn))
+         (msgid (get-text-property 0 'clatter-msgid text))
          (prefix (clatter--format-nick-column "*" 'clatter-action sender)))
     (add-face-text-property 0 (length hl-text) 'clatter-action nil hl-text)
-    (let ((formatted (concat prefix " "
+    (let ((props (list 'clatter-msg-type 'action
+                       'clatter-sender sender
+                       'clatter-text text))
+          (formatted (concat prefix " "
                              (propertize (concat sender " ") 'face 'clatter-action)
                              hl-text)))
-      (clatter--insert-message buffer formatted nil
-                               (list 'clatter-msg-type 'action
-                                     'clatter-sender sender
-                                     'clatter-text text)
+      (when msgid
+        (setq props (plist-put props 'clatter-msgid msgid)))
+      (clatter--insert-message buffer formatted nil props
                                server-time
                                invisible)
       (unless (eq buffer (current-buffer))
