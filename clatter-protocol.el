@@ -239,16 +239,25 @@ Tags format: key1=value1;key2=value2;key3"
                   (cons tag nil))))
             (split-string tags-string ";"))))
 
+(defun clatter-get-parsed-tag (tags-alist key)
+  "Get the value of KEY from TAGS-ALIST"
+  (cdr (assoc key tags-alist #'string=)))
+
 (defun clatter-get-tag (tags-string key)
   "Get the value of KEY from TAGS-STRING."
-  (cdr (assoc key (clatter-parse-tags tags-string) #'string=)))
+  (clatter-get-parsed-tag (clatter-parse-tags tags-string) key))
+
+(defun clatter-get-parsed-server-time (tags-alist)
+  "Extract server-time from IRCv3 TAGS-ALIST.
+Returns an Emacs time value or nil."
+  (let ((time-str (clatter-get-parsed-tag tags-alist "time")))
+    (when time-str
+      (clatter-parse-iso8601 time-str))))
 
 (defun clatter-get-server-time (tags-string)
   "Extract server-time from IRCv3 TAGS-STRING.
 Returns an Emacs time value or nil."
-  (let ((time-str (clatter-get-tag tags-string "time")))
-    (when time-str
-      (clatter-parse-iso8601 time-str))))
+  (clatter-get-parsed-server-time (clatter-parse-tags tags-string)))
 
 (defun clatter-parse-iso8601 (time-string)
   "Parse ISO8601 TIME-STRING to Emacs time value.

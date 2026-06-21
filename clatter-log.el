@@ -180,7 +180,7 @@ FILE is stored for flushing."
                          (format "<%s> %s" sender-nick text)
                          server-time)))
 
-(defun clatter-log--on-action (conn sender target text _server-time)
+(defun clatter-log--on-action (conn sender target text server-time)
   "Log ACTION from SENDER to TARGET with TEXT on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
@@ -189,7 +189,8 @@ FILE is stored for flushing."
                          target
                        (if (string-equal target my-nick) sender-nick target))))
     (clatter-log--write network log-target
-                         (format "* %s %s" sender-nick text))))
+                        (format "* %s %s" sender-nick text)
+                        server-time)))
 
 (defun clatter-log--on-notice (conn sender target text)
   "Log NOTICE from SENDER to TARGET on CONN."

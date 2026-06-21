@@ -351,7 +351,7 @@ SERVER-TIME overrides the current time for the timestamp."
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
 
-(defun clatter-insert-action (buffer sender text conn &optional invisible)
+(defun clatter-insert-action (buffer sender text conn &optional server-time invisible)
   "Insert a /me ACTION from SENDER with TEXT into BUFFER."
   (let* ((hl-text (clatter-hl-format-text text buffer conn))
          (prefix (clatter--format-nick-column "*" 'clatter-action sender)))
@@ -363,7 +363,7 @@ SERVER-TIME overrides the current time for the timestamp."
                                (list 'clatter-msg-type 'action
                                      'clatter-sender sender
                                      'clatter-text text)
-                               nil
+                               server-time
                                invisible)
       (unless (eq buffer (current-buffer))
         (clatter-mark-activity buffer nil)))))
@@ -680,7 +680,7 @@ Emacs requires `set-window-margins' on the window, not just
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
       (clatter-smart-put buf sender-nick 'privmsg))))
 
-(defun clatter-ui--on-action (conn sender target text _server-time)
+(defun clatter-ui--on-action (conn sender target text server-time)
   "Display SENDER's ACTION TEXT to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
@@ -691,7 +691,7 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-or-create-buffer network buf-target))
          (is-muted (clatter-muted-p sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-action buf sender-nick text conn (and is-muted 'muted))
+    (clatter-insert-action buf sender-nick text conn server-time (and is-muted 'muted))
     (when (and (not is-muted)
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (not (string-equal-ignore-case my-nick sender-nick))

@@ -341,6 +341,7 @@ Return the trimmed character."
       ;; --- PRIVMSG ---
       ("PRIVMSG"
        (let* ((parsed-tags (clatter-parse-tags tags))
+              (server-time (clatter-get-parsed-server-time parsed-tags))
               (msgid (cdr (assoc "msgid" parsed-tags)))
               (target (nth 0 params))
               (raw-text (nth 1 params))
@@ -359,9 +360,8 @@ Return the trimmed character."
          (if (and (> (length raw-text) 1)
                   (= (aref raw-text 0) 1)
                   (= (aref raw-text (1- (length raw-text))) 1))
-             (clatter--handle-ctcp conn parsed-prefix target raw-text)
+             (clatter--handle-ctcp conn parsed-prefix target raw-text server-time)
            (let* ((text (clatter--prepend-status-prefix status-prefix raw-text))
-                  (server-time (clatter-get-server-time tags))
                   (batch-id (cdr (assoc "batch" parsed-tags)))
                   (is-bot (assoc "bot" parsed-tags))
                   (reply-to (or (cdr (assoc "+draft/reply" parsed-tags))
@@ -702,7 +702,7 @@ Return the trimmed character."
 
 ;; --- CTCP Handling ---
 
-(defun clatter--handle-ctcp (conn sender target raw-text)
+(defun clatter--handle-ctcp (conn sender target raw-text server-time)
   "Handle CTCP request on CONN from SENDER to TARGET with RAW-TEXT."
   (let* ((ctcp-content (substring raw-text 1 (1- (length raw-text))))
          (space-pos (cl-position ?\s ctcp-content))
@@ -718,8 +718,7 @@ Return the trimmed character."
       ("ACTION"
        (run-hook-with-args 'clatter-action-hook
                            conn sender target ctcp-args
-                           (clatter-get-server-time (clatter-message-tags
-                                                     (clatter-parse-line "")))))
+                           server-time))
       ;; Don't respond to our own CTCP requests
       ((guard self-p) nil)
       ("VERSION"
