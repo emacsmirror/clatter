@@ -930,8 +930,8 @@ Emacs requires `set-window-margins' on the window, not just
       (push (format "  Server: %s (%s)"
                     (plist-get data :server)
                     (or (plist-get data :server-info) "")) parts))
-    (when (plist-get data :host)
-      (push (format "  Host: %s" (plist-get data :host)) parts))
+    (when (plist-get data :conn)
+      (push (format "  Host: %s" (plist-get data :conn)) parts))
     (when (plist-get data :actually)
       (push (format "  Details: %s" (plist-get data :actually)) parts))
     (when (plist-get data :channels)
