@@ -171,106 +171,116 @@ FILE is stored for flushing."
 (defun clatter-log--on-privmsg (conn sender target text server-time)
   "Log PRIVMSG from SENDER to TARGET with TEXT on CONN."
   (let* ((network (clatter-connection-network-id conn))
+         (sender-nick (clatter-prefix-nick sender))
          (my-nick (clatter-connection-nick conn))
          (log-target (if (clatter-channel-name-p target)
                          target
-                       (if (string-equal target my-nick) sender target))))
+                       (if (string-equal target my-nick) sender-nick target))))
     (clatter-log--write network log-target
-                         (format "<%s> %s" sender text)
+                         (format "<%s> %s" sender-nick text)
                          server-time)))
 
 (defun clatter-log--on-action (conn sender target text _server-time)
   "Log ACTION from SENDER to TARGET with TEXT on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
+         (sender-nick (clatter-prefix-nick sender))
          (log-target (if (clatter-channel-name-p target)
                          target
-                       (if (string-equal target my-nick) sender target))))
+                       (if (string-equal target my-nick) sender-nick target))))
     (clatter-log--write network log-target
-                         (format "* %s %s" sender text))))
+                         (format "* %s %s" sender-nick text))))
 
 (defun clatter-log--on-notice (conn sender target text)
   "Log NOTICE from SENDER to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
+         (sender-nick (or (clatter-prefix-nick sender) "*"))
          (log-target (if (or (string= target "*")
                              (not (clatter-channel-name-p target)))
                          (if clatter-log-server-buffer "*server*" nil)
                        target)))
     (when log-target
       (clatter-log--write network log-target
-                           (format "-%s- %s" sender text)))))
+                           (format "-%s- %s" sender-nick text)))))
 
-(defun clatter-log--on-join (conn nick channel _account realname)
-  "Log JOIN of NICK to CHANNEL on CONN."
+(defun clatter-log--on-join (conn sender channel _account realname)
+  "Log JOIN of SENDER to CHANNEL on CONN."
   (when clatter-log-system-messages
-    (clatter-log--write (clatter-connection-network-id conn) channel
-                        (if (and realname (not (string= nick realname)))
-                            (format "%s (%s) has joined %s" nick realname channel)
-                          (format "%s has joined %s" nick channel)))))
+    (let ((sender-nick (clatter-prefix-nick sender)))
+      (clatter-log--write (clatter-connection-network-id conn) channel
+                          (if (and realname (not (string= sender-nick realname)))
+                              (format "%s (%s) has joined %s" sender-nick realname channel)
+                            (format "%s has joined %s" sender-nick channel))))))
 
-(defun clatter-log--on-part (conn nick channel message)
-  "Log PART of NICK from CHANNEL on CONN."
+(defun clatter-log--on-part (conn sender channel message)
+  "Log PART of SENDER from CHANNEL on CONN."
   (when clatter-log-system-messages
-    (clatter-log--write (clatter-connection-network-id conn) channel
-                         (format "*** %s has left %s%s" nick channel
-                                 (if message (format " (%s)" message) "")))))
+    (let ((sender-nick (clatter-prefix-nick sender)))
+      (clatter-log--write (clatter-connection-network-id conn) channel
+                          (format "*** %s has left %s%s" sender-nick channel
+                                  (if message (format " (%s)" message) ""))))))
 
-(defun clatter-log--on-quit (conn nick message)
-  "Log QUIT of NICK on CONN."
+(defun clatter-log--on-quit (conn sender message)
+  "Log QUIT of SENDER on CONN."
   (when clatter-log-system-messages
-    (let ((network (clatter-connection-network-id conn)))
+    (let ((network (clatter-connection-network-id conn))
+          (sender-nick (clatter-prefix-nick sender)))
       (dolist (buf (clatter-channel-buffers network))
-        (when (gethash (downcase nick)
+        (when (gethash (downcase sender-nick)
                        (buffer-local-value 'clatter--nick-list buf))
           (clatter-log--write network
-                               (buffer-local-value 'clatter--target buf)
-                               (format "*** %s has quit%s" nick
-                                       (if message (format " (%s)" message) ""))))))))
+                              (buffer-local-value 'clatter--target buf)
+                              (format "*** %s has quit%s" sender-nick
+                                      (if message (format " (%s)" message) ""))))))))
 
-(defun clatter-log--on-nick (conn old-nick new-nick)
-  "Log a nick change from OLD-NICK to NEW-NICK on CONN."
+(defun clatter-log--on-nick (conn sender new-nick)
+  "Log SENDER changing their nick to NEW-NICK on CONN."
   (when clatter-log-system-messages
-    (let ((network (clatter-connection-network-id conn)))
+    (let ((network (clatter-connection-network-id conn))
+          (sender-nick (clatter-prefix-nick sender)))
       (dolist (buf (clatter-channel-buffers network))
-        (when (gethash (downcase old-nick)
+        (when (gethash (downcase sender-nick)
                        (buffer-local-value 'clatter--nick-list buf))
           (clatter-log--write network
                                (buffer-local-value 'clatter--target buf)
                                (format "*** %s is now known as %s"
-                                       old-nick new-nick)))))))
+                                       sender-nick new-nick)))))))
 
-(defun clatter-log--on-topic (conn channel nick topic at)
+(defun clatter-log--on-topic (conn channel sender topic at)
   "Log TOPIC change in CHANNEL on CONN."
   (when clatter-log-system-messages
-    (clatter-log--write (clatter-connection-network-id conn) channel
-                        (let ((prefix "Topic"))
-                          (cond
-                           ((and nick at)
-                            (setq prefix (format "%s set at %s by %s"
-                                                 prefix
-                                                 (format-time-string "%F %T" at)
-                                                 nick)))
-                           (nick (setq prefix (format "%s set by %s" prefix nick))))
-                          (format "*** %s: %s" prefix topic)))))
+    (let ((sender-nick (clatter-prefix-nick sender)))
+      (clatter-log--write (clatter-connection-network-id conn) channel
+                          (let ((prefix "Topic"))
+                            (cond
+                             ((and sender-nick at)
+                              (setq prefix (format "%s set at %s by %s"
+                                                   prefix
+                                                   (format-time-string "%F %T" at)
+                                                   sender-nick)))
+                             (sender-nick (setq prefix (format "%s set by %s" prefix sender-nick))))
+                            (format "*** %s: %s" prefix topic))))))
 
-(defun clatter-log--on-kick (conn channel nick kicked reason)
-  "Log KICK of KICKED by NICK in CHANNEL on CONN."
+(defun clatter-log--on-kick (conn channel sender kicked reason)
+  "Log KICK of KICKED by SENDER in CHANNEL on CONN."
   (when clatter-log-system-messages
-    (clatter-log--write (clatter-connection-network-id conn) channel
-                         (format "*** %s was kicked by %s%s" kicked nick
-                                 (if reason (format " (%s)" reason) "")))))
+    (let ((sender-nick (clatter-prefix-nick sender)))
+      (clatter-log--write (clatter-connection-network-id conn) channel
+                          (format "*** %s was kicked by %s%s" kicked sender-nick
+                                  (if reason (format " (%s)" reason) ""))))))
 
 (defun clatter-log--on-mode (conn target setter modes)
   "Log MODE change on TARGET by SETTER on CONN."
   (when clatter-log-system-messages
     (let* ((network (clatter-connection-network-id conn))
+           (setter-nick (clatter-prefix-nick setter))
            (log-target (if (clatter-channel-name-p target)
                            target
                          (if clatter-log-server-buffer "*server*" nil))))
       (when log-target
         (clatter-log--write network log-target
                              (format "*** %s sets mode %s"
-                                     setter (string-join modes " ")))))))
+                                     setter-nick (string-join modes " ")))))))
 
 ;; --- Hook Registration ---
 

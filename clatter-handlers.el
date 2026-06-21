@@ -359,7 +359,7 @@ Return the trimmed character."
          (if (and (> (length raw-text) 1)
                   (= (aref raw-text 0) 1)
                   (= (aref raw-text (1- (length raw-text))) 1))
-             (clatter--handle-ctcp conn sender-nick target raw-text)
+             (clatter--handle-ctcp conn parsed-prefix target raw-text)
            (let* ((text (clatter--prepend-status-prefix status-prefix raw-text))
                   (server-time (clatter-get-server-time tags))
                   (batch-id (cdr (assoc "batch" parsed-tags)))
@@ -372,7 +372,8 @@ Return the trimmed character."
                                         (clatter-connection-network-id conn) reply-to))))
              ;; Mark sender as bot if draft/bot tag present
              (when is-bot
-               (setq sender-nick (propertize sender-nick 'clatter-bot t)))
+               (setq sender-nick (propertize sender-nick 'clatter-bot t))
+               (setf (car parsed-prefix) sender-nick))
              ;; Attach msgid and reply-to as text properties
              (when msgid
                (setq text (propertize text 'clatter-msgid msgid)))
@@ -387,14 +388,13 @@ Return the trimmed character."
               ;; Normal message
               (t
                (run-hook-with-args 'clatter-privmsg-hook
-                                   conn sender-nick target text server-time)))))))
+                                   conn parsed-prefix target text server-time)))))))
 
       ;; --- NOTICE ---
       ("NOTICE"
        (let* ((target (nth 0 params))
               (raw-text (nth 1 params))
               (parsed-prefix (clatter-parse-prefix prefix))
-              (sender-nick (or (clatter-prefix-nick parsed-prefix) "*"))
               ;; STATUSMSG: detect prefix like @#channel or +#channel and strip
               ;; it from target
               (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
@@ -410,42 +410,38 @@ Return the trimmed character."
                     (ctcp-cmd (if space-pos (substring ctcp-content 0 space-pos) ctcp-content))
                     (ctcp-args (if space-pos (substring ctcp-content (1+ space-pos)) "")))
                (run-hook-with-args 'clatter-ctcp-reply-hook
-                                   conn sender-nick ctcp-cmd ctcp-args))
+                                   conn parsed-prefix ctcp-cmd ctcp-args))
            (run-hook-with-args 'clatter-notice-hook
-                               conn sender-nick target text))))
+                               conn parsed-prefix target text))))
 
       ;; --- INVITE ---
       ("INVITE"
        (let* ((nick (nth 0 params))
               (channel (nth 1 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (sender-nick (clatter-prefix-nick parsed-prefix)))
-         (run-hook-with-args 'clatter-invite-hook conn sender-nick nick channel)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
+         (run-hook-with-args 'clatter-invite-hook conn parsed-prefix nick channel)))
 
       ;; --- JOIN ---
       ("JOIN"
        (let* ((channel (nth 0 params))
               (account (nth 1 params))
               (realname (nth 2 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (nick (clatter-prefix-nick parsed-prefix)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
          (run-hook-with-args 'clatter-join-hook
-                             conn nick channel account realname)))
+                             conn parsed-prefix channel account realname)))
 
       ;; --- PART ---
       ("PART"
        (let* ((channel (nth 0 params))
               (message (nth 1 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (nick (clatter-prefix-nick parsed-prefix)))
-         (run-hook-with-args 'clatter-part-hook conn nick channel message)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
+         (run-hook-with-args 'clatter-part-hook conn parsed-prefix channel message)))
 
       ;; --- QUIT ---
       ("QUIT"
        (let* ((message (nth 0 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (nick (clatter-prefix-nick parsed-prefix)))
-         (run-hook-with-args 'clatter-quit-hook conn nick message)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
+         (run-hook-with-args 'clatter-quit-hook conn parsed-prefix message)))
 
       ;; --- NICK ---
       ("NICK"
@@ -461,32 +457,29 @@ Return the trimmed character."
              (cancel-timer (clatter-connection-nick-reclaim-timer conn))
              (setf (clatter-connection-nick-reclaim-timer conn) nil)
              (message "[clatter] Reclaimed nick %s" new-nick)))
-         (run-hook-with-args 'clatter-nick-hook conn old-nick new-nick)))
+         (run-hook-with-args 'clatter-nick-hook conn parsed-prefix new-nick)))
 
       ;; --- MODE ---
       ("MODE"
        (let* ((target (nth 0 params))
               (modes (cdr params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (setter (or (clatter-prefix-nick parsed-prefix) target)))
-         (run-hook-with-args 'clatter-irc-mode-hook conn target setter modes)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
+         (run-hook-with-args 'clatter-irc-mode-hook conn target parsed-prefix modes)))
 
       ;; --- TOPIC ---
       ("TOPIC"
        (let* ((channel (nth 0 params))
               (topic (nth 1 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (nick (clatter-prefix-nick parsed-prefix)))
-         (run-hook-with-args 'clatter-topic-hook conn channel nick topic nil)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
+         (run-hook-with-args 'clatter-topic-hook conn channel parsed-prefix topic nil)))
 
       ;; --- KICK ---
       ("KICK"
        (let* ((channel (nth 0 params))
               (kicked (nth 1 params))
               (reason (nth 2 params))
-              (parsed-prefix (clatter-parse-prefix prefix))
-              (nick (clatter-prefix-nick parsed-prefix)))
-         (run-hook-with-args 'clatter-kick-hook conn channel nick kicked reason)))
+              (parsed-prefix (clatter-parse-prefix prefix)))
+         (run-hook-with-args 'clatter-kick-hook conn channel parsed-prefix kicked reason)))
 
       ;; --- RENAME (draft/channel-rename) ---
       ("RENAME"
@@ -513,9 +506,8 @@ Return the trimmed character."
       ;; --- AWAY (IRCv3 away-notify) ---
       ("AWAY"
        (let* ((parsed-prefix (clatter-parse-prefix prefix))
-              (nick (clatter-prefix-nick parsed-prefix))
               (away-msg (nth 0 params)))
-         (run-hook-with-args 'clatter-away-hook conn nick away-msg)))
+         (run-hook-with-args 'clatter-away-hook conn parsed-prefix away-msg)))
 
       ;; --- TAGMSG (typing indicators + reactions) ---
       ("TAGMSG"
@@ -532,11 +524,11 @@ Return the trimmed character."
          ;; Typing indicator
          (when (and typing-state
                     (not (string-equal nick (clatter-connection-nick conn))))
-           (run-hook-with-args 'clatter-typing-hook conn nick target typing-state))
+           (run-hook-with-args 'clatter-typing-hook conn parsed-prefix target typing-state))
          ;; Reaction
          (when (and react-emoji react-msgid)
            (run-hook-with-args 'clatter-react-hook
-                               conn nick target react-emoji react-msgid))))
+                               conn parsed-prefix target react-emoji react-msgid))))
 
       ;; --- MARKREAD (IRCv3 read-marker) ---
       ("MARKREAD"
@@ -679,12 +671,12 @@ Return the trimmed character."
          (clatter-set-topic buf topic)))
       ("333"  ; RPL_TOPICWHOTIME
        (let* ((channel (nth 1 params))
-              (nick (nth 2 params))
+              (sender (clatter-parse-prefix (nth 2 params)))
               (at (when (nth 3 params) (string-to-number (nth 3 params))))
               (network (clatter-connection-network-id conn))
               (buf (clatter-get-buffer network channel))
               (topic (clatter-get-topic buf)))
-         (run-hook-with-args 'clatter-topic-hook conn channel nick topic at)))
+         (run-hook-with-args 'clatter-topic-hook conn channel sender topic at)))
 
       ;; --- MONITOR numerics ---
       ("730"  ; RPL_MONONLINE
@@ -710,8 +702,8 @@ Return the trimmed character."
 
 ;; --- CTCP Handling ---
 
-(defun clatter--handle-ctcp (conn sender-nick target raw-text)
-  "Handle CTCP request on CONN from SENDER-NICK to TARGET with RAW-TEXT."
+(defun clatter--handle-ctcp (conn sender target raw-text)
+  "Handle CTCP request on CONN from SENDER to TARGET with RAW-TEXT."
   (let* ((ctcp-content (substring raw-text 1 (1- (length raw-text))))
          (space-pos (cl-position ?\s ctcp-content))
          (ctcp-cmd (upcase (if space-pos
@@ -720,11 +712,12 @@ Return the trimmed character."
          (ctcp-args (if space-pos
                         (substring ctcp-content (1+ space-pos))
                       ""))
+         (sender-nick (clatter-prefix-nick sender))
          (self-p (string-equal sender-nick (clatter-connection-nick conn))))
     (pcase ctcp-cmd
       ("ACTION"
        (run-hook-with-args 'clatter-action-hook
-                           conn sender-nick target ctcp-args
+                           conn sender target ctcp-args
                            (clatter-get-server-time (clatter-message-tags
                                                      (clatter-parse-line "")))))
       ;; Don't respond to our own CTCP requests
@@ -745,7 +738,7 @@ Return the trimmed character."
                            (format "CTCP TIME from %s" sender-nick)))
       (_
        (run-hook-with-args 'clatter-ctcp-hook
-                           conn sender-nick target ctcp-cmd ctcp-args)))))
+                           conn sender target ctcp-cmd ctcp-args)))))
 
 ;; --- Batch Handling ---
 

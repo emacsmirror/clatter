@@ -368,7 +368,7 @@ With `none', clear all suppressions."
                               buffer-invisibility-spec " ")
                  "none")))
      ((string-equal (car types) "all")
-      (setq buffer-invisibility-spec (list 'join 'part 'quit 'nick 'mode 'away)))
+      (setq buffer-invisibility-spec (list 'join 'part 'quit 'nick 'mode 'away 'muted)))
      ((string-equal (car types) "none")
       (setq buffer-invisibility-spec nil))
      (t
@@ -436,6 +436,10 @@ With no argument, show the current ignore list."
          (if clatter-ignore-list
              (format "Ignore list: %s" (string-join clatter-ignore-list ", "))
            "Ignore list is empty"))
+      (unless (or (seq-contains-p pattern ?\*)
+                  (seq-contains-p pattern ?\?)
+                  (seq-contains-p pattern ?\[))
+        (setq pattern (format "%s!*@*" pattern)))
       (if (member (downcase pattern) (mapcar #'downcase clatter-ignore-list))
           (clatter-insert-system (current-buffer)
                                   (format "%s is already ignored" pattern))
@@ -449,6 +453,10 @@ Usage: /unignore NICK-OR-PATTERN."
   (let ((pattern (string-trim args)))
     (if (string-empty-p pattern)
         (clatter-insert-error (current-buffer) "Usage: /unignore NICK-OR-PATTERN")
+      (unless (or (seq-contains-p pattern ?\*)
+                  (seq-contains-p pattern ?\?)
+                  (seq-contains-p pattern ?\[))
+        (setq pattern (format "%s!*@*" pattern)))
       (let ((before (length clatter-ignore-list)))
         (setq clatter-ignore-list
               (cl-remove pattern clatter-ignore-list

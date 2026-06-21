@@ -196,15 +196,16 @@
     (when buf
       (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf))))
 
-(defun clatter-nicklist--on-quit (conn nick _message)
-  "Refresh nicklist on CONN for all channels NICK was in."
-  (let ((network (clatter-connection-network-id conn)))
+(defun clatter-nicklist--on-quit (conn sender _message)
+  "Refresh nicklist on CONN for all channels SENDER was in."
+  (let ((network (clatter-connection-network-id conn))
+        (sender-nick (clatter-prefix-nick sender)))
     (dolist (buf (clatter-all-buffers))
       (when (buffer-live-p buf)
         (with-current-buffer buf
           (when (and (equal clatter--network network)
                      clatter--nick-list
-                     (gethash (downcase nick) clatter--nick-list))
+                     (gethash (downcase sender-nick) clatter--nick-list))
             (run-at-time 0.2 nil #'clatter-nicklist--auto-refresh buf)))))))
 
 (defun clatter-nicklist--on-nick (conn _old-nick _new-nick)

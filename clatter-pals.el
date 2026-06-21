@@ -21,6 +21,7 @@
 
 (require 'cl-lib)
 (require 'clatter-config)
+(require 'clatter-protocol)
 
 ;; --- Lists ---
 
@@ -28,7 +29,10 @@
   "List of nicks treated as pals (friends).
 Their nick is highlighted with the `clatter-pal' face wherever it
 appears.  Matched case-insensitively."
-  :type '(repeat string)
+  :type '(repeat (choice (string :tag "Nick Only")
+                         (cons :tag "Nick and Network"
+                               (string :tag "Nick")
+                               (string :tag "Network"))))
   :group 'clatter)
 
 (defcustom clatter-fools nil
@@ -36,7 +40,10 @@ appears.  Matched case-insensitively."
 Messages from a fool are suppressed, like `clatter-ignore-list', but
 kept in a separate list that can be toggled with the /fool and /unfool
 commands.  Matched case-insensitively."
-  :type '(repeat string)
+  :type '(repeat (choice (string :tag "Nick Only")
+                         (cons :tag "Nick and Network"
+                               (string :tag "Nick")
+                               (string :tag "Network"))))
   :group 'clatter)
 
 ;; --- Faces ---
@@ -48,38 +55,55 @@ commands.  Matched case-insensitively."
 
 ;; --- Membership (pure) ---
 
-(defun clatter--nick-member-p (nick list)
-  "Return non-nil if NICK is in LIST, compared case-insensitively."
+(defun clatter--nick-member-p (nick list &optional network)
+  "Return non-nil if NICK is in LIST, compared case-insensitively.
+Also matches against NETWORK if given."
   (and nick
-       (let ((n (downcase nick)))
-         (cl-some (lambda (x) (string= n (downcase x))) list))))
+       (cl-some (lambda (elt)
+                  (pcase elt
+                    (`(,x . ,in) (and (string-equal-ignore-case nick x)
+                                      network (string-equal network in)))
+                    (x (string-equal-ignore-case nick x))))
+                list)))
 
-(defun clatter-pal-p (nick)
-  "Return non-nil if NICK is a pal."
-  (clatter--nick-member-p nick clatter-pals))
+(defun clatter-pal-p (nick &optional network)
+  "Return non-nil if NICK is a pal.
+Also matches against NETWORK if given."
+  (clatter--nick-member-p nick clatter-pals network))
 
-(defun clatter-fool-p (nick)
-  "Return non-nil if NICK is a fool."
-  (clatter--nick-member-p nick clatter-fools))
+(defun clatter-fool-p (nick &optional network)
+  "Return non-nil if NICK is a fool.
+Also matches against NETWORK if given."
+  (clatter--nick-member-p nick clatter-fools network))
 
-(defun clatter-muted-p (sender)
+(defun clatter-muted-p (sender &optional network)
   "Return non-nil if SENDER's messages should be hidden.
+Also matches against NETWORK if given.
 True when SENDER is on the ignore list or the fools list."
-  (or (clatter-ignored-p sender)
-      (clatter-fool-p sender)))
+  (or (clatter-ignored-p (clatter-join-prefix sender) network)
+      (clatter-fool-p (clatter-prefix-nick sender) network)))
 
 ;; --- Pure add/remove helpers ---
 
-(defun clatter--nick-list-add (nick list)
+(defun clatter--nick-list-add (nick list &optional network)
   "Return LIST with NICK added unless already present (case-insensitive)."
-  (if (clatter--nick-member-p nick list)
+  (if (clatter--nick-member-p nick list network)
       list
-    (cons nick list)))
+    (if network
+        (cons (cons nick network) list)
+      (cons nick (cl-remove-if (lambda (elt)
+                                 (pcase elt
+                                   (`(,n . ,_) (string-equal-ignore-case nick n))))
+                               list)))))
 
-(defun clatter--nick-list-remove (nick list)
+(defun clatter--nick-list-remove (nick list &optional network)
   "Return LIST with NICK removed (case-insensitive)."
-  (let ((n (downcase nick)))
-    (cl-remove-if (lambda (x) (string= n (downcase x))) list)))
+  (cl-remove-if (lambda (elt)
+                  (pcase elt
+                    (`(,x . ,net) (and (string-equal-ignore-case nick x)
+                                       (if network (string-equal network net) t)))
+                    (x (string-equal-ignore-case nick x))))
+                list))
 
 (provide 'clatter-pals)
 

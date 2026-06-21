@@ -39,6 +39,31 @@ Returns (servername nil nil) if no ! or @ found."
                 (substring prefix-str (1+ at)))
         (list prefix-str nil nil)))))
 
+(defun clatter-join-prefix (prefix)
+  "Join a split (nick user host) prefix back into a nick!user@host."
+  (if (and (stringp (car prefix))
+           (stringp (cadr prefix))
+           (stringp (caddr prefix)))
+      (apply #'format "%s!%s@%s" prefix)
+    (car prefix)))
+
+(defun clatter-prefix-p (obj)
+  "Return t if OBJ is a prefix, nil otherwise."
+  (and (listp obj)
+       ; nick (required)
+       (stringp (car obj))
+       (progn
+         (setq obj (cdr obj))
+         (and
+          (or
+           ; (user host)
+           (and (stringp (car obj))
+                (stringp (cadr obj)))
+           ; (nil nil)
+           (and (not (car obj))
+                (not (cadr obj))))
+          (not (cddr obj))))))
+
 (defun clatter-prefix-nick (prefix)
   "Extract nick from parsed PREFIX list."
   (car prefix))
