@@ -306,16 +306,19 @@ SERVER-TIME overrides the current time for the timestamp."
                           (clatter--find-message-by-msgid buffer reply-to)))
          (hl-text (clatter-hl-format-text text buffer conn))
          (bot-tag (if (get-text-property 0 'clatter-bot sender)
-                     (propertize "[bot]" 'face 'clatter-notice) ""))
+                      (propertize "[bot]" 'face 'clatter-notice) ""))
+         (bot-tag-delim (if (string-empty-p bot-tag) "" " "))
          (nick-col (cond
                     ((eq 'action msg-type)
                      (clatter--format-nick-column "*" 'clatter-action sender))
                     ((eq 'notice msg-type)
                      (clatter--format-nick-column
-                      (format "-%s-" sender) 'clatter-notice))
+                      (concat (format "-%s-" sender) bot-tag-delim bot-tag)
+                      'clatter-notice))
                     (t
                      (clatter--format-nick-column
-                      (concat (format "<%s>" sender) bot-tag) nick-face sender))))
+                      (concat (format "<%s>" sender) bot-tag-delim bot-tag)
+                      nick-face sender))))
          (msg-text (prog1 hl-text
                      (cond
                       ((eq 'action msg-type)
@@ -351,7 +354,8 @@ SERVER-TIME overrides the current time for the timestamp."
           (cond
            ((eq 'action msg-type)
             (concat (or reply-line "") nick-col " "
-                    (propertize (concat sender " ") 'face 'clatter-action)
+                    (propertize (concat sender " " bot-tag bot-tag-delim)
+                                'face 'clatter-action)
                     msg-text))
            (t
             (concat (or reply-line "") nick-col " " msg-text))))
