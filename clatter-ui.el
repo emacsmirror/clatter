@@ -188,9 +188,12 @@ append at the bottom like a traditional IRC client."
               (when ts-str
                 (let ((ov (make-overlay start (1+ start) nil t)))
                   (overlay-put ov 'before-string
+                               ;; Apply 'default face after 'clatter-timestamp to ensure that no
+                               ;; unwanted face properties are inherited from text which might be
+                               ;; at point.
                                (propertize " " 'display
                                            `((margin right-margin)
-                                             ,(propertize ts-str 'face 'clatter-timestamp))))
+                                             ,(propertize ts-str 'face '(clatter-timestamp default)))))
                   (overlay-put ov 'clatter-timestamp t)
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)
