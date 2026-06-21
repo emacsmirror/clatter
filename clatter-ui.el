@@ -309,9 +309,9 @@ SERVER-TIME overrides the current time for the timestamp."
                      (propertize "[bot]" 'face 'clatter-notice) ""))
          (nick-col (clatter--format-nick-column
                     (concat (format "<%s>" sender) bot-tag) nick-face sender))
-         (msg-text (if is-mention
-                       (propertize hl-text 'face 'clatter-mention)
-                     hl-text))
+         (msg-text (prog1 hl-text
+                     (when is-mention
+                       (add-face-text-property 0 (length hl-text) 'clatter-mention nil hl-text))))
          ;; Prepend reply context if available
          (reply-line (when reply-context
                        (let* ((ref-sender (car reply-context))
