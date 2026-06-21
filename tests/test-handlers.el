@@ -21,6 +21,25 @@
             (should (equal (nth 3 args) "hello everyone"))))
       (clatter-test-cleanup))))
 
+(ert-deftest clatter-test-dispatch-privmsg-time-tag ()
+  "PRIVMSG with @time tag dispatches to clatter-privmsg-hook."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let* ((time "2011-10-19T16:40:51.620Z")
+               (time-tag (concat "@time=" time))
+               (calls (clatter-test-capture-hook
+                       clatter-privmsg-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              (concat time-tag " :alice!~a@host PRIVMSG #emacs :hello everyone"))))))
+          (should (= (length calls) 1))
+          (let ((args (car calls)))
+            (should (equal (nth 1 args) '("alice" "~a" "host")))
+            (should (equal (nth 2 args) "#emacs"))
+            (should (equal (nth 3 args) "hello everyone"))
+            (should (equal (nth 4 args) (clatter-parse-iso8601 time)))))
+      (clatter-test-cleanup))))
+
 (ert-deftest clatter-test-dispatch-privmsg-ctcp-action ()
   "PRIVMSG CTCP ACTION dispatches to clatter-action-hook."
   (let ((conn (clatter-test-make-connection)))
@@ -34,6 +53,25 @@
             (should (equal (nth 1 args) '("alice" "~a" "host")))
             (should (equal (nth 2 args) "#emacs"))
             (should (equal (nth 3 args) "greets everyone"))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-privmsg-ctcp-action-time-tag ()
+  "PRIVMSG CTCP ACTION with @time tag dispatches to clatter-action-hook."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let* ((time "2011-10-19T16:40:51.620Z")
+               (time-tag (concat "@time=" time))
+               (calls (clatter-test-capture-hook
+                       clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              (concat time-tag " :alice!~a@host PRIVMSG #emacs :ACTION greets everyone"))))))
+          (should (= (length calls) 1))
+          (let ((args (car calls)))
+            (should (equal (nth 1 args) '("alice" "~a" "host")))
+            (should (equal (nth 2 args) "#emacs"))
+            (should (equal (nth 3 args) "greets everyone"))
+            (should (equal (nth 4 args) (clatter-parse-iso8601 time)))))
       (clatter-test-cleanup))))
 
 (ert-deftest clatter-test-dispatch-privmsg-dm ()
