@@ -27,6 +27,23 @@ Each entry is (CHANNEL USERS TOPIC).")
 (defvar clatter-list--filter ""
   "Current filter string for the channel list.")
 
+(defvar clatter-list--message "LIST"
+  "Message used to fetch the list; Defaults to LIST.")
+
+;; --- Buffer-local state ---
+
+(defvar-local clatter-list--local-entries nil
+  "Channel list entries displayed by the list buffer.")
+
+(defvar-local clatter-list--local-conn nil
+  "Connection associated with the channel list buffer.")
+
+(defvar-local clatter-list--local-filter nil
+  "Filter string currently active within the channel list buffer.")
+
+(defvar-local clatter-list--local-message nil
+  "Message used to fetch the list displayed in the channel list buffer.")
+
 ;; --- Accumulation (called from handlers) ---
 
 (defun clatter-list--on-entry (conn channel users topic)
@@ -70,10 +87,14 @@ Each entry is (CHANNEL USERS TOPIC).")
          (buf (get-buffer-create buf-name)))
     (with-current-buffer buf
       (clatter-list-mode)
-      (setq-local clatter-list--local-entries
-                  (sort (copy-sequence clatter-list--entries)
-                        (lambda (a b) (> (nth 1 a) (nth 1 b)))))
-      (setq-local clatter-list--local-conn clatter-list--conn)
+      ;; --- >> Set buffer local state ---
+      (setq clatter-list--local-entries
+            (sort (copy-sequence clatter-list--entries)
+                  (lambda (a b) (> (nth 1 a) (nth 1 b)))))
+      (setq clatter-list--local-conn clatter-list--conn)
+      (setq clatter-list--local-filter clatter-list--filter)
+      (setq clatter-list--local-message clatter-list--message)
+      ;; --- << Set buffer local state ---
       (clatter-list--refresh-display)
       (goto-char (point-min)))
     (pop-to-buffer buf)
@@ -84,7 +105,7 @@ Each entry is (CHANNEL USERS TOPIC).")
   "Refresh the tabulated list display with current filter."
   (let* ((entries (buffer-local-value 'clatter-list--local-entries
                                       (current-buffer)))
-         (filter clatter-list--filter)
+         (filter clatter-list--local-filter)
          (filtered (if (string-empty-p filter)
                        entries
                      (cl-remove-if-not
@@ -109,29 +130,33 @@ Each entry is (CHANNEL USERS TOPIC).")
   (let ((channel (tabulated-list-get-id)))
     (when channel
       (let ((conn (buffer-local-value 'clatter-list--local-conn
-                                       (current-buffer))))
-        (clatter-send conn (format "JOIN %s" channel))
-        (message "Joining %s..." channel)))))
+                                      (current-buffer))))
+        (when conn ;; When the current buffer is the buffer list
+          (clatter-send conn (format "JOIN %s" channel))
+          (message "Joining %s..." channel))))))
 
 (defun clatter-list-refresh ()
   "Re-send LIST and refresh the channel list."
   (interactive)
   (let ((conn (buffer-local-value 'clatter-list--local-conn
-                                   (current-buffer))))
-    (when conn
-      (setq clatter-list--entries nil)
-      (setq clatter-list--conn conn)
-      (setq clatter-list--filter "")
-      (clatter-send conn "LIST")
+                                  (current-buffer)))
+        (message (buffer-local-value 'clatter-list--local-message
+                                     (current-buffer))))
+    (when (and conn message) ;; When the current buffer is the buffer list
+      (setq clatter-list--entries nil) ;; Reset accumulator
+      (setq clatter-list--filter (or clatter-list--local-filter ""))
+      (clatter-send conn message)
       (message "Refreshing channel list..."))))
 
 (defun clatter-list-filter ()
   "Filter the channel list by pattern."
   (interactive)
-  (setq clatter-list--filter
-        (read-string "Filter (regexp): " clatter-list--filter))
-  (clatter-list--refresh-display)
-  (message "Showing %d channels" (length tabulated-list-entries)))
+  ;; When the current buffer is the buffer list
+  (when clatter-list--local-filter
+    (setq clatter-list--local-filter
+          (read-string "Filter (regexp): " clatter-list--local-filter))
+    (clatter-list--refresh-display)
+    (message "Showing %d channels" (length tabulated-list-entries))))
 
 ;; --- Entry point ---
 
@@ -140,9 +165,10 @@ Each entry is (CHANNEL USERS TOPIC).")
   (setq clatter-list--entries nil)
   (setq clatter-list--conn conn)
   (setq clatter-list--filter "")
-  (clatter-send conn (if (or (null arg) (string-empty-p arg))
-                         "LIST"
-                       (format "LIST %s" arg)))
+  (setq clatter-list--message (if (or (null arg) (string-empty-p arg))
+                                  "LIST"
+                                (format "LIST %s" arg)))
+  (clatter-send conn clatter-list--message)
   (message "Fetching channel list..."))
 
 (provide 'clatter-list)
