@@ -287,8 +287,8 @@ Returns (sender . text) or nil."
 Bound around history/batch playback so a reconnect backlog does not scan
 and fetch images for hundreds of old messages at once.")
 
-(defun clatter-insert-privmsg (buffer sender text conn &optional server-time invisible)
-  "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
+(defun clatter-insert-generic (msg-type buffer sender text conn &optional server-time invisible)
+  "Insert a MSG-TYPE from SENDER with TEXT into BUFFER using CONN context.
 SERVER-TIME overrides the current time for the timestamp."
   (let* ((nick-face (clatter-hl-nick-face sender conn))
          (my-nick (clatter-connection-nick conn))
@@ -307,9 +307,16 @@ SERVER-TIME overrides the current time for the timestamp."
          (hl-text (clatter-hl-format-text text buffer conn))
          (bot-tag (if (get-text-property 0 'clatter-bot sender)
                      (propertize "[bot]" 'face 'clatter-notice) ""))
-         (nick-col (clatter--format-nick-column
-                    (concat (format "<%s>" sender) bot-tag) nick-face sender))
+         (nick-col (cond
+                    ((eq 'action msg-type)
+                     (clatter--format-nick-column "*" 'clatter-action sender))
+                    (t
+                     (clatter--format-nick-column
+                      (concat (format "<%s>" sender) bot-tag) nick-face sender))))
          (msg-text (prog1 hl-text
+                     (cond
+                      ((eq 'action msg-type)
+                       (add-face-text-property 0 (length hl-text) 'clatter-action nil hl-text)))
                      (when is-mention
                        (add-face-text-property 0 (length hl-text) 'clatter-mention nil hl-text))))
          ;; Prepend reply context if available
@@ -335,8 +342,15 @@ SERVER-TIME overrides the current time for the timestamp."
                                                       'help-echo "Click or press RET to jump to reply context")
                                                 context)
                            context))))
-         (formatted (concat (or reply-line "") nick-col " " msg-text))
-         (props (list 'clatter-msg-type 'privmsg
+         (formatted
+          (cond
+           ((eq 'action msg-type)
+            (concat (or reply-line "") nick-col " "
+                    (propertize (concat sender " ") 'face 'clatter-action)
+                    hl-text))
+           (t
+            (concat (or reply-line "") nick-col " " msg-text))))
+         (props (list 'clatter-msg-type msg-type
                       'clatter-sender sender
                       'clatter-text text)))
     (when msgid
@@ -351,25 +365,14 @@ SERVER-TIME overrides the current time for the timestamp."
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
 
+(defun clatter-insert-privmsg (buffer sender text conn &optional server-time invisible)
+  "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
+SERVER-TIME overrides the current time for the timestamp."
+  (clatter-insert-generic 'privmsg buffer sender text conn server-time invisible))
+
 (defun clatter-insert-action (buffer sender text conn &optional server-time invisible)
   "Insert a /me ACTION from SENDER with TEXT into BUFFER."
-  (let* ((hl-text (clatter-hl-format-text text buffer conn))
-         (msgid (get-text-property 0 'clatter-msgid text))
-         (prefix (clatter--format-nick-column "*" 'clatter-action sender)))
-    (add-face-text-property 0 (length hl-text) 'clatter-action nil hl-text)
-    (let ((props (list 'clatter-msg-type 'action
-                       'clatter-sender sender
-                       'clatter-text text))
-          (formatted (concat prefix " "
-                             (propertize (concat sender " ") 'face 'clatter-action)
-                             hl-text)))
-      (when msgid
-        (setq props (plist-put props 'clatter-msgid msgid)))
-      (clatter--insert-message buffer formatted nil props
-                               server-time
-                               invisible)
-      (unless (eq buffer (current-buffer))
-        (clatter-mark-activity buffer nil)))))
+  (clatter-insert-generic 'action buffer sender text conn server-time invisible))
 
 (defun clatter-insert-notice (buffer sender text conn &optional invisible)
   "Insert a NOTICE from SENDER with TEXT into BUFFER."
