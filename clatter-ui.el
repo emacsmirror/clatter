@@ -720,7 +720,7 @@ Emacs requires `set-window-margins' on the window, not just
       (display-buffer buf))
     (clatter-insert-system buf
                            (if (and realname (not (string= nick realname)))
-                               (format "%s (%s) has joined %s" nick realname channel)
+                               (format "%s (%s) has joined %s" nick (clatter-format-parse realname) channel)
                              (format "%s has joined %s" nick channel))
                            (cons 'join
                                  (and (not (string-equal-ignore-case my-nick nick))
@@ -916,7 +916,7 @@ Emacs requires `set-window-margins' on the window, not just
                   (or (plist-get data :host) "?"))
           parts)
     (when (plist-get data :realname)
-      (push (format "  Realname: %s" (plist-get data :realname)) parts))
+      (push (format "  Realname: %s" (clatter-format-parse (plist-get data :realname))) parts))
     (when (plist-get data :account)
       (push (format "  Account: %s" (plist-get data :account)) parts))
     (when (plist-get data :regnick)
