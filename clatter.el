@@ -4,7 +4,7 @@
 ;; Author: Glenn Thompson <glenn@paren.works>
 ;; SPDX-License-Identifier: MIT
 ;; URL: https://github.com/parenworks/clatter.el
-;; Version: 0.4.2
+;; Version: 0.4.3
 ;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: comm, irc
 

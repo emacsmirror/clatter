@@ -678,7 +678,7 @@ Emacs requires `set-window-margins' on the window, not just
                (not (string-equal-ignore-case my-nick sender-nick))
                (listp (buffer-local-value 'buffer-invisibility-spec buf))
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-      (clatter-smart-put buf sender-nick 'privmsg)))
+      (clatter-smart-put buf sender-nick 'privmsg))))
 
 (defun clatter-ui--on-action (conn sender target text _server-time)
   "Display SENDER's ACTION TEXT to TARGET on CONN."
@@ -697,7 +697,7 @@ Emacs requires `set-window-margins' on the window, not just
                (not (string-equal-ignore-case my-nick sender-nick))
                (listp (buffer-local-value 'buffer-invisibility-spec buf))
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-      (clatter-smart-put buf sender-nick 'privmsg)))
+      (clatter-smart-put buf sender-nick 'privmsg))))
 
 (defun clatter-ui--on-notice (conn sender target text)
   "Display SENDER's NOTICE TEXT to TARGET on CONN."
