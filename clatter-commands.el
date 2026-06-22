@@ -176,7 +176,11 @@ INPUT is the full string including the leading /."
       (let ((nick (car (split-string args))))
         (if (and nick (> (length nick) 0))
             (clatter-send conn (clatter-irc-whois nick))
-          (clatter-insert-error (current-buffer) "Usage: /whois nick"))))))
+          ;; Default to our own nick if no nick is given
+          (setq nick (clatter-connection-nick conn))
+          (if (and nick (> (length nick) 0))
+              (clatter-send conn (clatter-irc-whois nick))
+            (clatter-insert-error (current-buffer) "Usage: /whois [nick]")))))))
 
 (defun clatter-cmd-away (args)
   "Set away using ARGS as the message.  Empty ARGS clears away."
