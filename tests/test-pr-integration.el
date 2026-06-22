@@ -184,6 +184,17 @@
         (should-not (clatter-ui--on-numeric conn "221" '("testnick" "+iw")))
       (clatter-test-cleanup))))
 
+;; --- #46: Stricter nick/mention matching ---
+
+(ert-deftest clatter-test-mention-p-functions ()
+  (should (clatter-nick-match-p "alcor" "alcor: hello!"))
+  (should (clatter-nick-match-p "alcor`" "alcor`: hello!"))
+  (should (clatter-nick-match-p "alcor^" "hello alcor^!"))
+  (should (clatter-nick-match-p "alcor" "like <alcor> said"))
+  (should (clatter-nick-match-p "alcor`" "like <alcor`> said"))
+  (should-not (clatter-nick-match-p "alcor" "metalcore music"))
+  (should (clatter-substring-match-p "alcor" "metalcore music")))
+
 (provide 'test-pr-integration)
 
 ;;; test-pr-integration.el ends here
