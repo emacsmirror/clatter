@@ -270,11 +270,12 @@ Removes oldest messages from the appropriate end of the buffer."
 
 (defun clatter--find-message-by-msgid (buffer msgid)
   "Find message text and sender in BUFFER by MSGID.
-Returns (sender . text) or nil."
+Returns ((sender . text) . msg-type) or nil."
   (let ((found (clatter--find-message-position-by-msgid buffer msgid)))
     (when found
-      (cons (get-text-property found 'clatter-sender)
-            (get-text-property found 'clatter-text)))))
+      (cons (cons (get-text-property found 'clatter-sender)
+                  (get-text-property found 'clatter-text))
+            (get-text-property found 'clatter-msg-type)))))
 
 (defun clatter-jump-to-msgid (buffer msgid)
   "Jump to BUFFER message identified by MSGID."
@@ -329,13 +330,18 @@ SERVER-TIME overrides the current time for the timestamp."
                        (add-face-text-property 0 (length hl-text) 'clatter-mention nil hl-text))))
          ;; Prepend reply context if available
          (reply-line (when reply-context
-                       (let* ((ref-sender (car reply-context))
-                              (ref-text (cdr reply-context))
+                       (let* ((ref-sender-text (car reply-context))
+                              (ref-sender (car ref-sender-text))
+                              (ref-text (cdr ref-sender-text))
+                              (ref-msg-type (cdr reply-context))
                               (ref-text-formatted (clatter-format-parse ref-text))
                               (preview (if (> (length ref-text-formatted) 60)
                                            (concat (substring ref-text-formatted 0 57) "...")
                                          ref-text-formatted))
-                              (front (propertize (format "↳ %s: " ref-sender) 'face 'shadow)))
+                              (front-nick (if (eq 'action ref-msg-type)
+                                              (format "* %s" ref-sender)
+                                            (format "%s:" ref-sender)))
+                              (front (propertize (format "↳ %s " front-nick) 'face 'shadow)))
                          (add-face-text-property 0 (length preview) 'shadow nil preview)
                          (let ((context (concat front preview "\n"))
                                (map (make-sparse-keymap))
