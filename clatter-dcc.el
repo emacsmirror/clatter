@@ -17,7 +17,6 @@
 (declare-function clatter-send "clatter-connection")
 (declare-function clatter-get-connection "clatter-connection")
 (declare-function clatter--watchdog "clatter-connection")
-(declare-function clatter-connection-network-id "clatter-connection")
 (declare-function clatter-irc-privmsg "clatter-protocol")
 (declare-function clatter--current-conn "clatter-commands")
 

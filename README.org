@@ -273,10 +273,35 @@ Most modern Emacs builds include GnuTLS support by default.
 
 ** Installation
 
+*** From MELPA
+
+clatter is available on [[https://melpa.org/#/clatter][MELPA]].  Add MELPA to your package archives if
+you have not already:
+
+#+BEGIN_SRC emacs-lisp
+(require 'package)
+(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
+#+END_SRC
+
+Then install with:
+
+#+BEGIN_SRC
+M-x package-install RET clatter RET
+#+END_SRC
+
+Or, with =use-package=:
+
+#+BEGIN_SRC emacs-lisp
+(use-package clatter
+  :ensure t)
+#+END_SRC
+
+*** Manual (from source)
+
 Clone this repository and add to your =load-path=:
 
 #+BEGIN_SRC emacs-lisp
-(add-to-list 'load-path "~/SourceCode/clatter.el")
+(add-to-list 'load-path "~/path/to/clatter.el")
 (require 'clatter)
 (clatter-setup)
 #+END_SRC

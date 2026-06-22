@@ -19,7 +19,6 @@
 (require 'clatter-connection)
 
 (declare-function clatter-cmd-close "clatter-commands")
-(declare-function clatter-disconnect "clatter-connection")
 (declare-function clatter-completion-setup "clatter-completion")
 
 ;; --- Buffer naming ---
