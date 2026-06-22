@@ -282,8 +282,7 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
               ((and clatter-notify-on-mention
                     (or is-reply-to-me
                         (and my-nick
-                             (string-match-p (regexp-quote (downcase my-nick))
-                                             text-lower))))
+                             (clatter-mention-p (downcase my-nick) text-lower))))
                'mention)
               ;; Keyword
               ((and clatter-notify-on-keyword
