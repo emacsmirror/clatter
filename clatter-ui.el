@@ -84,6 +84,10 @@
   "Face for muted reactions."
   :group 'clatted)
 
+(defface clatter-bot-label-face
+  '((t :foreground "#ffcb6b"))
+  "Face used for the bot label."
+  :group 'clatter)
 ;; --- Nick color palette (hash-based consistent colors) ---
 
 (defcustom clatter-nick-colors
@@ -106,6 +110,13 @@
   (if (string-equal nick (clatter-connection-nick conn))
       'clatter-my-nick
     (list :foreground (clatter-nick-color nick) :weight 'bold)))
+
+;; --- Bot label ---
+
+(defcustom clatter-bot-label "[bot]"
+  "Label added to messages to messages sent by bots."
+  :type 'string
+  :group 'clatter)
 
 ;; --- Message insertion ---
 
@@ -307,7 +318,7 @@ SERVER-TIME overrides the current time for the timestamp."
                           (clatter--find-message-by-msgid buffer reply-to)))
          (hl-text (clatter-hl-format-text text buffer conn))
          (bot-tag (if (get-text-property 0 'clatter-bot sender)
-                      (propertize "[bot]" 'face 'clatter-notice) ""))
+                      (propertize clatter-bot-label 'face 'clatter-bot-label-face) ""))
          (bot-tag-delim (if (string-empty-p bot-tag) "" " "))
          (nick-col (cond
                     ((eq 'action msg-type)
@@ -359,10 +370,9 @@ SERVER-TIME overrides the current time for the timestamp."
          (formatted
           (cond
            ((eq 'action msg-type)
-            (concat (or reply-line "") nick-col " "
-                    (propertize (concat sender " " bot-tag bot-tag-delim)
-                                'face 'clatter-action)
-                    msg-text))
+            (let ((formatted-sender (concat sender " " bot-tag bot-tag-delim)))
+              (add-face-text-property 0 (length formatted-sender) 'clatter-action nil formatted-sender)
+              (concat (or reply-line "") nick-col " " formatted-sender msg-text)))
            (t
             (concat (or reply-line "") nick-col " " msg-text))))
          (props (list 'clatter-msg-type msg-type
