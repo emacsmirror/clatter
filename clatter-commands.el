@@ -164,10 +164,29 @@ INPUT is the full string including the leading /."
   "Handle /mode [MODE] [ARGS]."
   (let ((conn (clatter--require-conn)))
     (when conn
-      (let ((target (or clatter--target "")))
-        (if (> (length args) 0)
-            (clatter-send conn (format "MODE %s %s" target args))
-          (clatter-send conn (clatter-irc-mode target)))))))
+      (let* ((my-nick (clatter-connection-nick conn))
+             (target clatter--target)
+             (no-target (string-empty-p target))
+             (other-target (not no-target))
+             (server-target (and other-target (string= target "*server*"))))
+        (cond
+         (server-target
+          ;; If we're in a server buffer, assume TARGET is MY-NICK if no arguments
+          ;; are given.
+          ;; If arguments are given, assume TARGET is the first argument, with
+          ;; the MODE arguments being the remaining trailing arguments.
+          (let (mode-args)
+            (if (string-empty-p args)
+                (setq target my-nick)
+              (let* ((parts (split-string args " " t))
+                     (head (car parts))
+                     (rest (cdr parts)))
+                (setq target head)
+                (setq mode-args rest)))
+            (clatter-send conn (apply #'clatter-irc-mode target mode-args))))
+         (other-target
+          ;; If we're in a channel buffer, assume TARGET is the channel.
+          (clatter-send conn (apply #'clatter-irc-mode target (string-split args " " t)))))))))
 
 (defun clatter-cmd-whois (args)
   "Request WHOIS for the NICK in ARGS."
