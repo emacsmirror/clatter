@@ -918,7 +918,8 @@ Emacs requires `set-window-margins' on the window, not just
                      (buffer-local-value 'clatter--nick-list buf))
         (clatter-insert-system buf
                                (if away-msg
-                                   (format "%s is away: %s" sender-nick away-msg)
+                                   (format "%s is away: %s"
+                                           sender-nick (clatter-format-parse away-msg))
                                  (format "%s is back" sender-nick))
                                (append (if is-muted '(away muted) '(away))
                                        (and (not is-muted)
