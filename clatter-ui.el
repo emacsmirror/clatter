@@ -855,7 +855,7 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-nick-remove buf kicked)
       (clatter-insert-system buf
                              (format "%s was kicked by %s%s" kicked sender-nick
-                                     (if reason (format " (%s)" reason) ""))
+                                     (if reason (format " (%s)" (clatter-format-parse reason)) ""))
                              (append (if is-muted '(kick muted) '(kick))
                                      (and (not is-muted)
                                           (not (string-equal-ignore-case my-nick sender-nick))
