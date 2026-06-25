@@ -1150,11 +1150,19 @@ COMMAND is the numeric reply code, PARAMS its parameters on CONN."
   (pcase command
     ;; --- Informational numerics ---
     ((or "001" "002" "003" "004" "242" "251" "252" "253" "254" "255"
-         "265" "266" "305" "306")
+         "265" "266")
      (let* ((network (clatter-connection-network-id conn))
             (buf (clatter-get-server-buffer network)))
        (when buf
          (clatter-insert-system buf (string-join (cdr params) " ")))))
+    ((or "305" "306") ;  RPL_UNAWAY, RPL_NOWAWAY
+     (let* ((network (clatter-connection-network-id conn))
+            (buf (clatter-get-server-buffer network))
+            (msg (string-join (cdr params) " ")))
+       (when buf
+         (clatter-insert-system buf msg))
+       (dolist (buf (clatter-channel-buffers network))
+         (clatter-insert-system buf msg))))
     ;; --- MODE numerics ---
     ("221"   ; RPL_UMODEIS
      (let* ((network (clatter-connection-network-id conn))
