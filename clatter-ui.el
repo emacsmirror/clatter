@@ -789,7 +789,7 @@ Emacs requires `set-window-margins' on the window, not just
         (clatter-nick-remove buf sender-nick)
         (clatter-insert-system buf
                                (format "%s has quit%s" sender-nick
-                                       (if message (format " (%s)" message) ""))
+                                       (if message (format " (%s)" (clatter-format-parse message)) ""))
                                (append (if is-muted '(quit muted) '(quit))
                                        (and (not is-muted)
                                             (not (string-equal-ignore-case my-nick sender-nick))
