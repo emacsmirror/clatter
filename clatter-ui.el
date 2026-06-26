@@ -602,16 +602,6 @@ If the input contains multiple lines and exceeds
                             clatter-track-in-buffer-mode-line)
                    (list 'clatter-track-mode-line-item))
                  (list " " 'mode-line-end-spaces)))
-    ;; Key bindings for input
-    (let ((map (make-sparse-keymap)))
-      (set-keymap-parent map clatter-mode-map)
-      (define-key map (kbd "RET") #'clatter-send-input)
-      (define-key map (kbd "TAB") #'completion-at-point)
-      (define-key map (kbd "M-p") #'clatter-set-prev-input)
-      (define-key map (kbd "M-n") #'clatter-set-next-input)
-      (define-key map (kbd "C-a") #'clatter-bol)
-      (define-key map [home] #'clatter-bol)
-      (use-local-map map))
     ;; Ensure window margins are synced for timestamp display
     (add-hook 'window-configuration-change-hook
               #'clatter--sync-window-margins nil t)
@@ -1384,7 +1374,14 @@ Requires the server to support the message-tags capability."
   (add-hook 'clatter-ctcp-reply-hook #'clatter-ui--on-ctcp-reply)
   (add-hook 'clatter-numeric-hook #'clatter-ui--on-numeric)
   (add-hook 'clatter-typing-hook #'clatter-ui--on-typing)
-  (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc))
+  (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc)
+  ;; Key bindings for input
+  (define-key clatter-mode-map (kbd "RET") #'clatter-send-input)
+  (define-key clatter-mode-map (kbd "TAB") #'completion-at-point)
+  (define-key clatter-mode-map (kbd "M-p") #'clatter-set-prev-input)
+  (define-key clatter-mode-map (kbd "M-n") #'clatter-set-next-input)
+  (define-key clatter-mode-map (kbd "C-a") #'clatter-bol)
+  (define-key clatter-mode-map [home] #'clatter-bol))
 
 ;; Auto-init when loaded
 (clatter-ui-init)
