@@ -232,7 +232,7 @@ SERVER-RESPONSE is base64-encoded server message."
          (nick (clatter-connection-nick conn))
          (username (or (plist-get config :username) nick))
          (realname (or (plist-get config :realname) clatter-default-realname))
-         (password (plist-get config :password)))
+         (password (clatter-get-password (clatter-connection-network-id conn) config)))
     (clatter--watchdog "SEND-REG %s nick=%s user=%s"
                        (clatter-connection-network-id conn) nick username)
     ;; Server password (PASS) must come before NICK/USER
