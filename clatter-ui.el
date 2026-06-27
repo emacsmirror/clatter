@@ -197,13 +197,16 @@ append at the bottom like a traditional IRC client."
               (insert text "\n")
               (when ts-str
                 (let ((ov (make-overlay start (1+ start) nil t)))
-                  (overlay-put ov 'before-string
-                               ;; Apply 'default face after 'clatter-timestamp to ensure that no
-                               ;; unwanted face properties are inherited from text which might be
-                               ;; at point.
-                               (propertize " " 'display
-                                           `((margin right-margin)
-                                             ,(propertize ts-str 'face '(clatter-timestamp default)))))
+                  (when clatter-timestamp-side
+                    (overlay-put ov 'before-string
+                                 ;; Apply 'default face after 'clatter-timestamp to ensure that no
+                                 ;; unwanted face properties are inherited from text which might be
+                                 ;; at point.
+                                 (propertize " " 'display
+                                             `((margin ,(if (eq clatter-timestamp-side 'left)
+                                                            'left-margin
+                                                          'right-margin))
+                                               ,(propertize ts-str 'face '(clatter-timestamp default))))))
                   (overlay-put ov 'clatter-timestamp t)
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)
@@ -621,13 +624,17 @@ If the input contains multiple lines and exceeds
 (defun clatter--sync-window-margins ()
   "Ensure the current window has correct margins for timestamp display.
 Emacs requires `set-window-margins' on the window, not just
-`right-margin-width' on the buffer."
+the buffer margin-width variables."
   (when (and (derived-mode-p 'clatter-mode)
              (eq (current-buffer) (window-buffer)))
     (let ((ts-width (1+ (length (format-time-string clatter-timestamp-format)))))
-      (set-window-margins (selected-window)
-                          (car (window-margins))
-                          ts-width))))
+      (pcase clatter-timestamp-side
+        ('left
+         (set-window-margins (selected-window) ts-width 0))
+        ('right
+         (set-window-margins (selected-window) 0 ts-width))
+        (_
+         (set-window-margins (selected-window) 0 0))))))
 
 ;; --- Nick completion ---
 

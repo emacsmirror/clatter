@@ -6,6 +6,45 @@
 (require 'clatter-ui)
 (require 'clatter-nicklist)
 
+;; --- Timestamp margins ---
+
+(ert-deftest clatter-test-timestamp-side-left-margin ()
+  "Left timestamp side configures the left margin."
+  (let ((clatter-timestamp-side 'left)
+        (clatter-timestamp-format "%H:%M"))
+    (with-temp-buffer
+      (clatter-mode)
+      (should (= left-margin-width 6))
+      (should (= right-margin-width 0)))))
+
+(ert-deftest clatter-test-timestamp-side-right-margin ()
+  "Right timestamp side configures the right margin."
+  (let ((clatter-timestamp-side 'right)
+        (clatter-timestamp-format "%H:%M"))
+    (with-temp-buffer
+      (clatter-mode)
+      (should (= left-margin-width 0))
+      (should (= right-margin-width 6)))))
+
+(ert-deftest clatter-test-timestamp-side-sync-clears-stale-window-margin ()
+  "Window margin sync clears the previous timestamp side."
+  (let ((clatter-timestamp-format "%H:%M"))
+    (with-temp-buffer
+      (clatter-mode)
+      (switch-to-buffer (current-buffer))
+      (let ((clatter-timestamp-side 'right))
+        (clatter--sync-window-margins)
+        (should-not (car (window-margins)))
+        (should (= (cdr (window-margins)) 6)))
+      (let ((clatter-timestamp-side 'left))
+        (clatter--sync-window-margins)
+        (should (= (car (window-margins)) 6))
+        (should-not (cdr (window-margins))))
+      (let ((clatter-timestamp-side nil))
+        (clatter--sync-window-margins)
+        (should-not (car (window-margins)))
+        (should-not (cdr (window-margins)))))))
+
 ;; --- Channel-at-point detection ---
 
 (ert-deftest clatter-test-channel-at-point-hash ()
