@@ -160,8 +160,9 @@ With prefix arg (=C-u=), =/search= prompts for a network filter.
 | =/ignore pattern=      | Ignore nick or hostmask (supports * and ?)                    |
 | =/unignore pattern=    | Remove from ignore list                                       |
 | =/ignore=              | Show current ignore list                                      |
-| =/fool nick=           | Mute a nick (hide their messages); no arg shows the list      |
-| =/unfool nick=         | Stop muting a nick                                            |
+| =/fool nick=           | Dim a nick (hide their messages); no arg shows the list       |
+| =/unfool nick=         | Stop dimming a nick                                           |
+| =/toggle-fools=        | Toggle visibility of all fool messages                        |
 | =/pal nick=            | Highlight a nick as a pal; no arg shows the list              |
 | =/unpal nick=          | Remove a nick from the pals list                              |
 
@@ -200,9 +201,12 @@ Two complementary nick lists:
 - *Pals* (friends) are highlighted with the =clatter-pal= face wherever
   their nick appears, so you never miss them: =/pal nick= adds one,
   =/unpal nick= removes one, and =/pals= shows the list.
-- *Fools* are muted: their messages are hidden, much like the ignore
-  list but tracked separately so they are easy to toggle. =/fool nick=
-  mutes a nick, =/unfool nick= un-mutes, and =/fools= shows the list.
+- *Fools* are dimmed with the =clatter-fool= face and hidden by default,
+  much like the ignore list but tracked separately. =/fool nick= adds
+  one, =/unfool nick= removes one, and =/fools= shows the list.
+  Use =/toggle-fools= (or =M-x clatter-toggle-fools=) to show or hide
+  fool messages globally. When visible, fool messages remain dimmed.
+  Set =clatter-fools-visible= to =t= to start with fools shown.
 
 Both match case-insensitively and can be preset via the =clatter-pals=
 and =clatter-fools= variables.
@@ -216,7 +220,7 @@ and =clatter-fools= variables.
 | =/raw line=       | Send raw IRC protocol line    |
 | =/monitor + nick= | Add nick to MONITOR watchlist |
 | =/monitor - nick= | Remove nick from MONITOR      |
-| =/whois nick=     | Query WHOIS information       |
+| =/whois [nick]=    | Query WHOIS information (defaults to your own nick) |
 
 ** DCC File Transfer
 
@@ -277,6 +281,8 @@ Changes are persisted via =customize-save-variable= to your
 | =clatter-max-line-length=   | =400=          | Max IRC line length before splitting                                                                                                                                                 |
 | =clatter-message-order=     | =newest-first= | =newest-first= keeps the input at the top with new messages below it; =oldest-first= is a conventional layout with the input line anchored at the *bottom* and messages scrolling above it |
 | =clatter-move-to-prompt=    | =t=            | Typing anywhere jumps to the input line first (like ERC's =erc-move-to-prompt=)                                                                                                        |
+| =clatter-timestamp-side=    | ='right=       | Which margin to display timestamps: =left=, =right=, or =nil= to disable margin timestamps                                                                                              |
+| =clatter-fools-visible=     | =nil=          | When non-nil, show fool messages instead of hiding them (they remain dimmed)                                                                                                          |
 
 ** Message Suppression
 

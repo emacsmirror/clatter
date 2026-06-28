@@ -38,7 +38,7 @@ Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Co
 *** Interface
 - Buffer-per-channel (native Emacs buffers)
 - Newest-at-top message layout (input prompt at top, messages below)
-- =auth-source= integration for passwords (.authinfo.gpg, pass, etc.)
+- =auth-source= integration for passwords (.authinfo.gpg, pass, etc.), including server password (PASS)
 - Multi-network support
 - Non-destructive message suppression, per channel (JOIN, PART, QUIT, NICK, etc.) toggled at runtime with =/suppress= and =/unsuppress=; hidden messages are kept and can be revealed again
 - Buffer truncation (configurable =clatter-buffer-max-lines=, default 10000)
@@ -84,6 +84,8 @@ Example:
 - Glob wildcards (=*= and =?=) supported, case-insensitive
 - Filtering is UI-only; ignored messages still appear in logs
 - Toggle from action menu with =I=
+- Fools (dimmed senders) can be toggled visible/hidden independently with =/toggle-fools=
+- Configurable mention matching via =clatter-mention-p-function= (whole-word or substring)
 
 *** URL Title Preview (clatter-url-preview)
 - Async URL title fetching (displays inline as system message)
@@ -224,6 +226,8 @@ Example:
 - Filter by regex (=f= or =/=)
 - Join channel with =RET=, refresh with =g=
 - Handles large networks efficiently
+- Preserves server-side filter on refresh
+- Parses mIRC formatting codes in channel topics
 
 *** Server Buffer & WHOIS
 - MOTD displayed in server buffer on connect
@@ -462,6 +466,7 @@ With Evil, =SPC= only triggers the leader in *normal state*. When you press =i= 
 | =clatter-dcc.el=        | DCC file transfer (XDCC receive, resume)       |
 | =clatter-socks.el=      | SOCKS5 / Tor proxy support                     |
 | =clatter-smart.el=      | Adaptive / smart message filtering             |
+| =clatter-pals.el=       | Pals, fools, ignore lists, visibility          |
 
 ** Companion Packages
 
@@ -481,10 +486,15 @@ Thanks to the people who have contributed to clatter.el:
 
 - [[https://github.com/fmqa][fmqa]] (F. Magsarian), non-destructive message
   suppression, smart noise filtering, input history, additional WHOIS
-  numerics, buffer cleanup hooks, reaction overlay fix, and assorted
-  nicklist fixes
+  numerics, buffer cleanup hooks, reaction overlay fix, assorted
+  nicklist fixes, consolidated CTCP ACTION/NOTICE handling with
+  server-time, stricter mention matching, improved /mode for server
+  buffers, error numeric display (401/403/404), AWAY status broadcast,
+  formatting in part/quit/kick/away messages, channel list robustness,
+  and keymap consolidation
 - [[https://github.com/trevarj][trevarj]] (Trevor Arjeski), SOCKS5 / Tor
-  proxy support
+  proxy support, auth-source server password lookup, left-side
+  timestamp support, message filling, and fool visibility toggling
 
 ** License
 
