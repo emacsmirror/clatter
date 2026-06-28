@@ -14,6 +14,7 @@
 
 (require 'cl-lib)
 (require 'clatter-model)
+(require 'clatter-format)
 
 ;; --- State ---
 
@@ -32,7 +33,11 @@ Each entry is (CHANNEL USERS TOPIC).")
 (defun clatter-list--on-entry (conn channel users topic)
   "Accumulate a LIST entry: CHANNEL with USERS and TOPIC on CONN."
   (when (eq conn clatter-list--conn)
-    (push (list channel (string-to-number users) topic)
+    (push (list channel
+                (string-to-number users)
+                (condition-case nil
+                    (clatter-format-parse topic)
+                  (error topic)))
           clatter-list--entries)))
 
 (defun clatter-list--on-end (conn)
