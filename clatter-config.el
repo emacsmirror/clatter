@@ -110,6 +110,15 @@ See `format-time-string' for format specifiers."
   :type 'string
   :group 'clatter)
 
+(defcustom clatter-timestamp-side 'right
+  "Side of the window where message timestamps are displayed.
+The value `left' uses the left margin, `right' uses the right margin,
+and nil disables margin timestamps."
+  :type '(choice (const :tag "Left margin" left)
+                 (const :tag "Right margin" right)
+                 (const :tag "Disabled" nil))
+  :group 'clatter)
+
 (defcustom clatter-fill-column 80
   "Column at which to wrap messages in channel buffers."
   :type 'integer

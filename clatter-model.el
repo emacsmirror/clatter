@@ -327,9 +327,10 @@ Installed buffer-locally on `kill-buffer-hook' by `clatter-mode'."
   (setq-local word-wrap t)
   (setq-local truncate-lines nil)
   (setq-local wrap-prefix (make-string (1+ clatter-nick-column-width) ?\s))
-  ;; Right margin for timestamps (always on first visual line)
+  ;; Margin for timestamps (always on first visual line)
   (let ((ts-width (1+ (length (format-time-string clatter-timestamp-format)))))
-    (setq-local right-margin-width ts-width))
+    (setq-local left-margin-width (if (eq clatter-timestamp-side 'left) ts-width 0))
+    (setq-local right-margin-width (if (eq clatter-timestamp-side 'right) ts-width 0)))
   ;; Per-buffer setup (kept here, not on a global hook, so that loading
   ;; clatter has no side effects).
   (add-hook 'kill-buffer-hook #'clatter--on-kill-buffer nil t)
