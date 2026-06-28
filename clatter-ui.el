@@ -1172,14 +1172,22 @@ COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
   "Handle informational and MODE-related numerics for UI.
 COMMAND is the numeric reply code, PARAMS its parameters on CONN."
   (pcase command
-    ;; -- Informational numerics ---
+    ;; --- Informational numerics ---
     ((or "001" "002" "003" "004" "242" "251" "252" "253" "254" "255"
-         "265" "266" "305" "306")
+         "265" "266")
      (let* ((network (clatter-connection-network-id conn))
             (buf (clatter-get-server-buffer network)))
        (when buf
          (clatter-insert-system buf (string-join (cdr params) " ")))))
-    ;; -- MODE numerics ---
+    ((or "305" "306") ;  RPL_UNAWAY, RPL_NOWAWAY
+     (let* ((network (clatter-connection-network-id conn))
+            (buf (clatter-get-server-buffer network))
+            (msg (string-join (cdr params) " ")))
+       (when buf
+         (clatter-insert-system buf msg))
+       (dolist (buf (clatter-channel-buffers network))
+         (clatter-insert-system buf msg))))
+    ;; --- MODE numerics ---
     ("221"   ; RPL_UMODEIS
      (let* ((network (clatter-connection-network-id conn))
             (buf (clatter-get-server-buffer network))
@@ -1202,7 +1210,11 @@ COMMAND is the numeric reply code, PARAMS its parameters on CONN."
        (when buf
          (clatter-insert-system
           buf (format "%s was created at %s"
-                      channel (format-time-string "%F %T" ctime))))))))
+                      channel (format-time-string "%F %T" ctime))))))
+    ((or "401" "403"  ; ERR_NOSUCHNICK, ERR_NOSUCHCHANNEL
+         "404")       ; ERR_CANNOTSENDTOCHAN
+     (let ((buf (current-buffer)))
+       (clatter-insert-system buf (string-join (reverse (cdr params)) " "))))))
 
 ;; --- Channel preview on hover (eldoc) ---
 
