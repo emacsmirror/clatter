@@ -84,6 +84,10 @@
   "Face for muted reactions."
   :group 'clatted)
 
+(defface clatter-bot-label-face
+  '((t :foreground "#ffcb6b"))
+  "Face used for the bot label."
+  :group 'clatter)
 ;; --- Nick color palette (hash-based consistent colors) ---
 
 (defcustom clatter-nick-colors
@@ -106,6 +110,13 @@
   (if (string-equal nick (clatter-connection-nick conn))
       'clatter-my-nick
     (list :foreground (clatter-nick-color nick) :weight 'bold)))
+
+;; --- Bot label ---
+
+(defcustom clatter-bot-label "[bot]"
+  "Label added to messages to messages sent by bots."
+  :type 'string
+  :group 'clatter)
 
 ;; --- Message insertion ---
 
@@ -270,11 +281,12 @@ Removes oldest messages from the appropriate end of the buffer."
 
 (defun clatter--find-message-by-msgid (buffer msgid)
   "Find message text and sender in BUFFER by MSGID.
-Returns (sender . text) or nil."
+Returns ((sender . text) . msg-type) or nil."
   (let ((found (clatter--find-message-position-by-msgid buffer msgid)))
     (when found
-      (cons (get-text-property found 'clatter-sender)
-            (get-text-property found 'clatter-text)))))
+      (cons (cons (get-text-property found 'clatter-sender)
+                  (get-text-property found 'clatter-text))
+            (get-text-property found 'clatter-msg-type)))))
 
 (defun clatter-jump-to-msgid (buffer msgid)
   "Jump to BUFFER message identified by MSGID."
@@ -287,8 +299,8 @@ Returns (sender . text) or nil."
 Bound around history/batch playback so a reconnect backlog does not scan
 and fetch images for hundreds of old messages at once.")
 
-(defun clatter-insert-privmsg (buffer sender text conn &optional server-time invisible)
-  "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
+(defun clatter-insert-generic (msg-type buffer sender text conn &optional server-time invisible)
+  "Insert a MSG-TYPE from SENDER with TEXT into BUFFER using CONN context.
 SERVER-TIME overrides the current time for the timestamp."
   (let* ((nick-face (clatter-hl-nick-face sender conn))
          (my-nick (clatter-connection-nick conn))
@@ -306,21 +318,41 @@ SERVER-TIME overrides the current time for the timestamp."
                           (clatter--find-message-by-msgid buffer reply-to)))
          (hl-text (clatter-hl-format-text text buffer conn))
          (bot-tag (if (get-text-property 0 'clatter-bot sender)
-                     (propertize "[bot]" 'face 'clatter-notice) ""))
-         (nick-col (clatter--format-nick-column
-                    (concat (format "<%s>" sender) bot-tag) nick-face sender))
-         (msg-text (if is-mention
-                       (propertize hl-text 'face 'clatter-mention)
-                     hl-text))
+                      (propertize clatter-bot-label 'face 'clatter-bot-label-face) ""))
+         (bot-tag-delim (if (string-empty-p bot-tag) "" " "))
+         (nick-col (cond
+                    ((eq 'action msg-type)
+                     (clatter--format-nick-column "*" 'clatter-action sender))
+                    ((eq 'notice msg-type)
+                     (clatter--format-nick-column
+                      (concat (format "-%s-" sender) bot-tag-delim bot-tag)
+                      'clatter-notice))
+                    (t
+                     (clatter--format-nick-column
+                      (concat (format "<%s>" sender) bot-tag-delim bot-tag)
+                      nick-face sender))))
+         (msg-text (prog1 hl-text
+                     (cond
+                      ((eq 'action msg-type)
+                       (add-face-text-property 0 (length hl-text) 'clatter-action nil hl-text))
+                      ((eq 'notice msg-type)
+                       (add-face-text-property 0 (length hl-text) 'clatter-notice nil hl-text)))
+                     (when is-mention
+                       (add-face-text-property 0 (length hl-text) 'clatter-mention nil hl-text))))
          ;; Prepend reply context if available
          (reply-line (when reply-context
-                       (let* ((ref-sender (car reply-context))
-                              (ref-text (cdr reply-context))
+                       (let* ((ref-sender-text (car reply-context))
+                              (ref-sender (car ref-sender-text))
+                              (ref-text (cdr ref-sender-text))
+                              (ref-msg-type (cdr reply-context))
                               (ref-text-formatted (clatter-format-parse ref-text))
                               (preview (if (> (length ref-text-formatted) 60)
                                            (concat (substring ref-text-formatted 0 57) "...")
                                          ref-text-formatted))
-                              (front (propertize (format "↳ %s: " ref-sender) 'face 'shadow)))
+                              (front-nick (if (eq 'action ref-msg-type)
+                                              (format "* %s" ref-sender)
+                                            (format "%s:" ref-sender)))
+                              (front (propertize (format "↳ %s " front-nick) 'face 'shadow)))
                          (add-face-text-property 0 (length preview) 'shadow nil preview)
                          (let ((context (concat front preview "\n"))
                                (map (make-sparse-keymap))
@@ -335,8 +367,15 @@ SERVER-TIME overrides the current time for the timestamp."
                                                       'help-echo "Click or press RET to jump to reply context")
                                                 context)
                            context))))
-         (formatted (concat (or reply-line "") nick-col " " msg-text))
-         (props (list 'clatter-msg-type 'privmsg
+         (formatted
+          (cond
+           ((eq 'action msg-type)
+            (let ((formatted-sender (concat sender " " bot-tag bot-tag-delim)))
+              (add-face-text-property 0 (length formatted-sender) 'clatter-action nil formatted-sender)
+              (concat (or reply-line "") nick-col " " formatted-sender msg-text)))
+           (t
+            (concat (or reply-line "") nick-col " " msg-text))))
+         (props (list 'clatter-msg-type msg-type
                       'clatter-sender sender
                       'clatter-text text)))
     (when msgid
@@ -351,31 +390,18 @@ SERVER-TIME overrides the current time for the timestamp."
     (unless (eq buffer (current-buffer))
       (clatter-mark-activity buffer is-mention))))
 
-(defun clatter-insert-action (buffer sender text conn &optional invisible)
-  "Insert a /me ACTION from SENDER with TEXT into BUFFER."
-  (let* ((hl-text (clatter-hl-format-text text buffer conn))
-         (prefix (clatter--format-nick-column "*" 'clatter-action sender)))
-    (add-face-text-property 0 (length hl-text) 'clatter-action nil hl-text)
-    (let ((formatted (concat prefix " "
-                             (propertize (concat sender " ") 'face 'clatter-action)
-                             hl-text)))
-      (clatter--insert-message buffer formatted nil
-                               (list 'clatter-msg-type 'action
-                                     'clatter-sender sender
-                                     'clatter-text text)
-                               nil
-                               invisible)
-      (unless (eq buffer (current-buffer))
-        (clatter-mark-activity buffer nil)))))
+(defun clatter-insert-privmsg (buffer sender text conn &optional server-time invisible)
+  "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
+SERVER-TIME overrides the current time for the timestamp."
+  (clatter-insert-generic 'privmsg buffer sender text conn server-time invisible))
 
-(defun clatter-insert-notice (buffer sender text conn &optional invisible)
+(defun clatter-insert-action (buffer sender text conn &optional server-time invisible)
+  "Insert a /me ACTION from SENDER with TEXT into BUFFER."
+  (clatter-insert-generic 'action buffer sender text conn server-time invisible))
+
+(defun clatter-insert-notice (buffer sender text conn &optional server-time invisible)
   "Insert a NOTICE from SENDER with TEXT into BUFFER."
-  (let ((hl-text (clatter-hl-format-text text buffer conn))
-        (prefix (clatter--format-nick-column
-                 (format "-%s-" sender) 'clatter-notice)))
-    (add-face-text-property 0 (length hl-text) 'clatter-notice nil hl-text)
-    (let ((formatted (concat prefix (propertize " " 'face 'clatter-notice) hl-text)))
-      (clatter--insert-message buffer formatted nil nil nil invisible))))
+  (clatter-insert-generic 'notice buffer sender text conn server-time invisible))
 
 (defun clatter-insert-system (buffer text &optional invisible)
   "Insert a system message TEXT into BUFFER."
@@ -680,7 +706,7 @@ Emacs requires `set-window-margins' on the window, not just
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
       (clatter-smart-put buf sender-nick 'privmsg))))
 
-(defun clatter-ui--on-action (conn sender target text _server-time)
+(defun clatter-ui--on-action (conn sender target text server-time)
   "Display SENDER's ACTION TEXT to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
@@ -691,7 +717,7 @@ Emacs requires `set-window-margins' on the window, not just
          (buf (clatter-get-or-create-buffer network buf-target))
          (is-muted (clatter-muted-p sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-action buf sender-nick text conn (and is-muted 'muted))
+    (clatter-insert-action buf sender-nick text conn server-time (and is-muted 'muted))
     (when (and (not is-muted)
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (not (string-equal-ignore-case my-nick sender-nick))
@@ -699,7 +725,7 @@ Emacs requires `set-window-margins' on the window, not just
                (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
       (clatter-smart-put buf sender-nick 'privmsg))))
 
-(defun clatter-ui--on-notice (conn sender target text)
+(defun clatter-ui--on-notice (conn sender target text server-time)
   "Display SENDER's NOTICE TEXT to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
@@ -709,7 +735,7 @@ Emacs requires `set-window-margins' on the window, not just
                   (clatter-get-or-create-buffer network "*server*" 'server)))
          (is-muted (clatter-muted-p sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-notice buf sender-nick text conn (and is-muted 'muted))
+    (clatter-insert-notice buf sender-nick text conn server-time (and is-muted 'muted))
     (when (and (not is-muted)
                (not (string-equal-ignore-case my-nick sender-nick))
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))

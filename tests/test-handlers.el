@@ -21,6 +21,59 @@
             (should (equal (nth 3 args) "hello everyone"))))
       (clatter-test-cleanup))))
 
+(ert-deftest clatter-test-dispatch-privmsg-time-tag ()
+  "PRIVMSG with @time tag dispatches to clatter-privmsg-hook."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let* ((time "2011-10-19T16:40:51.620Z")
+               (time-tag (concat "@time=" time))
+               (calls (clatter-test-capture-hook
+                       clatter-privmsg-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              (concat time-tag " :alice!~a@host PRIVMSG #emacs :hello everyone"))))))
+          (should (= (length calls) 1))
+          (let ((args (car calls)))
+            (should (equal (nth 1 args) '("alice" "~a" "host")))
+            (should (equal (nth 2 args) "#emacs"))
+            (should (equal (nth 3 args) "hello everyone"))
+            (should (equal (nth 4 args) (clatter-parse-iso8601 time)))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-privmsg-ctcp-action ()
+  "PRIVMSG CTCP ACTION dispatches to clatter-action-hook."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let ((calls (clatter-test-capture-hook clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              ":alice!~a@host PRIVMSG #emacs :ACTION greets everyone")))))
+          (should (= (length calls) 1))
+          (let ((args (car calls)))
+            (should (equal (nth 1 args) '("alice" "~a" "host")))
+            (should (equal (nth 2 args) "#emacs"))
+            (should (equal (nth 3 args) "greets everyone"))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-privmsg-ctcp-action-time-tag ()
+  "PRIVMSG CTCP ACTION with @time tag dispatches to clatter-action-hook."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let* ((time "2011-10-19T16:40:51.620Z")
+               (time-tag (concat "@time=" time))
+               (calls (clatter-test-capture-hook
+                       clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              (concat time-tag " :alice!~a@host PRIVMSG #emacs :ACTION greets everyone"))))))
+          (should (= (length calls) 1))
+          (let ((args (car calls)))
+            (should (equal (nth 1 args) '("alice" "~a" "host")))
+            (should (equal (nth 2 args) "#emacs"))
+            (should (equal (nth 3 args) "greets everyone"))
+            (should (equal (nth 4 args) (clatter-parse-iso8601 time)))))
+      (clatter-test-cleanup))))
+
 (ert-deftest clatter-test-dispatch-privmsg-dm ()
   "PRIVMSG to our nick dispatches with our nick as target."
   (let ((conn (clatter-test-make-connection "testnet" "testnick")))
@@ -29,6 +82,20 @@
                        (clatter-dispatch-message
                         conn (clatter-test-parse
                               ":bob!~b@host PRIVMSG testnick :hey there")))))
+          (should (= (length calls) 1))
+          (let ((args (car calls)))
+            (should (equal (nth 1 args) '("bob" "~b" "host")))
+            (should (equal (nth 2 args) "testnick"))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-privmsg-dm-ctcp-action ()
+  "PRIVMSG CTCP ACTION to our nick dispatches with our nick as target."
+  (let ((conn (clatter-test-make-connection "testnet" "testnick")))
+    (unwind-protect
+        (let ((calls (clatter-test-capture-hook clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              ":bob!~b@host PRIVMSG testnick :ACTION waves")))))
           (should (= (length calls) 1))
           (let ((args (car calls)))
             (should (equal (nth 1 args) '("bob" "~b" "host")))
@@ -219,6 +286,20 @@
             (should (get-text-property 0 'clatter-bot sender))))
       (clatter-test-cleanup))))
 
+(ert-deftest clatter-test-dispatch-bot-tag-ctcp-action ()
+  "PRIVMSG CTCP ACTION with bot tag marks sender."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let ((calls (clatter-test-capture-hook clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              "@bot :botuser!~b@host PRIVMSG #emacs :ACTION automated msg")))))
+          (should (= (length calls) 1))
+          (let* ((args (car calls))
+                 (sender (clatter-prefix-nick (nth 1 args))))
+            (should (get-text-property 0 'clatter-bot sender))))
+      (clatter-test-cleanup))))
+
 ;; --- Reply/Thread tags ---
 
 (ert-deftest clatter-test-dispatch-reply-tag ()
@@ -229,6 +310,21 @@
                        (clatter-dispatch-message
                         conn (clatter-test-parse
                               "@+draft/reply=msg999;msgid=msg1000 :alice!~a@host PRIVMSG #emacs :replying")))))
+          (should (= (length calls) 1))
+          (let* ((args (car calls))
+                 (text (nth 3 args)))
+            (should (equal (get-text-property 0 'clatter-reply-to text) "msg999"))
+            (should (equal (get-text-property 0 'clatter-msgid text) "msg1000"))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-reply-tag-ctcp-action ()
+  "PRIVMSG CTCP ACTION with draft/reply tag attaches reply-to property."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let ((calls (clatter-test-capture-hook clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              "@+draft/reply=msg999;msgid=msg1000 :alice!~a@host PRIVMSG #emacs :ACTION replying")))))
           (should (= (length calls) 1))
           (let* ((args (car calls))
                  (text (nth 3 args)))
@@ -278,6 +374,28 @@
                        (clatter-dispatch-message
                         conn (clatter-test-parse
                               ":alice!~a@host PRIVMSG @#emacs :ops only message")))))
+          (should (= (length calls) 1))
+          (let* ((args (car calls))
+                 (target (nth 2 args))
+                 (text (nth 3 args)))
+            ;; Target should be #emacs (prefix stripped)
+            (should (equal target "#emacs"))
+            ;; Text should contain [ops] prefix
+            (should (string-match-p "\\[ops\\]" text))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-dispatch-statusmsg-ctcp-action ()
+  "PRIVMSG CTCP ACTION to @#channel strips prefix and adds label."
+  (let ((conn (clatter-test-make-connection)))
+    ;; Set up ISUPPORT with STATUSMSG
+    (let ((isup (make-hash-table :test 'equal)))
+      (puthash "STATUSMSG" "@+" isup)
+      (setf (clatter-connection-isupport conn) isup))
+    (unwind-protect
+        (let ((calls (clatter-test-capture-hook clatter-action-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              ":alice!~a@host PRIVMSG @#emacs :ACTION ops only action")))))
           (should (= (length calls) 1))
           (let* ((args (car calls))
                  (target (nth 2 args))
