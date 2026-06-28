@@ -129,6 +129,12 @@
 (defvar-local clatter--messages-marker nil
   "Marker for the start of the message area (below the input line).")
 
+(defun clatter--fool-invisibility-p (invisible)
+  "Return non-nil if INVISIBLE includes the fool visibility category."
+  (or (eq invisible 'clatter-fool)
+      (and (listp invisible)
+           (memq 'clatter-fool invisible))))
+
 (defun clatter--format-nick-column (nick-str &optional face sender)
   "Right-align NICK-STR within `clatter-nick-column-width'.
 Apply FACE and set clatter-sender property to SENDER if provided."
@@ -233,6 +239,8 @@ append at the bottom like a traditional IRC client."
                                          'line-prefix ""))
               (when msg-props
                 (add-text-properties start (point) msg-props))
+              (when (clatter--fool-invisibility-p invisible)
+                (add-face-text-property start (point) 'clatter-fool))
               (put-text-property start (point) 'invisible invisible)))
           (clatter--maybe-truncate buffer)
           ;; Auto-scroll in oldest-first mode
@@ -622,6 +630,8 @@ If the input contains multiple lines and exceeds
     ;; Use a fresh copy so per-buffer /suppress and /unsuppress edits
     ;; never mutate the shared clatter-suppress-messages list.
     (setq buffer-invisibility-spec (copy-sequence clatter-suppress-messages))
+    (unless clatter-fools-visible
+      (add-to-invisibility-spec 'clatter-fool))
     (clatter--setup-prompt buffer)
     ;; Add mode-line.  Optionally include the activity crumbs (see
     ;; `clatter-track-in-buffer-mode-line') so they are visible while
@@ -697,9 +707,10 @@ the buffer margin-width variables."
                          target
                        (if (string-equal target my-nick) sender-nick target)))
          (buf (clatter-get-or-create-buffer network buf-target))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-privmsg buf sender-nick text conn server-time (and is-muted 'muted))
+    (clatter-insert-privmsg buf sender-nick text conn server-time invisible)
     (when (and (not is-muted)
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (not (string-equal-ignore-case my-nick sender-nick))
@@ -716,9 +727,10 @@ the buffer margin-width variables."
                          target
                        (if (string-equal target my-nick) sender-nick target)))
          (buf (clatter-get-or-create-buffer network buf-target))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-action buf sender-nick text conn server-time (and is-muted 'muted))
+    (clatter-insert-action buf sender-nick text conn server-time invisible)
     (when (and (not is-muted)
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (not (string-equal-ignore-case my-nick sender-nick))
@@ -734,9 +746,10 @@ the buffer margin-width variables."
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server)))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-notice buf sender-nick text conn server-time (and is-muted 'muted))
+    (clatter-insert-notice buf sender-nick text conn server-time invisible)
     (when (and (not is-muted)
                (not (string-equal-ignore-case my-nick sender-nick))
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
@@ -752,13 +765,14 @@ the buffer margin-width variables."
          (buf (or (clatter-get-buffer network channel)
                   (clatter-get-server-buffer network)
                   (clatter-get-or-create-buffer network "*server*" 'server)))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-insert-system buf (format "%s invites %s to join %s"
                                        sender-nick
                                        (if (string-equal nick my-nick) "you" nick)
                                        channel)
-                           (if is-muted '(invite muted) 'invite))))
+                           (if invisible (list 'invite invisible) 'invite))))
 
 (defun clatter-ui--on-join (conn sender channel _account realname)
   "Show SENDER joining CHANNEL on CONN, noting REALNAME when present."
@@ -766,7 +780,8 @@ the buffer margin-width variables."
          (my-nick (clatter-connection-nick conn))
          (sender-nick (clatter-prefix-nick sender))
          (buf (clatter-get-or-create-buffer network channel))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
     (clatter-nick-add buf sender-nick)
     (when (string-equal sender-nick my-nick)
@@ -776,7 +791,7 @@ the buffer margin-width variables."
                            (if (and realname (not (string= sender-nick realname)))
                                (format "%s (%s) has joined %s" sender-nick (clatter-format-parse realname) channel)
                              (format "%s has joined %s" sender-nick channel))
-                           (append (if is-muted '(join muted) '(join))
+                           (append (if invisible (list 'join invisible) '(join))
                                    (and (not is-muted)
                                         (not (string-equal-ignore-case my-nick sender-nick))
                                         (listp (buffer-local-value 'buffer-invisibility-spec buf))
@@ -790,13 +805,14 @@ the buffer margin-width variables."
          (my-nick (clatter-connection-nick conn))
          (sender-nick (clatter-prefix-nick sender))
          (buf (clatter-get-buffer network channel))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (when buf
       (clatter-nick-remove buf sender-nick)
       (clatter-insert-system buf
                              (format "%s has left %s%s" sender-nick channel
                                      (if message (format " (%s)" (clatter-format-parse message)) ""))
-                             (append (if is-muted '(part muted) '(part))
+                             (append (if invisible (list 'part invisible) '(part))
                                      (and (not is-muted)
                                           (not (string-equal-ignore-case my-nick sender-nick))
                                           (listp (buffer-local-value 'buffer-invisibility-spec buf))
@@ -809,7 +825,8 @@ the buffer margin-width variables."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (sender-nick (clatter-prefix-nick sender))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase sender-nick)
                      (buffer-local-value 'clatter--nick-list buf))
@@ -817,7 +834,7 @@ the buffer margin-width variables."
         (clatter-insert-system buf
                                (format "%s has quit%s" sender-nick
                                        (if message (format " (%s)" (clatter-format-parse message)) ""))
-                               (append (if is-muted '(quit muted) '(quit))
+                               (append (if invisible (list 'quit invisible) '(quit))
                                        (and (not is-muted)
                                             (not (string-equal-ignore-case my-nick sender-nick))
                                             (listp (buffer-local-value 'buffer-invisibility-spec buf))
@@ -830,7 +847,8 @@ the buffer margin-width variables."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (old-nick (clatter-prefix-nick sender))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase old-nick)
                      (buffer-local-value 'clatter--nick-list buf))
@@ -838,7 +856,7 @@ the buffer margin-width variables."
         (clatter-insert-system buf
                                (format "%s is now known as %s"
                                        old-nick new-nick)
-                               (append (if is-muted '(nick muted) '(nick))
+                               (append (if invisible (list 'nick invisible) '(nick))
                                        (and (not is-muted)
                                             (not (string-equal-ignore-case my-nick new-nick))
                                             (listp (buffer-local-value 'buffer-invisibility-spec buf))
@@ -877,13 +895,14 @@ the buffer margin-width variables."
          (my-nick (clatter-connection-nick conn))
          (sender-nick (clatter-prefix-nick sender))
          (buf (clatter-get-buffer network channel))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (when buf
       (clatter-nick-remove buf kicked)
       (clatter-insert-system buf
                              (format "%s was kicked by %s%s" kicked sender-nick
                                      (if reason (format " (%s)" (clatter-format-parse reason)) ""))
-                             (append (if is-muted '(kick muted) '(kick))
+                             (append (if invisible (list 'kick invisible) '(kick))
                                      (and (not is-muted)
                                           (not (string-equal-ignore-case my-nick sender-nick))
                                           (listp (buffer-local-value 'buffer-invisibility-spec buf))
@@ -939,7 +958,8 @@ the buffer margin-width variables."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (sender-nick (clatter-prefix-nick sender))
-         (is-muted (clatter-muted-p sender network)))
+         (is-muted (clatter-muted-p sender network))
+         (invisible (clatter-sender-invisibility sender network)))
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase sender-nick)
                      (buffer-local-value 'clatter--nick-list buf))
@@ -948,7 +968,7 @@ the buffer margin-width variables."
                                    (format "%s is away: %s"
                                            sender-nick (clatter-format-parse away-msg))
                                  (format "%s is back" sender-nick))
-                               (append (if is-muted '(away muted) '(away))
+                               (append (if invisible (list 'away invisible) '(away))
                                        (and (not is-muted)
                                             (not (string-equal-ignore-case my-nick sender-nick))
                                             (listp (buffer-local-value 'buffer-invisibility-spec buf))
@@ -963,12 +983,13 @@ the buffer margin-width variables."
          (setter-nick (clatter-prefix-nick setter))
          (buf (or (clatter-get-buffer network target)
                   (clatter-get-server-buffer network)))
-         (is-muted (clatter-muted-p setter network)))
+         (is-muted (clatter-muted-p setter network))
+         (invisible (clatter-sender-invisibility setter network)))
     (when buf
       (clatter-insert-system buf
                              (format "%s sets mode %s"
                                      setter-nick (string-join modes " "))
-                             (append (if is-muted '(mode muted) '(mode))
+                             (append (if invisible (list 'mode invisible) '(mode))
                                      (and (not is-muted)
                                           (not (string-equal-ignore-case my-nick setter-nick))
                                           (listp (buffer-local-value 'buffer-invisibility-spec buf))
