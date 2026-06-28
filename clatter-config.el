@@ -400,22 +400,32 @@ Uses CLATTER-MENTION-P-FUNCTION."
   (let ((config (cdr (assoc network clatter-networks #'equal))))
     (or (plist-get config key) default)))
 
-(defun clatter-get-password (network)
+(defun clatter-get-password (network &optional config)
   "Get the password for NETWORK.
-Checks the network config first, then auth-source."
-  (let* ((config (cdr (assoc network clatter-networks #'equal)))
+Checks CONFIG or the network config first, then auth-source."
+  (let* ((config (or config (cdr (assoc network clatter-networks #'equal))))
          (server (plist-get config :server))
+         (port (let ((value (or (plist-get config :port)
+                                clatter-default-port)))
+                 (if (integerp value) (number-to-string value) value)))
          (nick (or (plist-get config :nick) clatter-default-nick))
          (explicit-pw (plist-get config :password)))
     (cond
      (explicit-pw explicit-pw)
      (clatter-use-auth-source
-      (let ((found (car (auth-source-search :host server
-                                            :user nick
-                                            :max 1))))
-        (when found
-          (let ((secret (plist-get found :secret)))
-            (if (functionp secret) (funcall secret) secret)))))
+      (catch 'password
+        (dolist (host (delete-dups (delq nil (list network server))))
+          (dolist (port-value (delete-dups (delq nil (list port "irc"))))
+            (let ((found (car (auth-source-search :host host
+                                                  :port port-value
+                                                  :user nick
+                                                  :require '(:secret)
+                                                  :max 1))))
+              (when found
+                (let ((secret (plist-get found :secret)))
+                  (throw 'password
+                         (if (functionp secret) (funcall secret) secret)))))))
+        nil))
      (t nil))))
 
 (defun clatter-proxy-config (config)
