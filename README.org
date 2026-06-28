@@ -377,9 +377,9 @@ crumbs in the mode line of all clatter buffers.
                            (file-name-concat
                             user-emacs-directory "clatter" "irc.pem"))))
         clatter-networks)
+  :custom
   ;; Show activity crumbs in all clatter buffers, not just the active one.
   (clatter-track-in-buffer-mode-line t)
-  :custom
   ;; (clatter-timestamp-format "%H:%M:%S")
   (clatter-networks
    '(("Libera.Chat"
