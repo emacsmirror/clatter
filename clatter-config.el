@@ -15,7 +15,7 @@
 
 ;; --- Version ---
 
-(defvar clatter-version
+(defconst clatter-version
   (or (package-get-version) "devel")
   "clatter.el version.")
 
