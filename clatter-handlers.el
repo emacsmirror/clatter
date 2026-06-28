@@ -767,7 +767,8 @@ MSGID, SERVER-TIME, IS-BOT, REPLY-TO, and IS-REPLY-TO-ME."
       ((guard self-p) nil)
       ("VERSION"
        (clatter-send conn (clatter-irc-ctcp-reply
-                           sender-nick "VERSION" "clatter.el 0.1.0"))
+                           sender-nick "VERSION"
+                           (format "clatter.el %s" clatter-version)))
        (run-hook-with-args 'clatter-system-hook conn
                            (format "CTCP VERSION from %s" sender-nick)))
       ("PING"
