@@ -792,7 +792,7 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-nick-remove buf sender-nick)
       (clatter-insert-system buf
                              (format "%s has left %s%s" sender-nick channel
-                                     (if message (format " (%s)" message) ""))
+                                     (if message (format " (%s)" (clatter-format-parse message)) ""))
                              (append (if is-muted '(part muted) '(part))
                                      (and (not is-muted)
                                           (not (string-equal-ignore-case my-nick sender-nick))
@@ -813,7 +813,7 @@ Emacs requires `set-window-margins' on the window, not just
         (clatter-nick-remove buf sender-nick)
         (clatter-insert-system buf
                                (format "%s has quit%s" sender-nick
-                                       (if message (format " (%s)" message) ""))
+                                       (if message (format " (%s)" (clatter-format-parse message)) ""))
                                (append (if is-muted '(quit muted) '(quit))
                                        (and (not is-muted)
                                             (not (string-equal-ignore-case my-nick sender-nick))
@@ -879,7 +879,7 @@ Emacs requires `set-window-margins' on the window, not just
       (clatter-nick-remove buf kicked)
       (clatter-insert-system buf
                              (format "%s was kicked by %s%s" kicked sender-nick
-                                     (if reason (format " (%s)" reason) ""))
+                                     (if reason (format " (%s)" (clatter-format-parse reason)) ""))
                              (append (if is-muted '(kick muted) '(kick))
                                      (and (not is-muted)
                                           (not (string-equal-ignore-case my-nick sender-nick))
@@ -942,7 +942,8 @@ Emacs requires `set-window-margins' on the window, not just
                      (buffer-local-value 'clatter--nick-list buf))
         (clatter-insert-system buf
                                (if away-msg
-                                   (format "%s is away: %s" sender-nick away-msg)
+                                   (format "%s is away: %s"
+                                           sender-nick (clatter-format-parse away-msg))
                                  (format "%s is back" sender-nick))
                                (append (if is-muted '(away muted) '(away))
                                        (and (not is-muted)
