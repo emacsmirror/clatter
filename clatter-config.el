@@ -360,6 +360,39 @@ Supports glob wildcards (* and ?)."
 (defconst clatter-max-irc-line-length 510
   "Maximum IRC line length (512 minus CR LF).")
 
+;; --- Matching functions ---
+
+(defvar clatter-nick-syntax-table
+  (let ((table (copy-syntax-table))
+        (extra-nick-chars '(?\[ ?\] ?{ ?} ?| ?- ?\\ ?` ?^ ?_)))
+    (dolist (char extra-nick-chars)
+      (modify-syntax-entry char "w" table))
+    table)
+  "Syntax table for IRC nicknames.")
+
+(defun clatter-nick-match-p (nick text)
+  "Return t if NICK is in TEXT; nil otherwise."
+  (with-syntax-table clatter-nick-syntax-table
+    (string-match-p (rx bow (literal nick) eow) text)))
+
+(defun clatter-substring-match-p (substring text)
+  "Return t if SUBSTRING is in TEXT; nil otherwise."
+  (string-match-p (regexp-quote substring) text))
+
+(defcustom clatter-mention-p-function #'clatter-nick-match-p
+  "The function used to check for mentions.
+The function must accept two arguments: the needle (nick/substring)
+and the haystack (text), and return non-nil if a match is found."
+  :type '(choice (const :tag "Whole Word/Nick Match" clatter-nick-match-p)
+                 (const :tag "Substring Match" clatter-substring-match-p)
+                 (function :tag "Other Function"))
+  :group 'clatter)
+
+(defun clatter-mention-p (nick text)
+  "Return t if NICK is in TEXT; nil otherwise.
+Uses CLATTER-MENTION-P-FUNCTION."
+  (funcall clatter-mention-p-function nick text))
+
 ;; --- Helper functions ---
 
 (defun clatter-network-get (network key &optional default)

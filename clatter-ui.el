@@ -309,9 +309,7 @@ SERVER-TIME overrides the current time for the timestamp."
                           ;; do not highlight self-mentions
                           (not (string-equal-ignore-case sender my-nick))
                           (or is-reply-to-me
-                              (string-match-p
-                               (regexp-quote (downcase my-nick))
-                               (downcase text)))))
+                              (clatter-mention-p (downcase my-nick) (downcase text)))))
          (reply-to (get-text-property 0 'clatter-reply-to text))
          (msgid (get-text-property 0 'clatter-msgid text))
          (reply-context (when reply-to
