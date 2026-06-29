@@ -128,10 +128,10 @@ DIRECTION is :in or :out."
              (params (clatter-message-params parsed)))
         (when (or tags prefix)
           (insert "         "
-                  (when tags
-                    (propertize (format "tags:%S " tags) 'face 'clatter-rawlog-tag))
-                  (when prefix
-                    (propertize (format "from:%s " prefix) 'face 'clatter-rawlog-prefix))
+                  (if tags
+                    (propertize (format "tags:%S " tags) 'face 'clatter-rawlog-tag) "")
+                  (if prefix
+                    (propertize (format "from:%s " prefix) 'face 'clatter-rawlog-prefix) "")
                   (propertize (format "cmd:%s " command) 'face 'clatter-rawlog-command)
                   (format "params:%S" params)
                   "\n"))))))
