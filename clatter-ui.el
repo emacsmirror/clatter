@@ -1237,7 +1237,8 @@ COMMAND is the numeric reply code, PARAMS its parameters on CONN."
           buf (format "%s was created at %s"
                       channel (format-time-string "%F %T" ctime))))))
     ((or "401" "403"  ; ERR_NOSUCHNICK, ERR_NOSUCHCHANNEL
-         "404")       ; ERR_CANNOTSENDTOCHAN
+         "404"        ; ERR_CANNOTSENDTOCHAN
+         "475")       ; ERR_BADCHANNELKEY
      (let ((buf (current-buffer)))
        (clatter-insert-system buf (string-join (reverse (cdr params)) " "))))))
 
