@@ -1065,8 +1065,9 @@ the buffer margin-width variables."
 (defun clatter-ui--on-disconnect (network-id event)
   "Handle disconnect EVENT for UI: show message in all NETWORK-ID buffers."
   (dolist (buf (clatter-all-buffers network-id))
-    (clatter-insert-error buf
-                           (format "Disconnected: %s" (string-trim event)))))
+    (when (buffer-live-p buf)
+      (clatter-insert-error buf
+                            (format "Disconnected: %s" (string-trim event))))))
 
 (defun clatter-ui--on-reconnect (network-id delay attempt)
   "Handle reconnect scheduling (DELAY, ATTEMPT) for UI in NETWORK-ID buffers."
