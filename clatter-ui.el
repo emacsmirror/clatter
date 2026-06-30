@@ -143,7 +143,9 @@ Apply FACE and set clatter-sender property to SENDER if provided."
          (pad (max 0 (- width nick-len)))
          (padded (concat (make-string pad ?\s)
                          (if face
-                             (propertize nick-str 'face face)
+                             (let ((formatted (copy-sequence nick-str)))
+                               (add-face-text-property 0 (length formatted) face nil formatted)
+                               formatted)
                            nick-str))))
     (when sender
       (setq padded (propertize padded 'clatter-sender sender)))
