@@ -138,27 +138,36 @@ Accumulates partial lines and dispatches complete ones."
          (conn (clatter-get-connection network-id)))
     (when conn
       (setf (clatter-connection-last-activity conn) (float-time))
-      (let ((data (concat (string-to-multibyte
-                          (or (clatter-connection-recv-buffer conn) ""))
-                         (string-to-multibyte string))))
-        ;; Process complete lines (terminated by CRLF or LF).  Strip any
-        ;; number of trailing CRs: the builtin network transport auto
-        ;; converts CRLF to LF, but the external subprocess pipe does not,
-        ;; so the raw CR must be removed here to avoid trailing ^M.
-        (while (string-match "\r*\n" data)
-          (let ((line (substring data 0 (match-beginning 0))))
-            (setq data (substring data (match-end 0)))
-            (when (> (length line) 0)
-              ;; Log raw lines to watchdog during registration
-              (unless (eq (clatter-connection-state conn) :connected)
-                (clatter--watchdog "RECV %s %s" network-id
-                                   (substring line 0 (min (length line) 200))))
-              (clatter--debug "<< %s" line)
-              (run-hook-with-args 'clatter-rawlog-incoming-hook
-                                  network-id line)
-              (clatter--handle-line conn line))))
-        ;; Save any remaining partial data
-        (setf (clatter-connection-recv-buffer conn) data)))))
+      ;; Immediately append incoming chunks to the connection buffer.
+      (setf (clatter-connection-recv-buffer conn)
+            (concat (string-to-multibyte (or (clatter-connection-recv-buffer conn) ""))
+                    (string-to-multibyte string)))
+      ;; Guard against process filter re-entrancy using a busy flag
+      (unless (process-get proc :clatter-filter-busy)
+        (process-put proc :clatter-filter-busy t)
+        (unwind-protect
+            ;; Process complete lines (terminated by CRLF or LF).  Strip any
+            ;; number of trailing CRs: the builtin network transport auto
+            ;; converts CRLF to LF, but the external subprocess pipe does not,
+            ;; so the raw CR must be removed here to avoid trailing ^M.
+            (while (string-match "\r*\n" (or (clatter-connection-recv-buffer conn) ""))
+              (let* ((data (clatter-connection-recv-buffer conn))
+                     (line (substring data 0 (match-beginning 0))))
+                ;; Slice the buffer *before* handling the line.
+                ;; If a re-entrant call happens during `clatter--handle-line`,
+                ;; it will safely append to this remainder.
+                (setf (clatter-connection-recv-buffer conn) (substring data (match-end 0)))
+                (when (> (length line) 0)
+                  ;; Log raw lines to watchdog during registration
+                  (unless (eq (clatter-connection-state conn) :connected)
+                    (clatter--watchdog "RECV %s %s" network-id
+                                       (substring line 0 (min (length line) 200))))
+                  (clatter--debug "<< %s" line)
+                  (run-hook-with-args 'clatter-rawlog-incoming-hook
+                                      network-id line)
+                  (clatter--handle-line conn line))))
+          ;; Always release the lock, even if an error is thrown during parsing
+          (process-put proc :clatter-filter-busy nil))))))
 
 (defun clatter--handle-line (conn line)
   "Parse and handle a single IRC LINE on CONN.
