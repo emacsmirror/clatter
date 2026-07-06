@@ -39,14 +39,22 @@ Strips =value suffixes (e.g., \"sasl=PLAIN,EXTERNAL\" -> \"sasl\")."
   "Handle a CAP response on CONN with PARAMS.
 Dispatches based on subcommand (LS, ACK, NAK)."
   (let* ((subcommand (nth 1 params))
-         ;; Handle multi-line CAP LS (second param is *)
-         (is-multiline (string= (nth 1 params) "*"))
+         ;; Handle multi-line CAP LS (third param is *)
+         (is-multiline (string= (nth 2 params) "*"))
          (caps-string (if is-multiline (nth 3 params) (nth 2 params))))
     (cond
      ;; CAP LS - server lists available capabilities
-     ((or (string-equal subcommand "LS")
-          (and is-multiline (string-equal (nth 2 params) "LS")))
-      (clatter-cap--handle-ls conn caps-string))
+     ((string-equal subcommand "LS")
+      ;; Accumulate capabilities
+      (push caps-string (clatter-connection-cap-available conn))
+      ;; If there is no multiline indicator, the capability list is complete, so
+      ;; concatenate the capability lines together and handle the result as if
+      ;; it was a single CAP * LS <CAPS-STRING> line.
+      (unless is-multiline
+        (setq caps-string
+              (string-join (clatter-connection-cap-available conn) " "))
+        (setf (clatter-connection-cap-available conn) nil)
+        (clatter-cap--handle-ls conn caps-string)))
 
      ;; CAP ACK - capabilities accepted
      ((string-equal subcommand "ACK")
