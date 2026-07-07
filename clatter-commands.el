@@ -166,7 +166,7 @@ INPUT is the full string including the leading /."
     (when conn
       (let* ((my-nick (clatter-connection-nick conn))
              (target clatter--target)
-             (no-target (string-empty-p target))
+             (no-target (seq-empty-p target))
              (other-target (not no-target))
              (server-target (and other-target (string= target "*server*"))))
         (cond
