@@ -13,6 +13,14 @@
 
 (require 'auth-source)
 
+;; --- Version ---
+
+(defconst clatter-version
+  (or (package-get-version) "devel")
+  "clatter.el version.")
+
+;; --- Customization ---
+
 (defgroup clatter nil
   "An IRCv3-compliant IRC client for Emacs."
   :group 'communication

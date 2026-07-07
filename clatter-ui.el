@@ -1181,7 +1181,8 @@ Renders a visual separator before and after history playback."
   "Display CTCP reply from SENDER on CONN in the current clatter buffer.
 COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
   (let* ((network (clatter-connection-network-id conn))
-         (buf (or (clatter-get-buffer network sender)
+         (sender-nick (clatter-prefix-nick sender))
+         (buf (or (clatter-get-buffer network sender-nick)
                   (when-let* ((win (selected-window)))
                     (with-current-buffer (window-buffer win)
                       (when (derived-mode-p 'clatter-mode)
@@ -1189,7 +1190,7 @@ COMMAND is the CTCP type (VERSION, PING, etc.), REPLY-TEXT is the response."
                   (clatter-get-server-buffer network))))
     (when (and buf (buffer-live-p buf))
       (clatter-insert-system
-       buf (format "CTCP %s reply from %s: %s" command sender reply-text)))))
+       buf (format "CTCP %s reply from %s: %s" command sender-nick reply-text)))))
 
 ;; --- Handlers for other numerics ---
 
