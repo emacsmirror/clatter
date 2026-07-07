@@ -39,14 +39,29 @@ Strips =value suffixes (e.g., \"sasl=PLAIN,EXTERNAL\" -> \"sasl\")."
   "Handle a CAP response on CONN with PARAMS.
 Dispatches based on subcommand (LS, ACK, NAK)."
   (let* ((subcommand (nth 1 params))
-         ;; Handle multi-line CAP LS (second param is *)
-         (is-multiline (string= (nth 1 params) "*"))
+         ;; Handle multi-line CAP LS (third param is *)
+         (is-multiline (string= (nth 2 params) "*"))
          (caps-string (if is-multiline (nth 3 params) (nth 2 params))))
+    (unless (seq-empty-p caps-string)
+      (setq caps-string (string-trim caps-string)))
     (cond
      ;; CAP LS - server lists available capabilities
-     ((or (string-equal subcommand "LS")
-          (and is-multiline (string-equal (nth 2 params) "LS")))
-      (clatter-cap--handle-ls conn caps-string))
+     ((string-equal subcommand "LS")
+      ;; Accumulate capabilities
+      (setf (clatter-connection-cap-string conn)
+            (cond
+             ((and (seq-empty-p (clatter-connection-cap-string conn))
+                   (not (seq-empty-p caps-string)))
+              caps-string)
+             ((and (not (seq-empty-p (clatter-connection-cap-string conn)))
+                   (not (seq-empty-p caps-string)))
+              (concat (clatter-connection-cap-string conn) " " caps-string))
+             (t (clatter-connection-cap-string conn))))
+      ;; If there is no multiline indicator, the capability list is complete, so
+      ;; handle the result as if it was a single CAP * LS <CAPS-STRING> line.
+      (unless (or is-multiline
+                  (seq-empty-p (clatter-connection-cap-string conn)))
+        (clatter-cap--handle-ls conn (clatter-connection-cap-string conn))))
 
      ;; CAP ACK - capabilities accepted
      ((string-equal subcommand "ACK")

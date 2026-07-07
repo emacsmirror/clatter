@@ -32,6 +32,7 @@
   cap-negotiating      ; t during CAP negotiation
   cap-enabled          ; list of enabled capability strings
   cap-available        ; list of capabilities advertised by the server
+  cap-string           ; capability string sent by the server
   ;; IRCv3 batch/label tracking
   active-batches       ; hash-table: batch-id -> plist
   pending-labels       ; hash-table: label -> callback
@@ -389,6 +390,7 @@ ARGS are keyword arguments that override `clatter-networks' config:
       (setf (clatter-connection-desired-nick conn) nick)
       (setf (clatter-connection-recv-buffer conn) (decode-coding-string "" 'utf-8))
       (setf (clatter-connection-cap-enabled conn) nil)
+      (setf (clatter-connection-cap-string conn) nil)
       (setf (clatter-connection-sasl-state conn) nil)
       (setf (clatter-connection-ping-sent-time conn) nil)
       (clrhash (clatter-connection-active-batches conn))
