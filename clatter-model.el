@@ -317,7 +317,10 @@ Installed buffer-locally on `kill-buffer-hook' by `clatter-mode'."
          (boundp 'clatter--network)
          clatter--network
          (fboundp 'clatter-disconnect))
-    (clatter-disconnect clatter--network))))
+    (clatter-disconnect clatter--network)
+    (when (and (fboundp 'clatter-remove-buffer)
+               (boundp 'clatter--target))
+     (clatter-remove-buffer clatter--network clatter--target)))))
 
 (define-derived-mode clatter-mode fundamental-mode "CLatter"
   "Major mode for clatter.el IRC buffers."
