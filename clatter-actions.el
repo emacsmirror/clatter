@@ -44,6 +44,15 @@
   (when-let* ((msgid (get-text-property (point) 'clatter-msgid))
               (begin (previous-single-property-change (point) 'clatter-msgid))
               (end (next-single-property-change (point) 'clatter-msgid)))
+    ;; Ensure the message marker is outside the boundaries of the region,
+    ;; so that newly-added messages are not included in the selection.
+    (when (and (= begin clatter--messages-marker)
+               (< begin (point-max)))
+      (setq begin (1+ begin)))
+    (when (and (= end clatter--messages-marker)
+               (> end (point-min)))
+      (setq end (1- end)))
+    ;; Create the region and convert it into a secondary selection.
     (prog1 msgid
       (save-mark-and-excursion
         (goto-char begin)
