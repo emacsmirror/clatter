@@ -116,6 +116,8 @@ PARAMS format: (target timestamp=TIMESTAMP)"
              clatter-read-marker-auto-send
              (derived-mode-p 'clatter-mode)
              clatter--target
+             clatter--buffer-type
+             (not (eq 'server clatter--buffer-type))
              clatter--network
              clatter-read-marker--local-msgid)
     (let ((conn (clatter-get-connection clatter--network)))
@@ -141,7 +143,9 @@ Uses SERVER-TIME as a proxy when msgid tags are not available."
 (defun clatter-read-marker-mark ()
   "Manually mark the current position as read on the server."
   (interactive)
-  (when (and clatter--network clatter--target)
+  (when (and clatter--network clatter--target
+             clatter--buffer-type
+             (not (eq 'server clatter--buffer-type)))
     (let ((conn (clatter-get-connection clatter--network)))
       (if (and conn (clatter-read-marker--available-p conn))
           (progn
@@ -153,7 +157,9 @@ Uses SERVER-TIME as a proxy when msgid tags are not available."
 (defun clatter-read-marker-query ()
   "Query the server for the current read position."
   (interactive)
-  (when (and clatter--network clatter--target)
+  (when (and clatter--network clatter--target
+             clatter--buffer-type
+             (not (eq 'server clatter--buffer-type)))
     (let ((conn (clatter-get-connection clatter--network)))
       (if (and conn (clatter-read-marker--available-p conn))
           (clatter-read-marker--send conn clatter--target)
