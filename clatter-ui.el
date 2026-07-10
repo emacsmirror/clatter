@@ -200,8 +200,7 @@ append at the bottom like a traditional IRC client."
       (let ((pre-input (and clatter--input-marker
                             (marker-position clatter--input-marker))))
         (let ((inhibit-read-only t)
-              (buffer-undo-list t)
-              (oldest-first (eq clatter-message-order 'oldest-first)))
+              (buffer-undo-list t))
           (save-excursion
             ;; Messages always insert at the messages marker.  Its position
             ;; and insertion type (set in `clatter--setup-prompt') determine
