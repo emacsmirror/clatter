@@ -244,13 +244,7 @@ append at the bottom like a traditional IRC client."
               (when (clatter--fool-invisibility-p invisible)
                 (add-face-text-property start (point) 'clatter-fool))
               (put-text-property start (point) 'invisible invisible)))
-          (clatter--maybe-truncate buffer)
-          ;; Auto-scroll in oldest-first mode
-          (when oldest-first
-            (dolist (win (get-buffer-window-list buffer nil t))
-              (with-selected-window win
-                (goto-char (point-max))
-                (recenter -1)))))
+          (clatter--maybe-truncate buffer))
         ;; Messages inserted above the input (bottom/oldest-first prompt)
         ;; push the input down.  Without this, the user's pending undo
         ;; entries would still point at the old positions and an undo
