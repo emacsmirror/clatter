@@ -118,6 +118,15 @@ See `format-time-string' for format specifiers."
   :type 'string
   :group 'clatter)
 
+(defcustom clatter-timestamp-only-if-changed nil
+  "Display a message timestamp only when its formatted value changes.
+
+When non-nil, consecutive messages in the same buffer whose timestamps
+format to the same string share a single displayed timestamp.  The
+comparison is local to each Clatter buffer."
+  :type 'boolean
+  :group 'clatter)
+
 (defcustom clatter-timestamp-side 'right
   "Side of the window where message timestamps are displayed.
 The value `left' uses the left margin, `right' uses the right margin,
