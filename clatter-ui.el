@@ -397,6 +397,9 @@ SERVER-TIME overrides the current time for the timestamp."
                       'clatter-text text)))
     (when msgid
       (setq props (plist-put props 'clatter-msgid msgid)))
+    (when server-time
+      (setq props (plist-put props 'clatter-server-time server-time)))
+    (clatter-note-message-time buffer server-time)
     (clatter--insert-message buffer formatted nil props server-time invisible)
     (when (and (not clatter--suppress-image-scan)
                (fboundp 'clatter-image--scan-message))
@@ -404,8 +407,10 @@ SERVER-TIME overrides the current time for the timestamp."
                           (copy-marker
                            (or clatter--messages-marker (point-max))))))
         (clatter-image--scan-message text buffer img-marker)))
-    (unless (eq buffer (current-buffer))
-      (clatter-mark-activity buffer is-mention))))
+    (if (eq buffer (current-buffer))
+        (clatter-read-state-record-buffer buffer)
+      (unless (clatter-read-state-message-read-p buffer server-time)
+        (clatter-mark-activity buffer is-mention)))))
 
 (defun clatter-insert-privmsg (buffer sender text conn &optional server-time invisible)
   "Insert a PRIVMSG from SENDER with TEXT into BUFFER using CONN context.
