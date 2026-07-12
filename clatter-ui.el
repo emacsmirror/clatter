@@ -755,6 +755,32 @@ editing at the prompt, like `erc-move-to-prompt'.  Controlled by
       (when item
         (clatter--set-input item)))))
 
+(defun clatter-echo-history-position (direction func &rest args)
+  "Calls FUNC with ARGS assuming it shifts the input ring position in DIRECTION.
+Echoes a message describing the current input ring position."
+  (when (and clatter-input-ring (ring-p clatter-input-ring))
+    (let* ((before clatter-input-ring-index)
+           (after (progn (apply func args) clatter-input-ring-index))
+           (total (ring-length clatter-input-ring))
+           (current (- total clatter-input-ring-index)))
+      (if (= before after)
+          (message "History item: %d/%d [%s]" current total direction)
+        (message "History item: %d/%d" current total)))))
+
+(defun clatter-echo-history-position-prev (func &rest args)
+  "Calls FUNC with ARGS, it modifies the input ring position in upwards.
+Echoes a message describing the current input ring position."
+  (apply #'clatter-echo-history-position "Top" func args))
+
+(defun clatter-echo-history-position-next (func &rest args)
+  "Calls FUNC with ARGS, it modifies the input ring position in downwards.
+Echoes a message describing the current input ring position."
+  (apply #'clatter-echo-history-position "Bottom" func args))
+
+;; Install middleware-like advice functions that echo the history positions.
+(advice-add 'clatter-set-prev-input :around #'clatter-echo-history-position-prev)
+(advice-add 'clatter-set-next-input :around #'clatter-echo-history-position-next)
+
 ;; --- Input handling ---
 
 (defun clatter-send-input ()
