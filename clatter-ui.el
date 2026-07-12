@@ -763,9 +763,12 @@ Echoes a message describing the current input ring position."
            (after (progn (apply func args) clatter-input-ring-index))
            (total (ring-length clatter-input-ring))
            (current (- total clatter-input-ring-index)))
-      (if (= before after)
-          (message "History item: %d/%d [%s]" current total direction)
-        (message "History item: %d/%d" current total)))))
+      (cond
+       ((zerop total)
+        (message "History item: -/- [Empty]"))
+       ((= before after)
+        (message "History item: %d/%d [%s]" current total direction))
+       (t (message "History item: %d/%d" current total))))))
 
 (defun clatter-echo-history-position-prev (func &rest args)
   "Calls FUNC with ARGS, it modifies the input ring position in upwards.
