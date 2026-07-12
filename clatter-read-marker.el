@@ -200,10 +200,14 @@ Uses SERVER-TIME as a proxy when msgid tags are not available."
 Suitable for `window-buffer-change-functions'."
   (clatter-read-marker--mark-buffer-read (window-buffer window)))
 
+(defun clatter-read-marker--buffer-setup ()
+  "Setup read-marker hooks for the current buffer."
+  (add-hook 'window-buffer-change-functions #'clatter-read-marker--window-change nil t))
+
 (defun clatter-read-marker-enable ()
   "Enable read-marker hooks."
   (interactive)
-  (add-hook 'window-buffer-change-functions #'clatter-read-marker--window-change)
+  (add-hook 'clatter-mode-hook #'clatter-read-marker--buffer-setup)
   (add-hook 'clatter-privmsg-hook #'clatter-read-marker--track-msgid)
   (add-hook 'clatter-action-hook #'clatter-read-marker--track-msgid)
   (when (called-interactively-p 'interactive)
@@ -212,6 +216,7 @@ Suitable for `window-buffer-change-functions'."
 (defun clatter-read-marker-disable ()
   "Disable read-marker hooks."
   (interactive)
+  (remove-hook 'clatter-mode-hook #'clatter-read-marker--buffer-setup)
   (remove-hook 'window-buffer-change-functions #'clatter-read-marker--window-change)
   (remove-hook 'clatter-privmsg-hook #'clatter-read-marker--track-msgid)
   (remove-hook 'clatter-action-hook #'clatter-read-marker--track-msgid)
