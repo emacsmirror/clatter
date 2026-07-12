@@ -40,6 +40,7 @@ Example: (\"#spam\" \"#bots\")"
 
 (defcustom clatter-track-faces-alist
   '((mention . clatter-track-mention)
+    (dm . clatter-track-dm)
     (activity . clatter-track-activity)
     (muted . clatter-track-muted))
   "Alist mapping activity types to faces for the track indicator."
@@ -55,6 +56,33 @@ Removes the clatter: prefix and network name."
 (defcustom clatter-track-show-counts t
   "Show unread message counts in the track indicator."
   :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-track-indicators
+  '((mention . "@")
+    (dm . "*")
+    (activity . ""))
+  "Alist mapping activity types to prefix indicators.
+An explicit nil or empty value hides that indicator.  Missing entries
+fall back to the legacy indicator for their activity type."
+  :type '(alist :key-type (choice (const mention)
+                                  (const dm)
+                                  (const activity))
+                :value-type (choice (const :tag "No indicator" nil)
+                                    string))
+  :group 'clatter)
+
+(defcustom clatter-track-count-style 'suffix
+  "Style used to display unread counts in the activity tracker.
+The value `suffix' renders the legacy :N form.  `superscript' and
+`subscript' raise or lower the exact count.  `glyph' renders one as ·,
+two as :, three as ⋮, and larger counts as a raised +N.  `none' hides
+the count.  `clatter-track-show-counts' remains the master switch."
+  :type '(choice (const :tag "Colon suffix (:N)" suffix)
+                 (const :tag "Raised number" superscript)
+                 (const :tag "Lowered number" subscript)
+                 (const :tag "Compact glyphs" glyph)
+                 (const :tag "No count" none))
   :group 'clatter)
 
 (defcustom clatter-track-in-buffer-mode-line nil
@@ -150,25 +178,70 @@ Returns list of plists sorted by priority: mentions > DMs > activity."
 
 ;; --- Format track string ---
 
+(defun clatter-track--entry-type (info)
+  "Return the primary activity type represented by INFO."
+  (cond
+   ((plist-get info :mention) 'mention)
+   ((plist-get info :dm) 'dm)
+   (t 'activity)))
+
+(defun clatter-track--legacy-indicator (type)
+  "Return the legacy tracker indicator for TYPE."
+  (pcase type
+    ('mention "@")
+    ('dm "*")
+    (_ "")))
+
+(defun clatter-track--indicator (type)
+  "Return the configured tracker indicator for TYPE."
+  (let ((entry (assq type clatter-track-indicators)))
+    (if entry
+        (or (cdr entry) "")
+      (clatter-track--legacy-indicator type))))
+
+(defun clatter-track--legacy-face (type)
+  "Return the legacy tracker face for TYPE."
+  (pcase type
+    ('mention 'clatter-track-mention)
+    ('dm 'clatter-track-dm)
+    ('muted 'clatter-track-muted)
+    (_ 'clatter-track-activity)))
+
+(defun clatter-track--face (type muted)
+  "Return the configured tracker face for TYPE, respecting MUTED."
+  (let* ((face-type (if muted 'muted type))
+         (entry (assq face-type clatter-track-faces-alist)))
+    (or (cdr entry) (clatter-track--legacy-face face-type))))
+
+(defun clatter-track--format-count (unread)
+  "Format UNREAD according to the configured tracker count style."
+  (if (or (not clatter-track-show-counts)
+          (<= unread 0)
+          (eq clatter-track-count-style 'none))
+      ""
+    (pcase clatter-track-count-style
+      ('superscript
+       (propertize (number-to-string unread) 'display '(raise 0.3)))
+      ('subscript
+       (propertize (number-to-string unread) 'display '(raise -0.3)))
+      ('glyph
+       (pcase unread
+         (1 "·")
+         (2 ":")
+         (3 "⋮")
+         (_ (propertize (format "+%d" unread) 'display '(raise 0.3)))))
+      (_ (format ":%d" unread)))))
+
 (defun clatter-track--format-entry (info)
   "Format a single track INFO plist into a propertized string."
   (let* ((name (plist-get info :name))
          (unread (plist-get info :unread))
          (mention (plist-get info :mention))
          (muted (plist-get info :muted))
-         (dm (plist-get info :dm))
-         (face (cond
-                (muted 'clatter-track-muted)
-                (mention 'clatter-track-mention)
-                (dm 'clatter-track-dm)
-                (t 'clatter-track-activity)))
-         (prefix (cond
-                  (mention "@")
-                  (dm "*")
-                  (t "")))
-         (count-str (if (and clatter-track-show-counts (> unread 0))
-                        (format ":%d" unread)
-                      "")))
+         (type (clatter-track--entry-type info))
+         (face (clatter-track--face type muted))
+         (prefix (clatter-track--indicator type))
+         (count-str (clatter-track--format-count unread)))
     (propertize (format "%s%s%s" prefix name count-str)
                 'face face
                 'help-echo (format "%s - %d unread%s"
