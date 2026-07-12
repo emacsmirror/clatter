@@ -236,7 +236,8 @@ append at the bottom like a traditional IRC client."
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)
                                    (list 'read-only t
-                                         'front-sticky t
+                                         'front-sticky nil
+                                         'rear-nonsticky t
                                          'wrap-prefix wrap-prefix
                                          'line-prefix ""))
               (when msg-props
@@ -443,13 +444,14 @@ For `newest-first' the prompt sits at the top with messages below it.
 For `oldest-first' the prompt is anchored at the bottom, like a
 conventional IRC client, with messages accumulating above it."
   (with-current-buffer buffer
-    (let ((inhibit-read-only t)
-          (buffer-undo-list t)
-          (prompt (propertize (concat (or clatter--target "clatter") "> ")
-                              'face 'clatter-prompt
-                              'read-only t
-                              'front-sticky t
-                              'rear-nonsticky t)))
+    (let* ((inhibit-read-only t)
+           (buffer-undo-list t)
+           (prompt-string (concat (or clatter--target "clatter") "> "))
+           (prompt (propertize prompt-string
+                               'face 'clatter-prompt
+                               'read-only t
+                               'rear-nonsticky t)))
+      (setq-local wrap-prefix (make-string (length prompt-string) ?\s))
       (clatter-input-ring-setup)
       (if (eq clatter-message-order 'oldest-first)
           ;; Bottom prompt: [messages...] then prompt+input on the last line.
