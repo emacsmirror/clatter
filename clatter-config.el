@@ -39,6 +39,8 @@ Each entry is a list of (NAME . PLIST) where PLIST contains:
   :client-cert - Path to client certificate for SASL EXTERNAL
   :autojoin  - List of channels to join on connect
   :password  - Server password (or use auth-source)
+  :bouncer   - This connection is to a bouncer which manages upstream
+               NickServ identity and nick reclaim
   :proxy     - SOCKS5 proxy plist (:type socks5 :host H :port P
                [:user U] [:pass P]); see `clatter-proxy'
   :tor       - When non-nil, shorthand for Tor's local SOCKS5
@@ -118,6 +120,42 @@ See `format-time-string' for format specifiers."
   :type 'string
   :group 'clatter)
 
+(defcustom clatter-timestamp-only-if-changed nil
+  "Display a message timestamp only when its formatted value changes.
+
+When non-nil, consecutive messages in the same buffer whose timestamps
+format to the same string share a single displayed timestamp.  The
+comparison is local to each Clatter buffer."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-display-on-join t
+  "Whether to display a channel buffer when you join it.
+
+The buffer is always created so that activity tracking continues to work.
+Set this to nil to keep autojoined channels from changing the window layout."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-display-on-welcome t
+  "Whether to display the server buffer after receiving the welcome message.
+
+The server buffer is always created.  Set this to nil to connect without
+changing the window layout."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-receive-query-display 'bury
+  "How to display a buffer for an incoming private message.
+
+`bury' creates the query buffer without displaying it, so activity tracking
+can notify you without disrupting the current window.  `buffer' uses
+`display-buffer', and `pop' uses `pop-to-buffer'."
+  :type '(choice (const :tag "Create without displaying" bury)
+                 (const :tag "Display buffer" buffer)
+                 (const :tag "Pop to buffer" pop))
+  :group 'clatter)
+
 (defcustom clatter-timestamp-side 'right
   "Side of the window where message timestamps are displayed.
 The value `left' uses the left margin, `right' uses the right margin,
@@ -125,6 +163,28 @@ and nil disables margin timestamps."
   :type '(choice (const :tag "Left margin" left)
                  (const :tag "Right margin" right)
                  (const :tag "Disabled" nil))
+  :group 'clatter)
+
+(defcustom clatter-self-echo-mode 'server
+  "How messages sent by this client are displayed.
+
+The default `server' waits for the server's echo-message response when that
+capability is available (and preserves the existing immediate fallback when
+it is not).  `optimistic' inserts a tentative local message immediately, then
+reconciles the matching server echo so that server time and msgid metadata are
+retained without displaying a duplicate."
+  :type '(choice (const :tag "Wait for server echo" server)
+                 (const :tag "Show immediately" optimistic))
+  :group 'clatter)
+
+(defcustom clatter-self-echo-timeout 30
+  "Seconds an optimistic self echo may wait for its server echo.
+
+After this interval Clatter keeps the locally displayed message, but no
+longer reconciles a matching incoming message.  This prevents delayed
+playback from a later connection from being mistaken for an echo of an old
+outgoing message."
+  :type 'number
   :group 'clatter)
 
 (defcustom clatter-fill-column 80
@@ -173,6 +233,15 @@ Matches ERC default."
 (defcustom clatter-use-auth-source t
   "Use `auth-source' to look up passwords.
 Passwords are looked up by :host (server) and :user (nick)."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-auto-identify t
+  "Whether to automatically identify with NickServ after registration.
+When non-nil, clatter preserves its historical behavior of sending
+`IDENTIFY' with the configured server password after connecting without
+SASL.  A network marked with `:bouncer t' always skips this step: its
+password authenticates this client to the bouncer, not to NickServ."
   :type 'boolean
   :group 'clatter)
 
@@ -270,6 +339,33 @@ Like ERC's `erc-move-to-prompt': if point is outside the input area when
 you start typing a self-inserting character, point first moves to the
 prompt so the character is entered there."
   :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-prompt-format "%t> "
+  "Format used for the input prompt in Clatter buffers.
+
+The value may be a string or a function.  In a string, `%t' expands to
+the buffer target, `%n' to the current nickname, `%N' to the network
+name, and `%%' to a literal percent sign.  A function is called with
+one argument, the Clatter buffer, and must return a string.
+
+The default preserves Clatter's historical `target> ' prompt."
+  :type '(choice (string :tag "Format string")
+                 (function :tag "Function"))
+  :group 'clatter)
+
+(defcustom clatter-header-line-preset nil
+  "Preset that moves channel context into the header line.
+When nil, Clatter leaves the header line disabled and preserves the normal
+mode-line.  `topic' shows the full topic in the header line and removes it
+from the mode-line.  `context' shows the network/target, channel modes,
+member count, and full topic in the header line, leaving only the current
+nick in the mode-line.
+
+Typing and activity indicators remain in the mode-line for every preset."
+  :type '(choice (const :tag "Disabled" nil)
+                 (const :tag "Topic" topic)
+                 (const :tag "Full channel context" context))
   :group 'clatter)
 
 (defcustom clatter-read-state-enabled t
