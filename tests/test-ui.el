@@ -6,6 +6,8 @@
 (require 'clatter-ui)
 (require 'clatter-commands)
 (require 'clatter-nicklist)
+(require 'clatter-track)
+(require 'clatter-notify)
 
 ;; --- Automatic buffer display ---
 
@@ -740,6 +742,70 @@
         (should-not (string-match-p "testnet/#emacs" mode-line))
         (should-not (string-match-p "1" mode-line))
         (should-not (string-match-p "A full topic" mode-line))))))
+;; --- Read state ---
+
+(ert-deftest clatter-test-read-state-clear-persists-and-restores ()
+  "Clearing activity persists and restores the latest read timestamp."
+  (let* ((file (make-temp-file "clatter-read-state"))
+         (clatter-read-state-enabled t)
+         (clatter-read-state-file file)
+         (clatter-read-state--table (make-hash-table :test 'equal))
+         (clatter-read-state--loaded t)
+         (clatter-read-state--save-timer nil)
+         (time (encode-time 0 0 12 1 1 2026 t)))
+    (unwind-protect
+        (progn
+          (with-temp-buffer
+            (clatter-mode)
+            (setq-local clatter--network "libera")
+            (setq-local clatter--target "#emacs")
+            (setq-local clatter--latest-message-time time)
+            (clatter-clear-activity (current-buffer)))
+          (clatter-read-state--save-now)
+          (setq clatter-read-state--table (make-hash-table :test 'equal))
+          (setq clatter-read-state--loaded nil)
+          (with-temp-buffer
+            (clatter-mode)
+            (setq-local clatter--network "libera")
+            (setq-local clatter--target "#emacs")
+            (clatter-read-state-restore-buffer (current-buffer))
+            (should (equal clatter--last-read-time time))))
+      (when clatter-read-state--save-timer
+        (cancel-timer clatter-read-state--save-timer))
+      (when (file-exists-p file)
+        (delete-file file)))))
+
+(ert-deftest clatter-test-read-state-suppresses-read-history-activity ()
+  "History at or before the last-read timestamp does not mark activity."
+  (let ((conn (clatter-test-make-connection "libera" "me"))
+        (buf nil)
+        (clatter-read-state-enabled t))
+    (unwind-protect
+        (let* ((last-read (encode-time 0 0 12 1 1 2026 t))
+               (old (encode-time 0 59 11 1 1 2026 t))
+               (equal-time (encode-time 0 0 12 1 1 2026 t))
+               (new (encode-time 0 1 12 1 1 2026 t)))
+          (setq buf (clatter-get-or-create-buffer "libera" "#emacs" 'channel))
+          (with-current-buffer buf
+            (clatter-ui-setup-buffer buf)
+            (setq-local clatter--last-read-time last-read))
+          (with-temp-buffer
+            (clatter-insert-privmsg buf "alice" "old" conn old)
+            (clatter-insert-privmsg buf "alice" "equal" conn equal-time)
+            (clatter-insert-privmsg buf "alice" "new" conn new))
+          (with-current-buffer buf
+            (should (= clatter--unread-count 1)))
+          (let* ((infos (clatter-track--collect))
+                 (info (cl-find buf infos
+                                :key (lambda (entry)
+                                       (plist-get entry :buffer)))))
+            (should info)
+            (should (= (plist-get info :unread) 1))))
+      (clatter-test-cleanup)
+      (when buf
+        (clatter-remove-buffer "libera" "#emacs")
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
 
 ;; --- Typing mode-line ---
 
@@ -819,6 +885,57 @@
           (setq-local clatter--target "#test")
           (let ((clatter-send-typing t))
             (should (clatter--typing-capable-p))))
+      (clatter-test-cleanup))))
+
+;; --- Notifications and read state ---
+
+(ert-deftest clatter-test-read-state-suppresses-read-notification ()
+  "Messages at or before the last-read timestamp do not notify."
+  (let ((clatter-notify-enabled t)
+        (clatter-notify-on-mention t)
+        (clatter-notify-current-buffer t)
+        (clatter-notify-cooldown 0)
+        (clatter-read-state-enabled t)
+        (clatter--buffer-alist nil)
+        (clatter-notify--last-times (make-hash-table :test 'equal))
+        (sent nil)
+        (conn (clatter-test-make-connection "testnet" "trev"))
+        (last-read (encode-time 0 0 12 1 1 2026 t)))
+    (unwind-protect
+        (let ((buf (clatter-get-or-create-buffer "testnet" "#test")))
+          (with-current-buffer buf
+            (setq-local clatter--last-read-time last-read))
+          (cl-letf (((symbol-function 'clatter-notify--send)
+                     (lambda (title body)
+                       (push (list title body) sent))))
+            (clatter-notify--on-privmsg
+             conn '("alice" nil nil) "#test" "trev: already saw this" last-read)
+            (should-not sent)))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-read-state-allows-unread-notification ()
+  "Messages after the last-read timestamp can still notify."
+  (let ((clatter-notify-enabled t)
+        (clatter-notify-on-mention t)
+        (clatter-notify-current-buffer t)
+        (clatter-notify-cooldown 0)
+        (clatter-read-state-enabled t)
+        (clatter--buffer-alist nil)
+        (clatter-notify--last-times (make-hash-table :test 'equal))
+        (sent nil)
+        (conn (clatter-test-make-connection "testnet" "trev"))
+        (last-read (encode-time 0 0 12 1 1 2026 t))
+        (unread-time (encode-time 1 0 12 1 1 2026 t)))
+    (unwind-protect
+        (let ((buf (clatter-get-or-create-buffer "testnet" "#test")))
+          (with-current-buffer buf
+            (setq-local clatter--last-read-time last-read))
+          (cl-letf (((symbol-function 'clatter-notify--send)
+                     (lambda (title body)
+                       (push (list title body) sent))))
+            (clatter-notify--on-privmsg
+             conn '("alice" nil nil) "#test" "trev: new message" unread-time)
+            (should sent)))
       (clatter-test-cleanup))))
 
 ;; --- Nicklist hooks registered ---
