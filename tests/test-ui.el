@@ -390,6 +390,182 @@
       (clatter-ui-setup-buffer (current-buffer))
       (should (memq 'noise buffer-invisibility-spec)))))
 
+;; --- Compact system messages ---
+
+(ert-deftest clatter-test-compact-system-event-presets ()
+  "Compact presets format every supported event with the promised context."
+  (dolist
+      (case
+       '((join (:nick "alice" :channel "#test" :realname "Alice")
+               "alice" "alice" "alice (Alice) #test")
+         (part (:nick "alice" :channel "#test" :reason "bye")
+               "alice" "alice — bye" "alice #test — bye")
+         (quit (:nick "alice" :channel "#test" :reason "timeout")
+               "alice" "alice — timeout" "alice #test — timeout")
+         (nick (:nick "alice" :new-nick "alice_")
+               "alice → alice_" "alice → alice_" "alice → alice_")
+         (away (:nick "alice" :channel "#test" :reason "lunch")
+               "alice" "alice — lunch" "alice #test — lunch")
+         (back (:nick "alice" :channel "#test")
+               "alice" "alice" "alice #test")
+         (mode (:nick "alice" :channel "#test" :modes "+o bob")
+               "alice +o bob" "alice +o bob" "alice #test +o bob")
+         (kick (:nick "bob" :setter "alice" :channel "#test" :reason "flooding")
+               "bob ← alice" "bob ← alice — flooding"
+               "bob ← alice #test — flooding")
+         (invite (:nick "alice" :invitee "testnick" :channel "#secret")
+                 "alice → #secret" "alice → #secret"
+                 "alice → testnick #secret")))
+    (pcase-let ((`(,event ,fields ,essential ,reasons ,full) case))
+      (let ((clatter-compact-system-messages 'essential))
+        (should (equal (clatter--format-system-event event fields) essential)))
+      (let ((clatter-compact-system-messages 'reasons))
+        (should (equal (clatter--format-system-event event fields) reasons)))
+      (let ((clatter-compact-system-messages 'full))
+        (should (equal (clatter--format-system-event event fields) full))))))
+
+(ert-deftest clatter-test-compact-system-groups-consecutive-events ()
+  "Compact mode groups adjacent presence actions in either message order."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-compact-system-messages 'compact)
+          (clatter-compact-system-group-window 180)
+          (clatter-message-order order)
+          (times '(100.0 110.0 120.0)))
+      (clatter-test-with-ui-connection conn
+        (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+          (cl-letf (((symbol-function 'clatter--compact-system-now)
+                     (lambda () (pop times))))
+            (clatter--insert-system-event
+             buffer 'quit '(:nick "alcor" :channel "#test") 'quit)
+            (clatter--insert-system-event
+             buffer 'join '(:nick "alcor" :channel "#test") 'join)
+            (clatter--insert-system-event
+             buffer 'away '(:nick "Elouin" :channel "#test") 'away))
+          (with-current-buffer buffer
+            (let ((rendered (buffer-substring-no-properties
+                             (point-min) (point-max))))
+              (should (string-match-p
+                       "× alcor · → alcor · ○ Elouin" rendered)))
+            (goto-char (point-min))
+            (search-forward "×")
+            (should (memq 'quit (ensure-list
+                                 (get-text-property (1- (point)) 'invisible))))
+            (search-forward "→")
+            (should (memq 'join (ensure-list
+                                 (get-text-property (1- (point)) 'invisible))))
+            (search-forward "○")
+            (should (memq 'away (ensure-list
+                                 (get-text-property (1- (point)) 'invisible))))))))))
+
+(ert-deftest clatter-test-compact-system-separator-is-configurable ()
+  "Compact grouped events use the configured separator."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-compact-system-separator ", "))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter--insert-system-event
+         buffer 'join '(:nick "alice" :channel "#test") 'join)
+        (clatter--insert-system-event
+         buffer 'join '(:nick "bob" :channel "#test") 'join)
+        (with-current-buffer buffer
+          (should (string-match-p
+                   "→ alice, → bob"
+                   (buffer-substring-no-properties
+                    (point-min) (point-max)))))))))
+
+(ert-deftest clatter-test-compact-system-intervening-message-ends-group ()
+  "Any intervening line prevents a later event joining an older group."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-compact-system-group-window 180))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter--insert-system-event
+         buffer 'join '(:nick "alice" :channel "#test") 'join)
+        (clatter-insert-system buffer "intervening chat")
+        (clatter--insert-system-event
+         buffer 'join '(:nick "bob" :channel "#test") 'join)
+        (with-current-buffer buffer
+          (should (= (how-many "→" (point-min) (point-max)) 2))
+          (goto-char (point-min))
+          (should-not (search-forward "→ alice · → bob" nil t)))))))
+
+(ert-deftest clatter-test-compact-system-respects-window-and-visibility ()
+  "Expired or differently hidden events start separate compact groups."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-compact-system-group-window 180)
+        (times '(100.0 400.0 410.0 420.0 430.0)))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (cl-letf (((symbol-function 'clatter--compact-system-now)
+                   (lambda () (pop times))))
+          (clatter--insert-system-event
+           buffer 'join '(:nick "alice" :channel "#test") 'join)
+          (clatter--insert-system-event
+           buffer 'join '(:nick "bob" :channel "#test") 'join)
+          (clatter--insert-system-event
+           buffer 'join '(:nick "lurker" :channel "#test") '(join noise)))
+        (with-current-buffer buffer
+          (should (= (cl-count ?→ (buffer-substring-no-properties
+                                   (point-min) (point-max)))
+                     3)))))))
+
+(ert-deftest clatter-test-compact-system-default-preserves-verbose-join ()
+  "The default nil compact setting preserves the existing JOIN sentence."
+  (let ((clatter-compact-system-messages nil)
+        (clatter-smart-enabled nil)
+        (clatter-suppress-messages '(muted)))
+    (clatter-test-with-ui-connection conn
+      (clatter-ui--on-join conn '("alice" nil nil) "#test" nil "Alice")
+      (with-current-buffer (clatter-get-buffer "testnet" "#test")
+        (goto-char (point-min))
+        (should (search-forward "*** alice (Alice) has joined #test" nil t))))))
+
+(ert-deftest clatter-test-compact-system-custom-symbol-preserves-noise ()
+  "Compact JOINs use configured prefixes without losing noise metadata."
+  (let ((clatter-compact-system-messages 'essential)
+        (clatter-compact-system-symbols '((join . "+")))
+        (clatter-smart-enabled t)
+        (clatter-smart-noise '(join))
+        (clatter-suppress-messages '(muted)))
+    (clatter-test-with-ui-connection conn
+      (cl-letf (((symbol-function 'clatter-smart-eval)
+                 (lambda (&rest _args) t)))
+        (clatter-ui--on-join conn '("lurker" nil nil) "#test" nil nil))
+      (with-current-buffer (clatter-get-buffer "testnet" "#test")
+        (goto-char (point-min))
+        (should (search-forward "+ lurker" nil t))
+        (let ((start (match-beginning 0)))
+          (should (eq (get-text-property start 'face) 'clatter-system))
+          (should (memq 'join
+                        (ensure-list (get-text-property start 'invisible))))
+          (should (memq 'noise
+                        (ensure-list (get-text-property start 'invisible)))))))))
+
+(ert-deftest clatter-test-compact-system-handlers-use-event-renderer ()
+  "Every supported handler emits its compact event form."
+  (let ((clatter-compact-system-messages 'essential)
+        (clatter-smart-enabled nil)
+        (clatter-suppress-messages '(muted)))
+    (clatter-test-with-ui-connection conn
+      (clatter-ui--on-join conn '("alice" nil nil) "#test" nil nil)
+      (clatter-ui--on-mode conn "#test" '("op" nil nil) '("+o" "alice"))
+      (clatter-ui--on-away conn '("alice" nil nil) "lunch")
+      (clatter-ui--on-away conn '("alice" nil nil) nil)
+      (clatter-ui--on-nick conn '("alice" nil nil) "alice_")
+      (clatter-ui--on-join conn '("bob" nil nil) "#test" nil nil)
+      (clatter-ui--on-part conn '("bob" nil nil) "#test" "bye")
+      (clatter-ui--on-join conn '("carol" nil nil) "#test" nil nil)
+      (clatter-ui--on-quit conn '("carol" nil nil) "timeout")
+      (clatter-ui--on-join conn '("dave" nil nil) "#test" nil nil)
+      (clatter-ui--on-kick conn "#test" '("op" nil nil) "dave" "flooding")
+      (clatter-ui--on-invite conn '("op" nil nil) "testnick" "#test")
+      (with-current-buffer (clatter-get-buffer "testnet" "#test")
+        (let ((rendered (buffer-substring-no-properties (point-min) (point-max))))
+          (dolist (expected '("→ alice" "± op +o alice" "○ alice" "● alice"
+                              "» alice → alice_" "← bob" "× carol"
+                              "⬾ dave ← op" "✉ op → #test"))
+            (should (string-match-p (regexp-quote expected) rendered))))))))
+
 (ert-deftest clatter-test-smart-noise-tags-noisy-events-in-new-buffer ()
   "A smart-filtered event in a new buffer carries the hidden noise category."
   (let ((clatter-smart-enabled t)
