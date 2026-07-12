@@ -500,7 +500,7 @@ non-nil, is the already formatted IRC command to send."
   (let* ((msg-type (or msg-type 'privmsg))
          (buffer (or buffer (current-buffer)))
          (sender (clatter-connection-nick conn)))
-    (clatter-send conn (or line (clatter-irc-privmsg target text)))
+    (clatter-send conn (clatter-irc-privmsg target (or line text)))
     (when (clatter-ui--self-echo-p conn)
       (let* ((nonce (cl-incf clatter--self-echo-nonce))
              (tentative (propertize (copy-sequence text) 'clatter-self-echo-nonce nonce)))
