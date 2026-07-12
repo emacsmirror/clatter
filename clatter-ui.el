@@ -206,8 +206,7 @@ append at the bottom like a traditional IRC client."
       (let ((pre-input (and clatter--input-marker
                             (marker-position clatter--input-marker))))
         (let ((inhibit-read-only t)
-              (buffer-undo-list t)
-              (oldest-first (eq clatter-message-order 'oldest-first)))
+              (buffer-undo-list t))
           (save-excursion
             ;; Messages always insert at the messages marker.  Its position
             ;; and insertion type (set in `clatter--setup-prompt') determine
@@ -242,7 +241,8 @@ append at the bottom like a traditional IRC client."
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)
                                    (list 'read-only t
-                                         'front-sticky t
+                                         'front-sticky nil
+                                         'rear-nonsticky t
                                          'wrap-prefix wrap-prefix
                                          'line-prefix ""))
               (when msg-props
@@ -250,13 +250,7 @@ append at the bottom like a traditional IRC client."
               (when (clatter--fool-invisibility-p invisible)
                 (add-face-text-property start (point) 'clatter-fool))
               (put-text-property start (point) 'invisible invisible)))
-          (clatter--maybe-truncate buffer)
-          ;; Auto-scroll in oldest-first mode
-          (when oldest-first
-            (dolist (win (get-buffer-window-list buffer nil t))
-              (with-selected-window win
-                (goto-char (point-max))
-                (recenter -1)))))
+          (clatter--maybe-truncate buffer))
         ;; Messages inserted above the input (bottom/oldest-first prompt)
         ;; push the input down.  Without this, the user's pending undo
         ;; entries would still point at the old positions and an undo
@@ -575,13 +569,14 @@ For `newest-first' the prompt sits at the top with messages below it.
 For `oldest-first' the prompt is anchored at the bottom, like a
 conventional IRC client, with messages accumulating above it."
   (with-current-buffer buffer
-    (let ((inhibit-read-only t)
-          (buffer-undo-list t)
-          (prompt (propertize (concat (or clatter--target "clatter") "> ")
-                              'face 'clatter-prompt
-                              'read-only t
-                              'front-sticky t
-                              'rear-nonsticky t)))
+    (let* ((inhibit-read-only t)
+           (buffer-undo-list t)
+           (prompt-string (concat (or clatter--target "clatter") "> "))
+           (prompt (propertize prompt-string
+                               'face 'clatter-prompt
+                               'read-only t
+                               'rear-nonsticky t)))
+      (setq-local wrap-prefix (make-string (length prompt-string) ?\s))
       (clatter-input-ring-setup)
       (if (eq clatter-message-order 'oldest-first)
           ;; Bottom prompt: [messages...] then prompt+input on the last line.
@@ -827,21 +822,34 @@ the buffer margin-width variables."
 
 ;; --- Wire up event hooks ---
 
+(defun clatter-ui--display-received-query (buf)
+  "Display received query BUF according to `clatter-receive-query-display'."
+  (pcase clatter-receive-query-display
+    ('buffer (display-buffer buf))
+    ('pop (pop-to-buffer buf))))
+
 (defun clatter-ui--on-privmsg (conn sender target text server-time)
   "Display SENDER's PRIVMSG TEXT to TARGET on CONN at SERVER-TIME."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
+         (isupport (clatter-connection-isupport conn))
+         (case-mapping (and isupport (gethash "CASEMAPPING" isupport)))
          (sender-nick (clatter-prefix-nick sender))
          (buf-target (if (clatter-channel-name-p target)
                          target
-                       (if (string-equal target my-nick) sender-nick target)))
+                       (if (clatter-nick-equal-p target my-nick case-mapping)
+                           sender-nick target)))
          (buf (clatter-get-or-create-buffer network buf-target))
          (is-muted (clatter-muted-p sender network))
          (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (unless (and (string-equal-ignore-case my-nick sender-nick)
+    (unless (and (clatter-nick-equal-p sender-nick my-nick case-mapping)
                  (clatter-ui--reconcile-self-echo buf sender-nick buf-target text 'privmsg server-time))
       (clatter-insert-privmsg buf sender-nick text conn server-time invisible))
+    (when (and (not (clatter-channel-name-p target))
+               (clatter-nick-equal-p target my-nick case-mapping)
+               (not (clatter-nick-equal-p sender-nick my-nick case-mapping)))
+      (clatter-ui--display-received-query buf))
     (when (and (not is-muted)
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (not (string-equal-ignore-case my-nick sender-nick))
@@ -853,17 +861,24 @@ the buffer margin-width variables."
   "Display SENDER's ACTION TEXT to TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
+         (isupport (clatter-connection-isupport conn))
+         (case-mapping (and isupport (gethash "CASEMAPPING" isupport)))
          (sender-nick (clatter-prefix-nick sender))
          (buf-target (if (clatter-channel-name-p target)
                          target
-                       (if (string-equal target my-nick) sender-nick target)))
+                       (if (clatter-nick-equal-p target my-nick case-mapping)
+                           sender-nick target)))
          (buf (clatter-get-or-create-buffer network buf-target))
          (is-muted (clatter-muted-p sender network))
          (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (unless (and (string-equal-ignore-case my-nick sender-nick)
+    (unless (and (clatter-nick-equal-p sender-nick my-nick case-mapping)
                  (clatter-ui--reconcile-self-echo buf sender-nick buf-target text 'action server-time))
       (clatter-insert-action buf sender-nick text conn server-time invisible))
+    (when (and (not (clatter-channel-name-p target))
+               (clatter-nick-equal-p target my-nick case-mapping)
+               (not (clatter-nick-equal-p sender-nick my-nick case-mapping)))
+      (clatter-ui--display-received-query buf))
     (when (and (not is-muted)
                (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
                (not (string-equal-ignore-case my-nick sender-nick))
@@ -919,7 +934,8 @@ the buffer margin-width variables."
     (clatter-nick-add buf sender-nick)
     (when (string-equal sender-nick my-nick)
       (clatter-send conn (clatter-irc-names channel))
-      (display-buffer buf))
+      (when clatter-display-on-join
+        (display-buffer buf)))
     (clatter-insert-system buf
                            (if (and realname (not (string= sender-nick realname)))
                                (format "%s (%s) has joined %s" sender-nick (clatter-format-parse realname) channel)
@@ -1076,7 +1092,8 @@ the buffer margin-width variables."
     (clatter-insert-system buf
                            (format "Connected to %s as %s"
                                    network (clatter-connection-nick conn)))
-    (display-buffer buf)))
+    (when clatter-display-on-welcome
+      (display-buffer buf))))
 
 (defun clatter-ui-setup-buffer-if-needed (buf)
   "Set up UI for BUF if not already done."
