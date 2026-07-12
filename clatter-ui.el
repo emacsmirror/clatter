@@ -1565,6 +1565,7 @@ COMMAND is the numeric reply code, PARAMS its parameters on CONN."
             (buf (clatter-get-buffer network channel))
             (modes (nth 2 params)))
        (when buf
+         (clatter-set-channel-modes buf modes)
          (clatter-insert-system buf (format "%s is %s" channel modes)))))
     ("329"   ; RPL_CREATIONTIME
      (let* ((network (clatter-connection-network-id conn))
