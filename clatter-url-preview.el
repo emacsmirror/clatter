@@ -127,9 +127,10 @@ Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
   (when clatter-url-preview-enable
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))
+           (sender-nick (clatter-prefix-nick sender))
            (buf-target (if (clatter-channel-name-p target)
                            target
-                         (if (string-equal target my-nick) sender target)))
+                         (if (string-equal target my-nick) sender-nick target)))
            (buf (clatter-get-buffer network buf-target))
            (pos 0))
       (when buf

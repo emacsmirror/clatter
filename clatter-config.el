@@ -120,6 +120,33 @@ See `format-time-string' for format specifiers."
   :type 'string
   :group 'clatter)
 
+(defcustom clatter-display-on-join t
+  "Whether to display a channel buffer when you join it.
+
+The buffer is always created so that activity tracking continues to work.
+Set this to nil to keep autojoined channels from changing the window layout."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-display-on-welcome t
+  "Whether to display the server buffer after receiving the welcome message.
+
+The server buffer is always created.  Set this to nil to connect without
+changing the window layout."
+  :type 'boolean
+  :group 'clatter)
+
+(defcustom clatter-receive-query-display 'bury
+  "How to display a buffer for an incoming private message.
+
+`bury' creates the query buffer without displaying it, so activity tracking
+can notify you without disrupting the current window.  `buffer' uses
+`display-buffer', and `pop' uses `pop-to-buffer'."
+  :type '(choice (const :tag "Create without displaying" bury)
+                 (const :tag "Display buffer" buffer)
+                 (const :tag "Pop to buffer" pop))
+  :group 'clatter)
+
 (defcustom clatter-timestamp-side 'right
   "Side of the window where message timestamps are displayed.
 The value `left' uses the left margin, `right' uses the right margin,
@@ -127,6 +154,28 @@ and nil disables margin timestamps."
   :type '(choice (const :tag "Left margin" left)
                  (const :tag "Right margin" right)
                  (const :tag "Disabled" nil))
+  :group 'clatter)
+
+(defcustom clatter-self-echo-mode 'server
+  "How messages sent by this client are displayed.
+
+The default `server' waits for the server's echo-message response when that
+capability is available (and preserves the existing immediate fallback when
+it is not).  `optimistic' inserts a tentative local message immediately, then
+reconciles the matching server echo so that server time and msgid metadata are
+retained without displaying a duplicate."
+  :type '(choice (const :tag "Wait for server echo" server)
+                 (const :tag "Show immediately" optimistic))
+  :group 'clatter)
+
+(defcustom clatter-self-echo-timeout 30
+  "Seconds an optimistic self echo may wait for its server echo.
+
+After this interval Clatter keeps the locally displayed message, but no
+longer reconciles a matching incoming message.  This prevents delayed
+playback from a later connection from being mistaken for an echo of an old
+outgoing message."
+  :type 'number
   :group 'clatter)
 
 (defcustom clatter-fill-column 80
