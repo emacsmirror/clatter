@@ -60,6 +60,22 @@
   "Extract nick from parsed prefix."
   (should (equal (clatter-prefix-nick '("nick" "user" "host")) "nick")))
 
+;; --- IRC Case Mapping ---
+
+(ert-deftest clatter-test-nick-equal-rfc1459 ()
+  "RFC1459 CASEMAPPING treats []\\^ as equivalent to {}|~."
+  (should (clatter-nick-equal-p "Nick[\\^" "nick{|~" "rfc1459")))
+
+(ert-deftest clatter-test-nick-equal-strict-rfc1459 ()
+  "Strict RFC1459 CASEMAPPING does not fold ^ to ~."
+  (should (clatter-nick-equal-p "Nick[\\" "nick{|" "strict-rfc1459"))
+  (should-not (clatter-nick-equal-p "Nick^" "nick~" "strict-rfc1459")))
+
+(ert-deftest clatter-test-nick-equal-ascii ()
+  "ASCII CASEMAPPING only downcases ASCII letters."
+  (should (clatter-nick-equal-p "Nick" "nick" "ascii"))
+  (should-not (clatter-nick-equal-p "Nick[" "nick{" "ascii")))
+
 ;; --- Tag Parsing ---
 
 (ert-deftest clatter-test-parse-tags ()
