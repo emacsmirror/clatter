@@ -198,10 +198,10 @@ Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
                                       clatter-url-preview--cache-max)
                                (clrhash clatter-url-preview--cache))
                              (puthash clean-url title clatter-url-preview--cache)
-                             (clatter-url-preview--insert title buffer anchor))))
+                             (clatter-url-preview--insert title buffer anchor)))))
                    (when (buffer-live-p output-buffer)
                      (kill-buffer output-buffer))
-                   (clatter-url-preview--release-anchor anchor))))))))
+                   (clatter-url-preview--release-anchor anchor)))))))
       (error
        (remhash clean-url clatter-url-preview--pending)
        (when (buffer-live-p fetch-buffer)
