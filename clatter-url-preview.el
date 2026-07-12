@@ -260,10 +260,13 @@ behind by buffer truncation."
   (when clatter-url-preview-enable
     (let* ((network (clatter-connection-network-id conn))
            (my-nick (clatter-connection-nick conn))
+           (isupport (clatter-connection-isupport conn))
+           (case-mapping (and isupport (gethash "CASEMAPPING" isupport)))
            (sender-nick (clatter-prefix-nick sender))
            (buf-target (if (clatter-channel-name-p target)
                            target
-                         (if (string-equal target my-nick) sender-nick target)))
+                         (if (clatter-nick-equal-p target my-nick case-mapping)
+                             sender-nick target)))
            (buf (clatter-get-buffer network buf-target))
            (pos 0)
            requests)

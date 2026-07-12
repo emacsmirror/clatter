@@ -33,7 +33,7 @@
                   ((symbol-function 'clatter-url-preview--fetch)
                    (lambda (_url _buffer marker) (setq captured-marker marker))))
           (clatter-url-preview--on-privmsg
-           conn "alice" "#chat" "https://example.com/one" nil))
+           conn '("alice" nil nil) "#chat" "https://example.com/one" nil))
         (should (clatter-url-preview--anchor-p captured-marker))
         (should (eq (clatter-url-preview--anchor-buffer captured-marker)
                     (current-buffer)))
@@ -106,7 +106,7 @@
         (cl-letf (((symbol-function 'clatter-get-buffer)
                    (lambda (&rest _) (current-buffer))))
           (clatter-url-preview--on-privmsg
-           conn "alice" "#chat" "https://example.com/one" nil))
+           conn '("alice" nil nil) "#chat" "https://example.com/one" nil))
         (should (equal (buffer-string)
                        "<alice> https://example.com/one\n↳ Cached title\n"))))))
 
