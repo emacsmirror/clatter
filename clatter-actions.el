@@ -232,54 +232,52 @@ With a prefix argument ARG, uses a /reply command."
 
 ;; --- Action menu ---
 
-(defvar clatter-action-map
-  (let ((map (make-sparse-keymap "Clatter Actions")))
-    (define-key map (kbd "r") #'clatter-action-reply)
-    (define-key map (kbd "e") #'clatter-action-react)
-    (define-key map (kbd "c") #'clatter-action-copy-message)
-    (define-key map (kbd "n") #'clatter-action-copy-nick)
-    (define-key map (kbd "u") #'clatter-action-copy-url)
-    (define-key map (kbd "o") #'clatter-action-open-url)
-    (define-key map (kbd "w") #'clatter-action-whois)
-    (define-key map (kbd "q") #'clatter-action-query)
-    (define-key map (kbd "i") #'clatter-action-inspect)
-    (define-key map (kbd "I") #'clatter-action-ignore)
-    (define-key map (kbd "l") #'clatter-action-collect-urls)
-    map)
-  "Keymap for message actions at point.")
-
 (defun clatter-action-menu ()
-  "Show the message action menu for the message at point.
-Key bindings:
-  r  Reply (insert nick at prompt)
-  e  React (insert /react at prompt)
-  c  Copy message text
-  n  Copy nick
-  u  Copy URL at point
-  o  Open URL at point
-  w  WHOIS sender
-  q  Open query/DM with sender
-  i  Inspect raw message
-  I  Toggle ignore on sender
-  l  List all URLs in buffer"
+  "Show the message action menu for the message at point."
   (interactive)
   (let* ((props (clatter-action--msg-at-point))
          (sender (plist-get props :sender))
          (url (get-text-property (point) 'clatter-url))
-         (parts nil))
-    (push "[r]eply" parts)
-    (push "r[e]act" parts)
-    (push "[c]opy msg" parts)
-    (when sender (push (format "[n]ick(%s)" sender) parts))
-    (when url (push "[u]rl copy" parts))
-    (when url (push "[o]pen url" parts))
-    (when sender (push "[w]hois" parts))
-    (when sender (push "[q]uery" parts))
-    (push "[i]nspect" parts)
-    (when sender (push "[I]gnore" parts))
-    (push "[l]ist urls" parts)
-    (message "%s" (string-join (nreverse parts) " "))
-    (set-transient-map clatter-action-map)))
+         (choices (delq nil
+                        (list '(?r "reply")
+                              '(?e "react")
+                              '(?c "copy msg")
+                              (when sender `(?n ,(format "nick(\"%s\")" sender)))
+                              (when url '(?u "url copy"))
+                              (when url '(?o "open url"))
+                              (when sender '(?w "WHOIS"))
+                              (when sender '(?q "query"))
+                              '(?i "inspect")
+                              (when sender '(?I "Ignore"))
+                              '(?l "list urls"))))
+         (help-string
+          (string-join (delq nil
+                             (list "Key bindings:"
+                                   "  r  Reply (insert nick at prompt)"
+                                   "  e  React (insert /react at prompt)"
+                                   "  c  Copy message text"
+                                   (when sender (format "  n  Copy nick (\"%s\")" sender))
+                                   (when url "  u  Copy URL at point")
+                                   (when url "  o  Open URL at point")
+                                   (when sender "  w  WHOIS sender")
+                                   (when sender "  q  Open query/DM with sender")
+                                   "  i  Inspect raw message"
+                                   (when sender "  I  Toggle ignore on sender")
+                                   "  l  List all URLs in buffer"))
+                       "\n\n")))
+    (call-interactively
+     (pcase (car (read-multiple-choice "Pick: " choices help-string))
+       (?r #'clatter-action-reply)
+       (?e #'clatter-action-react)
+       (?c #'clatter-action-copy-message)
+       (?n #'clatter-action-copy-nick)
+       (?u #'clatter-action-copy-url)
+       (?o #'clatter-action-open-url)
+       (?w #'clatter-action-whois)
+       (?q #'clatter-action-query)
+       (?i #'clatter-action-inspect)
+       (?I #'clatter-action-ignore)
+       (?l #'clatter-action-collect-urls)))))
 
 ;; --- Bind into clatter-mode ---
 
