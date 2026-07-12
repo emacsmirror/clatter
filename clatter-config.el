@@ -188,8 +188,10 @@ outgoing message."
   :group 'clatter)
 
 (defcustom clatter-fill-column 80
-  "Column at which to wrap messages in channel buffers."
-  :type 'integer
+  "Column at which to wrap messages in channel buffers.
+If nil, wrapping is disabled."
+  :type '(choice (const :tag "Disable wrapping" nil)
+                 (integer :tag "Column number"))
   :group 'clatter)
 
 (defcustom clatter-nick-column-width 20
