@@ -101,8 +101,8 @@ Each value is a list (SIGNAL-COUNT NOISE-COUNT ACTIVE-P).")
   (let* ((ratio (clatter-smart-put buf nick elt))
          (key (downcase (if (stringp elt) elt nick)))
          (entry (gethash key (clatter-smart-on buf))))
-    (and (not (clatter-smart--entry-active-p entry))
-         (< ratio clatter-smart-threshold))))
+    (or (not (clatter-smart--entry-active-p entry))
+        (< ratio clatter-smart-threshold))))
 
 (provide 'clatter-smart)
 

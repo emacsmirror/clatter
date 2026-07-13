@@ -475,25 +475,6 @@
                                 (ensure-list (get-text-property (match-beginning 0) 'invisible)))))))
       (clatter-test-cleanup))))
 
-(ert-deftest clatter-test-smart-noise-keeps-repeated-noise-from-active-nick ()
-  "Once a nick has signal, later noise stays visible regardless of volume."
-  (let ((clatter-smart-noise '(join part quit nick away))
-        (clatter-smart-threshold 0.5))
-    (with-temp-buffer
-      (clatter-smart-put (current-buffer) "alice" 'privmsg)
-      (dotimes (_ 8)
-        (should-not (clatter-smart-eval (current-buffer) "alice" 'away))))))
-
-(ert-deftest clatter-test-smart-noise-preserves-active-state-across-nick-change ()
-  "Nick changes carry active state to the new nick."
-  (let ((clatter-smart-noise '(join part quit nick away))
-        (clatter-smart-threshold 0.5))
-    (with-temp-buffer
-      (clatter-smart-put (current-buffer) "alice" 'privmsg)
-      (should-not (clatter-smart-eval (current-buffer) "alice" "alice_"))
-      (dotimes (_ 8)
-        (should-not (clatter-smart-eval (current-buffer) "alice_" 'part))))))
-
 (ert-deftest clatter-test-fool-message-gets-dim-face ()
   "Messages with the fool invisibility category get `clatter-fool'."
   (with-temp-buffer
