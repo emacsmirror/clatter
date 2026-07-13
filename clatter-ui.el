@@ -847,6 +847,20 @@ If the input contains multiple lines and exceeds
   '(:eval (clatter--mode-line-string))
   "Mode-line construct for clatter buffers.")
 
+(defun clatter--header-line-inject-tooltip (line)
+  "Extend LINE with a self-descriptive tooltip."
+  (when line
+    (put-text-property
+     0 (length line)
+     ;; Ensure tooltip text is filled to a fixed column in order
+     ;; to avoid generating long single-line tooltips.
+     'help-echo (with-temp-buffer
+                  (insert line)
+                  (fill-region (point-min) (point-max))
+                  (buffer-string))
+     line))
+  line)
+
 (defun clatter--header-line-string ()
   "Generate header-line channel context for the current Clatter buffer."
   (when clatter--network
@@ -866,17 +880,19 @@ If the input contains multiple lines and exceeds
            (context (if (string-empty-p details)
                         base
                       (format "%s %s" base details))))
-      (if (and clatter--topic (not (string-empty-p clatter--topic)))
-          (format "%s - %s" context clatter--topic)
-        context))))
+      (clatter--header-line-inject-tooltip
+       (if (and clatter--topic (not (string-empty-p clatter--topic)))
+           (format "%s - %s" context clatter--topic)
+         context)))))
 
 (defun clatter--header-line-topic-string ()
   "Generate the topic-only header-line preset for the current buffer.
 Fall back to the network and target when the buffer has no topic."
   (when clatter--network
-    (if (and clatter--topic (not (string-empty-p clatter--topic)))
-        clatter--topic
-      (format "[%s/%s]" clatter--network (or clatter--target "")))))
+    (clatter--header-line-inject-tooltip
+     (if (and clatter--topic (not (string-empty-p clatter--topic)))
+         clatter--topic
+       (format "[%s/%s]" clatter--network (or clatter--target ""))))))
 
 (defun clatter--effective-header-line-preset ()
   "Return the configured header-line preset."
