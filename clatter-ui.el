@@ -258,8 +258,7 @@ append at the bottom like a traditional IRC client."
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)
                                    (list 'read-only t
-                                         'front-sticky nil
-                                         'rear-nonsticky t
+                                         'front-sticky t
                                          'wrap-prefix wrap-prefix
                                          'line-prefix ""))
               (when msg-props
@@ -721,7 +720,9 @@ messages."
 (defun clatter--set-input (input)
   "Replace the prompt input with INPUT."
   (clatter--clear-input)
-  (insert input))
+  (when clatter--input-marker
+    (goto-char clatter--input-marker)
+    (insert input)))
 
 (defun clatter--move-to-prompt ()
   "Move point to the input line before a self-inserting command.
