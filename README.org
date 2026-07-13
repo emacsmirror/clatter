@@ -126,7 +126,8 @@ Example:
 
 *** Desktop Notifications (clatter-notify)
 - Mention, DM, and keyword-triggered notifications
-- Uses notify-send (Linux) or terminal-notifier (macOS)
+- Uses Emacs-native desktop notifications (D-Bus, Android, Haiku, or Windows), with terminal-notifier on macOS
+- Silent delivery failure by default, with an opt-in echo-area fallback
 - Per-channel and per-nick muting
 - Smart notification rules: per-channel levels (all/mentions/dms/none) with schedule
 - DM priority override (always/rules/never)

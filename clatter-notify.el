@@ -9,17 +9,23 @@
 ;; Desktop notifications for clatter.el with IRC-specific rules.
 ;; Supports mentions, DMs, keyword matching, muted channels,
 ;; and current-buffer suppression.
-;; Uses notify-send on Linux, terminal-notifier on macOS,
-;; or Emacs built-in notifications as fallback.
+;; Uses Emacs-native notification APIs, with terminal-notifier retained
+;; as the macOS backend.
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'xml)
 (require 'clatter-config)
 (require 'clatter-protocol)
 (require 'clatter-connection)
 (require 'clatter-model)
 (require 'clatter-pals)
+
+(declare-function notifications-notify "notifications" (&rest params))
+(declare-function android-notifications-notify "androidselect.c" (&rest params))
+(declare-function haiku-notifications-notify "haikuselect.c" (&rest params))
+(declare-function w32-notification-notify "w32notify.c" (&rest params))
 
 ;; --- Configuration ---
 
@@ -111,6 +117,13 @@ Set to t for system default, or a path to a specific sound."
   :type 'integer
   :group 'clatter)
 
+(defcustom clatter-notify-echo-area nil
+  "When non-nil, echo a notification after native delivery fails.
+This fallback is disabled by default so mentions and DMs do not spam
+the echo area when no desktop notification service is available."
+  :type 'boolean
+  :group 'clatter)
+
 ;; --- Smart notification rules ---
 
 (defcustom clatter-notify-rules nil
@@ -198,48 +211,123 @@ Prevents notification spam from rapid messages."
 
 ;; --- Notification dispatch ---
 
-(defun clatter-notify--send (title body)
-  "Send a desktop notification with TITLE and BODY."
-  (let ((body-truncated (if (> (length body) clatter-notify-max-length)
-                            (concat (substring body 0 (- clatter-notify-max-length 3)) "...")
-                          body)))
-    (cond
-     ;; Linux: notify-send
-     ((executable-find "notify-send")
-      (let ((args (list "notify-send"
-                        "-t" (number-to-string clatter-notify-timeout)
-                        "-u" (symbol-name clatter-notify-urgency)
-                        "-a" "CLatter")))
-        (when clatter-notify-icon
-          (setq args (append args (list "-i" clatter-notify-icon))))
-        (setq args (append args (list title body-truncated)))
-        (apply #'start-process "clatter-notify" nil args)))
-     ;; macOS: terminal-notifier or osascript
-     ((executable-find "terminal-notifier")
-      (start-process "clatter-notify" nil
-                     "terminal-notifier"
-                     "-title" title
-                     "-message" body-truncated
-                     "-sender" "org.gnu.Emacs"
-                     "-group" "clatter"))
-     ;; Fallback: Emacs message
-     (t
-      (message "[CLatter] %s: %s" title body-truncated)))
-    ;; Optional sound
-    (when clatter-notify-sound
-      (clatter-notify--play-sound))))
+(defun clatter-notify--plain-text (text)
+  "Return notification TEXT without properties or IRC formatting."
+  (clatter-strip-irc-formatting (substring-no-properties text)))
 
-(defun clatter-notify--play-sound ()
-  "Play notification sound if configured."
+(defun clatter-notify--truncate (text)
+  "Return plain notification TEXT truncated to the configured limit."
+  (let* ((plain (clatter-notify--plain-text text))
+         (limit (max 0 clatter-notify-max-length)))
+    (cond
+     ((<= (length plain) limit) plain)
+     ((zerop limit) "")
+     (t (concat (substring plain 0 (1- limit)) "…")))))
+
+(defun clatter-notify--action-params (buffer)
+  "Return native notification action parameters for BUFFER."
+  (when (buffer-live-p buffer)
+    (list :actions '("default" "Open buffer")
+          :on-action (lambda (&rest _)
+                       (when (buffer-live-p buffer)
+                         (pop-to-buffer buffer))))))
+
+(defun clatter-notify--dbus-sound-params ()
+  "Return D-Bus sound parameters for the configured notification sound."
   (cond
+   ((eq clatter-notify-sound t)
+    (list :sound-name "message-new-instant"))
    ((and (stringp clatter-notify-sound)
          (file-exists-p clatter-notify-sound))
-    (start-process "clatter-sound" nil "paplay" clatter-notify-sound))
-   ((eq clatter-notify-sound t)
-    (when (executable-find "paplay")
-      (start-process "clatter-sound" nil
-                     "paplay"
-                     "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga")))))
+    (list :sound-file (expand-file-name clatter-notify-sound)))))
+
+(defun clatter-notify--dbus-send (title body buffer)
+  "Send TITLE and BODY over D-Bus, associated with BUFFER."
+  (condition-case nil
+      (when (require 'notifications nil t)
+        (let ((params (list :title (xml-escape-string title t)
+                            :body (xml-escape-string body t)
+                            :app-name "CLatter"
+                            :timeout clatter-notify-timeout
+                            :urgency clatter-notify-urgency
+                            :category "im.received")))
+          (when clatter-notify-icon
+            (setq params (append params (list :app-icon clatter-notify-icon))))
+          (setq params (append params
+                               (clatter-notify--dbus-sound-params)
+                               (clatter-notify--action-params buffer)))
+          ;; `notifications-notify' demotes D-Bus failures through `message'.
+          ;; Keep automatic delivery silent and let our own fallback policy
+          ;; decide whether anything belongs in the echo area.
+          (let ((inhibit-message t)
+                (message-log-max nil))
+            (apply #'notifications-notify params))))
+    (error nil)))
+
+(defun clatter-notify--android-send (title body buffer)
+  "Send an Android notification with TITLE and BODY for BUFFER."
+  (when (fboundp 'android-notifications-notify)
+    (apply #'android-notifications-notify
+           (append (list :title title
+                         :body body
+                         :timeout clatter-notify-timeout
+                         :urgency clatter-notify-urgency
+                         :group "CLatter")
+                   (clatter-notify--action-params buffer)))))
+
+(defun clatter-notify--haiku-send (title body)
+  "Send a Haiku notification with TITLE and BODY."
+  (when (fboundp 'haiku-notifications-notify)
+    (let ((params (list :title title :body body
+                        :urgency clatter-notify-urgency)))
+      (when clatter-notify-icon
+        (setq params (append params (list :app-icon clatter-notify-icon))))
+      (apply #'haiku-notifications-notify params))))
+
+(defun clatter-notify--w32-send (title body)
+  "Send a native Windows notification with TITLE and BODY."
+  (when (fboundp 'w32-notification-notify)
+    (let ((params (list :title title :body body
+                        :level (if (eq clatter-notify-urgency 'critical)
+                                   'error
+                                 'info))))
+      (when clatter-notify-icon
+        (setq params (append params (list :icon clatter-notify-icon))))
+      (apply #'w32-notification-notify params))))
+
+(defun clatter-notify--mac-send (title body)
+  "Send a macOS notification with TITLE and BODY."
+  (when (executable-find "terminal-notifier")
+    (let ((args (list "clatter-notify" nil
+                      "terminal-notifier"
+                      "-title" title
+                      "-message" body
+                      "-sender" "org.gnu.Emacs"
+                      "-group" "clatter")))
+      (when (eq clatter-notify-sound t)
+        (setq args (append args '("-sound" "default"))))
+      (apply #'start-process args))))
+
+(defun clatter-notify--send-native (title body buffer)
+  "Send TITLE and BODY through the native backend for BUFFER."
+  (condition-case nil
+      (cond
+       ((featurep 'android) (clatter-notify--android-send title body buffer))
+       ((featurep 'haiku) (clatter-notify--haiku-send title body))
+       ((eq system-type 'windows-nt) (clatter-notify--w32-send title body))
+       ((eq system-type 'darwin) (clatter-notify--mac-send title body))
+       (t (clatter-notify--dbus-send title body buffer)))
+    (error nil)))
+
+(defun clatter-notify--send (title body &optional buffer)
+  "Send a desktop notification with TITLE and BODY for BUFFER.
+Return the backend result, `echo' for an echo-area fallback, or nil."
+  (let ((plain-title (clatter-notify--plain-text title))
+        (plain-body (clatter-notify--truncate body)))
+    (or (clatter-notify--send-native plain-title plain-body buffer)
+        (when clatter-notify-echo-area
+          (message "[CLatter] %s: %s" plain-title plain-body)
+          'echo))))
 
 ;; --- Notification logic ---
 
@@ -314,9 +402,9 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
   "Format notification title based on REASON, SENDER, and TARGET."
   (pcase reason
     ('dm (format "DM from %s" sender))
-    ('mention (format "Mentioned in %s" target))
+    ('mention (format "Mention from %s in %s" sender target))
     ('invite (format "Invite from %s" sender))
-    ('keyword (format "Keyword in %s" target))
+    ('keyword (format "Keyword from %s in %s" sender target))
     (_ (format "%s in %s" sender target))))
 
 ;; --- Hooks ---
@@ -334,7 +422,9 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
         (when (clatter-notify--rate-ok-p source)
           (clatter-notify--send
            (clatter-notify--format-title reason sender-nick target)
-           (format "<%s> %s" sender-nick text)))))))
+           text
+           (clatter-get-buffer (clatter-connection-network-id conn)
+                               (if is-channel target sender-nick))))))))
 
 (defun clatter-notify--on-action (conn sender target text &optional server-time)
   "Notify for SENDER's ACTION TEXT to TARGET on CONN."
@@ -349,7 +439,9 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
         (when (clatter-notify--rate-ok-p source)
           (clatter-notify--send
            (clatter-notify--format-title reason sender-nick target)
-           (format "* %s %s" sender-nick text)))))))
+           (format "* %s" text)
+           (clatter-get-buffer (clatter-connection-network-id conn)
+                               (if is-channel target sender-nick))))))))
 
 (defun clatter-notify--on-invite (conn sender nick channel)
   "Notify when SENDER invites NICK to CHANNEL on CONN."
@@ -359,7 +451,10 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
       (when (clatter-notify--rate-ok-p sender-nick)
         (clatter-notify--send
          (clatter-notify--format-title 'invite sender-nick nick)
-         (format "%s invites you to join %s" sender-nick channel))))))
+         (format "Invitation to join %s" channel)
+         (or (clatter-get-buffer (clatter-connection-network-id conn) channel)
+             (clatter-get-server-buffer
+              (clatter-connection-network-id conn))))))))
 
 ;; --- Interactive commands ---
 
@@ -387,7 +482,8 @@ Returns a symbol indicating the reason: mention, dm, keyword, or nil."
 (defun clatter-notify-test ()
   "Send a test notification."
   (interactive)
-  (clatter-notify--send "CLatter Test" "Notifications are working"))
+  (unless (clatter-notify--send "CLatter Test" "Notifications are working")
+    (message "[clatter-notify] Native notification delivery failed")))
 
 (defun clatter-notify-mute-nick (pattern)
   "Add PATTERN to the muted nicks list."

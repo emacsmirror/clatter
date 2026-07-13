@@ -887,7 +887,7 @@
           (with-current-buffer buf
             (setq-local clatter--last-read-time last-read))
           (cl-letf (((symbol-function 'clatter-notify--send)
-                     (lambda (title body)
+                     (lambda (title body &optional _buffer)
                        (push (list title body) sent))))
             (clatter-notify--on-privmsg
              conn '("alice" nil nil) "#test" "trev: already saw this" last-read)
@@ -912,7 +912,7 @@
           (with-current-buffer buf
             (setq-local clatter--last-read-time last-read))
           (cl-letf (((symbol-function 'clatter-notify--send)
-                     (lambda (title body)
+                     (lambda (title body &optional _buffer)
                        (push (list title body) sent))))
             (clatter-notify--on-privmsg
              conn '("alice" nil nil) "#test" "trev: new message" unread-time)
