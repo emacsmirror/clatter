@@ -739,12 +739,14 @@ editing at the prompt, like `erc-move-to-prompt'.  Controlled by
 (defun clatter-set-prev-input ()
   "Insert the previous (older) input history item at the prompt."
   (interactive)
-  (let ((item (clatter-input-ring-nth clatter-input-ring-index)))
-    (when item
-      (clatter--set-input item)
-      (setq clatter-input-ring-index
-            (min (1+ clatter-input-ring-index)
-                 (1- (ring-length clatter-input-ring)))))))
+  (when (and (ring-p clatter-input-ring)
+             (not (ring-empty-p clatter-input-ring)))
+    (setq clatter-input-ring-index
+          (min (1+ clatter-input-ring-index)
+               (1- (ring-length clatter-input-ring))))
+    (let ((item (clatter-input-ring-nth clatter-input-ring-index)))
+      (when item
+        (clatter--set-input item)))))
 
 (defun clatter-set-next-input ()
   "Insert the next (newer) input history item at the prompt."
