@@ -258,8 +258,7 @@ append at the bottom like a traditional IRC client."
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)
                                    (list 'read-only t
-                                         'front-sticky nil
-                                         'rear-nonsticky t
+                                         'front-sticky t
                                          'wrap-prefix wrap-prefix
                                          'line-prefix ""))
               (when msg-props
