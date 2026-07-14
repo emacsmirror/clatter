@@ -11,6 +11,17 @@
 (require 'ert)
 (require 'clatter-hl-nicks)
 
+(ert-deftest clatter-hl-urls-are-standard-buttons ()
+  "URL highlighting produces a standard Emacs button."
+  (with-temp-buffer
+    (insert (clatter-hl-urls-in-string "see https://example.com/a"))
+    (goto-char (point-min))
+    (search-forward "https")
+    (let ((button (button-at (match-beginning 0))))
+      (should button)
+      (should (equal (button-get button 'clatter-url)
+                     "https://example.com/a")))))
+
 (ert-deftest clatter-hl-nick-index-deterministic-and-in-range ()
   "The palette index is stable and within bounds."
   (let ((n (length clatter-hl-nick-colors)))

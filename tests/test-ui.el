@@ -6,6 +6,129 @@
 (require 'clatter-ui)
 (require 'clatter-commands)
 (require 'clatter-nicklist)
+
+(ert-deftest clatter-navigation-orders-messages-and-interactive-items ()
+  "Navigation visits a message, its link, then the following message."
+  (with-temp-buffer
+    (let ((clatter-nick-column-width 8))
+      (insert (clatter--format-nick-column "<alice>" nil "alice")
+              " see "
+              (clatter-hl-urls-in-string "https://example.com")
+              "\n"
+              (clatter--format-nick-column "<bob>" nil "bob")
+              " hello\n"))
+    (goto-char (point-min))
+    (clatter-next-item)
+    (should (equal (get-text-property (point) 'clatter-sender) "alice"))
+    (should (looking-at-p "<alice>"))
+    (clatter-next-item)
+    (should (button-at (point)))
+    (clatter-next-item)
+    (should (equal (get-text-property (point) 'clatter-sender) "bob"))
+    (clatter-previous-item)
+    (should (button-at (point)))
+    (clatter-previous-item)
+    (should (looking-at-p "<alice>"))))
+
+(ert-deftest clatter-navigation-skips-invisible-items ()
+  "Navigation does not stop at suppressed messages or their buttons."
+  (with-temp-buffer
+    (insert (propertize "hidden"
+                        'clatter-navigation-target 'message
+                        'invisible t)
+            " "
+            (propertize "hidden-link"
+                        'button '(t)
+                        'category 'default-button
+                        'invisible t)
+            "\nvisible")
+    (put-text-property (- (point-max) 7) (point-max)
+                       'clatter-navigation-target 'message)
+    (goto-char (point-min))
+    (clatter-next-item)
+    (should (looking-at-p "visible"))))
+
+(ert-deftest clatter-navigation-includes-follow-link-text ()
+  "Navigation visits interactive text that is not a standard button."
+  (with-temp-buffer
+    (insert "x " (propertize "context" 'follow-link t) " y")
+    (goto-char (point-min))
+    (clatter-next-item)
+    (should (looking-at-p "context"))))
+
+(ert-deftest clatter-reply-context-is-a-navigable-button ()
+  "Reply context is a standard button that jumps to its message."
+  (let ((conn (clatter-test-make-connection "testnet" "me")))
+    (unwind-protect
+        (dolist (order '(oldest-first newest-first))
+          (with-temp-buffer
+            (let ((clatter-message-order order))
+              (clatter-mode)
+              (setq-local clatter--network "testnet")
+              (setq-local clatter--target "#test")
+              (clatter-ui-setup-buffer (current-buffer))
+              (clatter-insert-privmsg
+               (current-buffer) "alice"
+               (propertize "original" 'clatter-msgid "msg-1") conn)
+              (clatter-insert-privmsg
+               (current-buffer) "bob"
+               (propertize "reply" 'clatter-reply-to "msg-1") conn)
+              (let* ((button (next-button (point-min) t))
+                     (position (and button (button-start button))))
+                (should button)
+                (should (equal (button-get button 'reply-to) "msg-1"))
+                (goto-char position)
+                (push-button)
+                (should (equal (get-text-property (point) 'clatter-msgid)
+                               "msg-1"))))))
+      (remhash "testnet" clatter-connections))))
+
+(ert-deftest clatter-tab-and-backtab-preserve-input-behavior ()
+  "TAB completes and BACKTAB stays undefined while point is in input."
+  (dolist (order '(oldest-first newest-first))
+    (with-temp-buffer
+      (let ((clatter-message-order order)
+            expected
+            (completion-calls 0)
+            (undefined-calls 0))
+        (if (eq order 'oldest-first)
+            (progn
+              (insert (propertize "older" 'clatter-navigation-target 'message)
+                      " "
+                      (propertize "newer" 'clatter-navigation-target 'message)
+                      "\n")
+              (setq expected 7)
+              (setq-local clatter--messages-marker (copy-marker (point-min)))
+              (setq-local clatter--input-marker (copy-marker (point)))
+              (insert "input"))
+          (setq-local clatter--input-marker (copy-marker (point-min)))
+          (insert "input\n")
+          (setq-local clatter--messages-marker (copy-marker (point)))
+          (setq expected (point))
+          (insert (propertize "newer" 'clatter-navigation-target 'message)
+                  " "
+                  (propertize "older" 'clatter-navigation-target 'message)))
+        (cl-letf (((symbol-function 'completion-at-point)
+                   (lambda ()
+                     (cl-incf completion-calls)))
+                  ((symbol-function 'undefined)
+                   (lambda ()
+                     (interactive)
+                     (cl-incf undefined-calls))))
+          (goto-char clatter--input-marker)
+          (let ((origin (point)))
+            (clatter-tab)
+            (should (= (point) origin))
+            (clatter-backtab)
+            (should (= (point) origin)))
+          (should (= completion-calls 1))
+          (should (= undefined-calls 1)))
+        ;; The spatially adjacent history command returns to input.
+        (goto-char expected)
+        (funcall (if (eq order 'oldest-first)
+                     #'clatter-tab
+                   #'clatter-backtab))
+        (should (clatter-in-input-p))))))
 (require 'clatter-track)
 (require 'clatter-notify)
 

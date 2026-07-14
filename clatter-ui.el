@@ -12,7 +12,9 @@
 
 ;;; Code:
 
+(require 'button)
 (require 'cl-lib)
+(require 'seq)
 (require 'clatter-config)
 (require 'clatter-protocol)
 (require 'clatter-connection)
@@ -175,6 +177,94 @@ message ends the group."
 (defvar-local clatter--messages-marker nil
   "Marker for the start of the message area (below the input line).")
 
+(defun clatter-in-input-p (&optional position)
+  "Return non-nil when POSITION is in the input area.
+POSITION defaults to point."
+  (let ((position (or position (point))))
+    (and clatter--input-marker
+         clatter--messages-marker
+         (<= (marker-position clatter--input-marker) position)
+         (<= position (clatter--input-end)))))
+
+(defun clatter--navigation-property-positions (property)
+  "Return visible starts of non-nil PROPERTY regions in this buffer."
+  (let ((position (point-min))
+        positions)
+    (while (< position (point-max))
+      (when (and (get-text-property position property)
+                 (not (invisible-p position)))
+        (push position positions))
+      (setq position
+            (or (next-single-property-change
+                 position property nil (point-max))
+                (point-max))))
+    (nreverse positions)))
+
+(defun clatter--navigation-button-positions ()
+  "Return visible starts of standard buttons in this buffer."
+  (let ((position (point-min))
+        button
+        positions)
+    (while (and (< position (point-max))
+                (setq button (next-button position t)))
+      (let ((start (button-start button))
+            (end (button-end button)))
+        (when (and start (not (invisible-p start)))
+          (push start positions))
+        (setq position (max (1+ start) end))))
+    (nreverse positions)))
+
+(defun clatter--navigation-positions ()
+  "Return sorted visible navigation target positions in this buffer."
+  (sort (delete-dups
+         (append
+          (clatter--navigation-property-positions
+           'clatter-navigation-target)
+          (clatter--navigation-button-positions)
+          ;; Include existing non-button interactive text so extensions do
+          ;; not need to know about Clatter's private target property.
+          (clatter--navigation-property-positions 'follow-link)
+          (clatter--navigation-property-positions 'keymap)
+          (clatter--navigation-property-positions 'clatter-url)
+          (when (and clatter--input-marker
+                     (marker-buffer clatter--input-marker))
+            (list (marker-position clatter--input-marker)))))
+        #'<))
+
+(defun clatter-next-item ()
+  "Move point to the next visible message or interactive item."
+  (interactive)
+  (let ((position (seq-find (lambda (candidate)
+                              (> candidate (point)))
+                            (clatter--navigation-positions))))
+    (if position
+        (goto-char position)
+      (user-error "No next Clatter item"))))
+
+(defun clatter-previous-item ()
+  "Move point to the previous visible message or interactive item."
+  (interactive)
+  (let ((position (seq-find (lambda (candidate)
+                              (< candidate (point)))
+                            (reverse (clatter--navigation-positions)))))
+    (if position
+        (goto-char position)
+      (user-error "No previous Clatter item"))))
+
+(defun clatter-tab ()
+  "Complete at point in input, or move to the next history item."
+  (interactive)
+  (if (clatter-in-input-p)
+      (completion-at-point)
+    (clatter-next-item)))
+
+(defun clatter-backtab ()
+  "Keep BACKTAB undefined in input, or move to the previous history item."
+  (interactive)
+  (if (clatter-in-input-p)
+      (call-interactively #'undefined)
+    (clatter-previous-item)))
+
 (defvar-local clatter--message-generation 0
   "Number of messages inserted into the current buffer.")
 
@@ -209,12 +299,14 @@ Apply FACE and set clatter-sender property to SENDER if provided."
   (let* ((width clatter-nick-column-width)
          (nick-len (length nick-str))
          (pad (max 0 (- width nick-len)))
-         (padded (concat (make-string pad ?\s)
-                         (if face
-                             (let ((formatted (copy-sequence nick-str)))
-                               (add-face-text-property 0 (length formatted) face nil formatted)
-                               formatted)
-                           nick-str))))
+         (nick-text (copy-sequence nick-str))
+         (padded nil))
+    (when face
+      (add-face-text-property 0 (length nick-text) face nil nick-text))
+    (add-text-properties 0 (length nick-text)
+                         '(clatter-navigation-target message)
+                         nick-text)
+    (setq padded (concat (make-string pad ?\s) nick-text))
     (when sender
       (setq padded (propertize padded 'clatter-sender sender)))
     padded))
@@ -225,7 +317,9 @@ Apply FACE and set clatter-sender property to SENDER if provided."
          (plen (length prefix-str))
          (pad (max 0 (- width plen))))
     (concat (make-string pad ?\s)
-            (propertize prefix-str 'face 'clatter-system))))
+            (propertize prefix-str
+                        'face 'clatter-system
+                        'clatter-navigation-target 'message))))
 
 (defun clatter--update-undo-list (shift)
   "Shift integer buffer positions in `buffer-undo-list' by SHIFT.
@@ -446,15 +540,15 @@ SERVER-TIME overrides the current time for the timestamp."
                               (front (propertize (format "↳ %s " front-nick) 'face 'shadow)))
                          (add-face-text-property 0 (length preview) 'shadow nil preview)
                          (let ((context (concat front preview "\n"))
-                               (map (make-sparse-keymap))
-                               (action (lambda () (interactive) (clatter-jump-to-msgid buffer reply-to))))
-                           (define-key map [mouse-2] action)
-                           (define-key map (kbd "RET") action)
+                               (action
+                                (lambda (_button)
+                                  (clatter-jump-to-msgid buffer reply-to))))
                            (add-text-properties 0 (length context)
-                                                (list 'keymap map
+                                                (list 'button '(t)
+                                                      'category 'default-button
+                                                      'action action
                                                       'follow-link t
                                                       'reply-to reply-to
-                                                      'mouse-face 'highlight
                                                       'help-echo "Click or press RET to jump to reply context")
                                                 context)
                            context))))
@@ -2130,7 +2224,8 @@ Requires the server to support the message-tags capability."
   (add-hook 'clatter-mode-hook #'clatter-ui--setup-eldoc)
   ;; Key bindings for input
   (define-key clatter-mode-map (kbd "RET") #'clatter-send-input)
-  (define-key clatter-mode-map (kbd "TAB") #'completion-at-point)
+  (define-key clatter-mode-map (kbd "TAB") #'clatter-tab)
+  (define-key clatter-mode-map (kbd "<backtab>") #'clatter-backtab)
   (define-key clatter-mode-map (kbd "M-p") #'clatter-set-prev-input)
   (define-key clatter-mode-map (kbd "M-n") #'clatter-set-next-input)
   (define-key clatter-mode-map (kbd "C-a") #'clatter-bol)
