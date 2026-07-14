@@ -838,7 +838,7 @@ system messages."
          buffer 'join '(:nick "new" :channel "#test") 'join)
         (with-current-buffer buffer
           (should (string-match-p
-                   "→ new\n\\[trev\\]:"
+                   "→ new\n *\\[trev\\]:"
                    (buffer-substring-no-properties
                     (point-min) (point-max)))))))))
 

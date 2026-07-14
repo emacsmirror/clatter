@@ -33,6 +33,11 @@
     (goto-char (point-min))
     (buffer-substring-no-properties (line-beginning-position) (line-end-position))))
 
+(defun clatter-input-test--prompt ()
+  "Return the current prompt without text properties."
+  (buffer-substring-no-properties clatter--prompt-marker
+                                  clatter--input-marker))
+
 (ert-deftest clatter-prompt-format-expands-placeholders ()
   "String prompt formats expand target, nick, network, and percent."
   (let ((clatter-prompt-format "%N/%n:%t %% "))
@@ -44,7 +49,8 @@
         (unwind-protect
             (progn
               (clatter--setup-prompt (current-buffer))
-              (should (string-prefix-p "testnet/alice:#test % " (buffer-string))))
+              (should (string-suffix-p "testnet/alice:#test % "
+                                       (clatter-input-test--prompt))))
           (remhash (clatter-connection-network-id conn) clatter-connections))))))
 
 (ert-deftest clatter-prompt-format-function-receives-context ()
@@ -65,7 +71,8 @@
         (unwind-protect
             (progn
               (clatter--setup-prompt (current-buffer))
-              (should (string-prefix-p "alice@testnet/#test>" (buffer-string))))
+              (should (string-suffix-p "alice@testnet/#test>"
+                                       (clatter-input-test--prompt))))
           (remhash (clatter-connection-network-id conn) clatter-connections))))))
 
 (ert-deftest clatter-prompt-format-needs-nick-detects-unescaped-specifier ()
@@ -88,7 +95,8 @@
         (unwind-protect
             (progn
               (clatter--setup-prompt (current-buffer))
-              (should (string-prefix-p "alice> " (buffer-string)))
+              (should (string-suffix-p "alice> "
+                                       (clatter-input-test--prompt)))
               (should-not (string-match-p "alice" (clatter--mode-line-string))))
           (remhash (clatter-connection-network-id conn) clatter-connections))))))
 
@@ -103,7 +111,8 @@
         (unwind-protect
             (progn
               (clatter--setup-prompt (current-buffer))
-              (should (string-prefix-p "#test> " (buffer-string)))
+              (should (string-suffix-p "#test> "
+                                       (clatter-input-test--prompt)))
               (should (string-match-p "alice" (clatter--mode-line-string))))
           (remhash (clatter-connection-network-id conn) clatter-connections))))))
 
@@ -123,7 +132,8 @@
               (goto-char (+ (marker-position clatter--input-marker) 2))
               (setf (clatter-connection-nick conn) "bob")
               (clatter--refresh-prompt)
-              (should (string-prefix-p "bob> draft" (buffer-string)))
+              (should (string-suffix-p "bob> "
+                                       (clatter-input-test--prompt)))
               (should (equal (clatter--get-input) "draft"))
               (should (= (point) (+ (marker-position clatter--input-marker) 2))))
           (remhash (clatter-connection-network-id conn) clatter-connections))))))
@@ -145,14 +155,17 @@
           (with-current-buffer target-buffer
             (setq-local clatter-prompt-format "%t> ")
             (clatter--setup-prompt target-buffer)
-            (should (string-prefix-p "#target> " (buffer-string))))
+            (should (string-suffix-p "#target> "
+                                     (clatter-input-test--prompt))))
           (setf (clatter-connection-nick conn) "bob")
           (clatter-ui--on-nick conn (clatter-parse-prefix "alice!u@h") "bob")
           (with-current-buffer nick-buffer
-            (should (string-prefix-p "bob> draft" (buffer-string)))
+            (should (string-suffix-p "bob> "
+                                     (clatter-input-test--prompt)))
             (should (equal (clatter--get-input) "draft")))
           (with-current-buffer target-buffer
-            (should (string-prefix-p "#target> " (buffer-string)))))
+            (should (string-suffix-p "#target> "
+                                     (clatter-input-test--prompt)))))
       (when nick-buffer
         (clatter-remove-buffer "testnet" "#nick")
         (when (buffer-live-p nick-buffer)
@@ -163,26 +176,75 @@
           (kill-buffer target-buffer)))
       (remhash (clatter-connection-network-id conn) clatter-connections))))
 
+(ert-deftest clatter-prompt-default-preserves-historical-layout ()
+  "The default prompt layout remains unpadded."
+  (let ((clatter-message-order 'oldest-first)
+        (clatter-nick-column-width 10)
+        (clatter-prompt-format "%t> ")
+        (clatter-prompt-alignment nil))
+    (with-temp-buffer
+      (clatter-mode)
+      (setq-local clatter--target "#test")
+      (clatter--setup-prompt (current-buffer))
+      (should (equal (clatter-input-test--prompt) "#test> "))
+      (should (= (current-column) 7)))))
+
+(ert-deftest clatter-prompt-is-right-aligned-to-nick-column ()
+  "A prompt's visible text ends at the nick column boundary."
+  (let ((clatter-message-order 'oldest-first)
+        (clatter-nick-column-width 10)
+        (clatter-prompt-format "%t> ")
+        (clatter-prompt-alignment 'right))
+    (with-temp-buffer
+      (clatter-mode)
+      (setq-local clatter--target "#test")
+      (clatter--setup-prompt (current-buffer))
+      (should (equal (clatter-input-test--prompt)
+                     "    #test> "))
+      ;; The prompt's trailing space occupies the same separator column as a
+      ;; rendered message, so typed input starts at column 11.
+      (should (= (current-column) 11)))))
+
+(ert-deftest clatter-prompt-long-text-is-preserved ()
+  "Overlong nick and target prompts are neither truncated nor padded."
+  (let ((clatter-message-order 'oldest-first)
+        (clatter-nick-column-width 10)
+        (clatter-prompt-alignment 'right)
+        (conn (clatter-test-make-connection
+               "testnet" "very-long-nickname")))
+    (unwind-protect
+        (dolist (case '(("%t> " . "#very-long-channel-name> ")
+                        ("%n> " . "very-long-nickname> ")))
+          (let ((clatter-prompt-format (car case)))
+            (with-temp-buffer
+              (clatter-mode)
+              (setq-local clatter--network "testnet")
+              (setq-local clatter--target "#very-long-channel-name")
+              (clatter--setup-prompt (current-buffer))
+              (should (equal (clatter-input-test--prompt) (cdr case)))
+              (should (= (current-column) (string-width (cdr case)))))))
+      (remhash (clatter-connection-network-id conn) clatter-connections))))
+
 (ert-deftest clatter-input-oldest-first-prompt-at-bottom ()
   "Oldest-first: prompt is on the last line; messages accumulate above it."
   (clatter-input-test--with 'oldest-first
-    (should (string-prefix-p "#test>" (clatter-input-test--last-line)))
+    (should (string-suffix-p "#test> " (clatter-input-test--last-line)))
     (clatter--insert-message (current-buffer) "first")
     (clatter--insert-message (current-buffer) "second")
     ;; Prompt still on the last line.
-    (should (string-prefix-p "#test>" (clatter-input-test--last-line)))
+    (should (string-suffix-p "#test> " (clatter-input-test--last-line)))
     ;; Chronological order above the prompt: first, then second, then prompt.
     (should (string-match-p
-             "first\nsecond\n#test>"
+             "first\nsecond\n *#test>"
              (buffer-substring-no-properties (point-min) (point-max))))))
 
 (ert-deftest clatter-input-newest-first-prompt-at-top ()
   "Newest-first: prompt is on the first line; newest message sits just below."
   (clatter-input-test--with 'newest-first
-    (should (string-prefix-p "#test>" (clatter-input-test--first-line)))
+    (should (string-suffix-p "#test> " (clatter-input-test--first-line)))
     (clatter--insert-message (current-buffer) "first")
     (clatter--insert-message (current-buffer) "second")
-    (should (string-prefix-p "#test>" (clatter-input-test--first-line)))
+    (should (string-suffix-p "#test> " (clatter-input-test--first-line)))
     ;; Newest (second) is directly below the prompt, older (first) below it.
     (should (string-match-p
              "#test>.*\nsecond\nfirst\n"

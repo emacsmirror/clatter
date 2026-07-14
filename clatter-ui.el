@@ -1103,6 +1103,22 @@ existing group's visibility categories."
 
 ;; --- Input prompt ---
 
+(defun clatter--align-prompt (prompt)
+  "Right-align the visible part of PROMPT in the nick column.
+Trailing spaces or tabs are kept after the column.  This lets formats such as
+`%t> ' use their final space as the same separator used between a sender nick
+and message text."
+  (let* ((trailing-start
+          (save-match-data
+            (if (string-match "[ \t]*\\'" prompt)
+                (match-beginning 0)
+              (length prompt))))
+         (visible (substring prompt 0 trailing-start))
+         (trailing (substring prompt trailing-start))
+         (padding (max 0 (- clatter-nick-column-width
+                            (string-width visible)))))
+    (concat (make-string padding ?\s) visible trailing)))
+
 (defun clatter--prompt-string (&optional buffer)
   "Return the configured prompt string for BUFFER.
 When BUFFER is nil, use the current buffer."
@@ -1146,7 +1162,10 @@ When BUFFER is nil, use the current buffer."
 
 (defun clatter--propertized-prompt (&optional buffer)
   "Return the read-only, propertized prompt for BUFFER."
-  (let ((prompt (clatter--prompt-string buffer)))
+  (let* ((prompt (clatter--prompt-string buffer))
+         (prompt (if (eq clatter-prompt-alignment 'right)
+                     (clatter--align-prompt prompt)
+                   prompt)))
     (with-current-buffer (or buffer (current-buffer))
       (setq-local clatter--prompt-shows-nick
                   (clatter--prompt-shows-nick-p prompt)))

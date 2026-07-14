@@ -359,9 +359,24 @@ the buffer target, `%n' to the current nickname, `%N' to the network
 name, and `%%' to a literal percent sign.  A function is called with
 one argument, the Clatter buffer, and must return a string.
 
+`clatter-prompt-alignment' controls whether the resulting prompt is aligned
+with the nick column.
+
 The default preserves Clatter's historical `target> ' prompt."
   :type '(choice (string :tag "Format string")
                  (function :tag "Function"))
+  :group 'clatter)
+
+(defcustom clatter-prompt-alignment nil
+  "How Clatter aligns input prompts.
+
+When nil, preserve the historical prompt layout without added padding.
+When `right', right-align the visible prompt text within
+`clatter-nick-column-width'.  Trailing spaces or tabs supplied by
+`clatter-prompt-format' remain after that column, aligning input with
+message text.  Prompts wider than the nick column are never truncated."
+  :type '(choice (const :tag "No alignment (historical behavior)" nil)
+                 (const :tag "Right-align with nick column" right))
   :group 'clatter)
 
 (defcustom clatter-header-line-preset nil
