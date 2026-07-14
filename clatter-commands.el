@@ -283,8 +283,11 @@ INPUT is the full string including the leading /."
 (defun clatter-cmd-clear (_args)
   "Handle /clear - clear current buffer."
   (let ((inhibit-read-only t))
-    (when clatter--prompt-marker
-      (delete-region (point-min) clatter--prompt-marker))))
+    (when (and clatter--prompt-marker clatter--messages-marker)
+      (if (eq clatter-message-order 'oldest-first)
+          (delete-region (point-min) clatter--prompt-marker)
+        (delete-region clatter--messages-marker (point-max))))
+    (clatter--end-compact-system-group)))
 
 (defun clatter-cmd-buffers (_args)
   "Handle /buffers - list all buffers."

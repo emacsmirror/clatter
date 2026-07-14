@@ -734,6 +734,45 @@ INVISIBLE carries the same message categories as `clatter-insert-system'."
                 (memq category '(join part quit away back)))
               (ensure-list invisible)))
 
+(defun clatter--end-compact-system-group ()
+  "Forget the current buffer's pending compact system group."
+  (when-let* ((tail (plist-get clatter--compact-system-group :tail)))
+    (when (markerp tail)
+      (set-marker tail nil)))
+  (setq clatter--compact-system-group nil))
+
+(defun clatter--compact-system-group-tail-valid-p (group buffer)
+  "Return non-nil when GROUP still ends its original line in BUFFER."
+  (let ((tail (plist-get group :tail))
+        (group-id (plist-get group :id)))
+    (and group-id
+         (markerp tail)
+         (eq (marker-buffer tail) buffer)
+         (with-current-buffer buffer
+           (let ((position (marker-position tail)))
+             (and (< position (point-max))
+                  (eq (char-after position) ?\n)
+                  (= position
+                     (save-excursion
+                       (goto-char position)
+                       (line-end-position)))
+                  (save-excursion
+                    (goto-char position)
+                    (text-property-any
+                     (line-beginning-position) (1+ position)
+                     'clatter-compact-system-group-id group-id))
+                  ;; A stale marker must never be allowed to enter the
+                  ;; editable prompt, regardless of message ordering.
+                  (or (not clatter--prompt-marker)
+                      (if (eq clatter-message-order 'oldest-first)
+                          (< position (marker-position clatter--prompt-marker))
+                        (and clatter--messages-marker
+                             (>= (save-excursion
+                                   (goto-char position)
+                                   (line-beginning-position))
+                                 (marker-position
+                                  clatter--messages-marker)))))))))))
+
 (defun clatter--append-compact-system-group (buffer event text invisible)
   "Append TEXT to BUFFER's compatible compact EVENT group.
 Return non-nil when the event was grouped.  INVISIBLE must match the
@@ -747,8 +786,7 @@ existing group's visibility categories."
                           (plist-get group :visibility))
                    (= clatter--message-generation
                       (plist-get group :generation))
-                   (markerp tail)
-                   (eq (marker-buffer tail) buffer))
+                   (clatter--compact-system-group-tail-valid-p group buffer))
           (let ((now (clatter--compact-system-now)))
             (when (<= (- now (plist-get group :time))
                       clatter-compact-system-group-window)
@@ -774,9 +812,12 @@ existing group's visibility categories."
                     (add-text-properties
                      start (point)
                      (list 'face 'clatter-system
+                           'clatter-compact-system-group-id
+                           (plist-get group :id)
                            'read-only t
                            'front-sticky nil
-                           'rear-nonsticky t))))
+                           'rear-nonsticky t))
+                    (set-marker tail (point))))
                 (when (and pre-input clatter--input-marker)
                   (clatter--update-undo-list
                    (- (marker-position clatter--input-marker) pre-input)))
@@ -805,12 +846,16 @@ existing group's visibility categories."
                   (when (overlay-get overlay 'clatter-timestamp)
                     (overlay-put overlay 'invisible invisible))))
               (setq clatter--compact-system-group
-                    (list :visibility
+                    (list :id group-id
+                          :visibility
                           (clatter--compact-system-visibility invisible)
                           :last-invisible invisible
                           :generation clatter--message-generation
                           :time (clatter--compact-system-now)
-                          :tail (copy-marker (line-end-position) t))))))))))
+                          ;; Move this marker explicitly after each append;
+                          ;; insertion-type nil prevents unrelated edits at
+                          ;; the boundary from silently relocating it.
+                          :tail (copy-marker (line-end-position)))))))))))
 
 (defun clatter-insert-error (buffer text)
   "Insert an error message TEXT into BUFFER."

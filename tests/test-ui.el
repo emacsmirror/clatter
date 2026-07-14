@@ -473,6 +473,56 @@
                    (buffer-substring-no-properties
                     (point-min) (point-max)))))))))
 
+(ert-deftest clatter-test-compact-system-clear-cannot-append-to-input ()
+  "Clearing a compact group prevents later events entering the prompt."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-compact-system-messages 'compact)
+          (clatter-compact-system-separator " · ")
+          (clatter-message-order order)
+          (clatter-prompt-format "[trev]: "))
+      (clatter-test-with-ui-connection conn
+        (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+          (clatter-ui-setup-buffer buffer)
+          (clatter--insert-system-event
+           buffer 'join '(:nick "old" :channel "#test") 'join)
+          (with-current-buffer buffer
+            (clatter-cmd-clear nil)
+            (should-not clatter--compact-system-group))
+          (clatter--insert-system-event
+           buffer 'back '(:nick "Elouin" :channel "#test") 'away)
+          (clatter--insert-system-event
+           buffer 'join '(:nick "in0rdr" :channel "#test") 'join)
+          (with-current-buffer buffer
+            (let ((rendered (buffer-substring-no-properties
+                             (point-min) (point-max))))
+              (should (string-match-p
+                       "● Elouin · → in0rdr\n" rendered))
+              (should-not (string-match-p
+                           "in0rdr \\[trev\\]:" rendered)))))))))
+
+(ert-deftest clatter-test-compact-system-rejects-stale-tail-marker ()
+  "A deleted compact line cannot leave an append anchor at the prompt."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-message-order 'oldest-first)
+        (clatter-prompt-format "[trev]: "))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter-ui-setup-buffer buffer)
+        (clatter--insert-system-event
+         buffer 'join '(:nick "old" :channel "#test") 'join)
+        (with-current-buffer buffer
+          (let ((inhibit-read-only t))
+            ;; Simulate an external history deletion that does not know about
+            ;; compact grouping state.
+            (delete-region (point-min) clatter--prompt-marker)))
+        (clatter--insert-system-event
+         buffer 'join '(:nick "new" :channel "#test") 'join)
+        (with-current-buffer buffer
+          (should (string-match-p
+                   "→ new\n\\[trev\\]:"
+                   (buffer-substring-no-properties
+                    (point-min) (point-max)))))))))
+
 (ert-deftest clatter-test-compact-system-intervening-message-ends-group ()
   "Any intervening line prevents a later event joining an older group."
   (let ((clatter-compact-system-messages 'compact)
