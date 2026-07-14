@@ -378,6 +378,10 @@ append at the bottom like a traditional IRC client."
                                     (not (equal formatted-timestamp
                                                 clatter--last-formatted-timestamp)))
                                 formatted-timestamp))
+                   (ts-tooltip-str
+                    (unless no-timestamp
+                      (when clatter-timestamp-tooltip-format
+                        (format-time-string clatter-timestamp-tooltip-format time))))
                    (wrap-col (1+ clatter-nick-column-width))
                    (wrap-prefix (make-string wrap-col ?\s))
                    (start (point)))
@@ -404,7 +408,9 @@ append at the bottom like a traditional IRC client."
                                              `((margin ,(if (eq clatter-timestamp-side 'left)
                                                             'left-margin
                                                           'right-margin))
-                                               ,(propertize ts-str 'face '(clatter-timestamp default))))))
+                                               ,(propertize ts-str
+                                                            'face '(clatter-timestamp default)
+                                                            'help-echo ts-tooltip-str)))))
                   (overlay-put ov 'clatter-timestamp t)
                   (overlay-put ov 'invisible invisible)))
               (add-text-properties start (point)

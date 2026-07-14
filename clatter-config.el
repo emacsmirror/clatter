@@ -120,6 +120,14 @@ See `format-time-string' for format specifiers."
   :type 'string
   :group 'clatter)
 
+(defcustom clatter-timestamp-tooltip-format "%F %T"
+  "Format string for timestamp tooltips.
+See `format-time-string' for format specifiers.
+If nil, no tooltip is displayed."
+  :type '(choice (const :tag "No tooltip" nil)
+                 (string :tag "Format specifier"))
+  :group 'clatter)
+
 (defcustom clatter-timestamp-only-if-changed nil
   "Display a message timestamp only when its formatted value changes.
 
