@@ -557,7 +557,7 @@ SERVER-TIME overrides the current time for the timestamp."
                                                       'reply-to reply-to
                                                       'help-echo "Click or press RET to jump to reply context")
                                                 context)
-                           (concat context "\n"))))
+                           (concat context "\n")))))
          (formatted
           (cond
            ((eq 'action msg-type)
