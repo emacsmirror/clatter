@@ -13,6 +13,7 @@
 
 ;;; Code:
 
+(require 'button)
 (require 'cl-lib)
 (require 'clatter-config)
 (require 'clatter-model)
@@ -244,7 +245,7 @@ Returns `clatter-my-nick' for our own nick, otherwise a named
   "Regexp matching URLs in IRC messages.")
 
 (defun clatter-hl-urls-in-string (text)
-  "Highlight URLs in TEXT with clickable properties."
+  "Highlight URLs in TEXT as standard Emacs buttons."
   (let ((pos 0)
         (result ""))
     (while (string-match clatter-url-regexp text pos)
@@ -252,13 +253,19 @@ Returns `clatter-my-nick' for our own nick, otherwise a named
             (end (match-end 0))
             (url (match-string 0 text)))
         (setq result (concat result (substring text pos start)))
-        (setq result (concat result
-                             (propertize url
-                                         'face '(:foreground "#89ddff" :underline t)
-                                         'mouse-face 'highlight
-                                         'clatter-url url
-                                         'help-echo url
-                                         'keymap clatter-hl-url-keymap)))
+        (setq result
+              (concat
+               result
+               (propertize url
+                           'button '(t)
+                           'category 'default-button
+                           'follow-link t
+                           'clatter-url url
+                           'face '(:foreground "#89ddff" :underline t)
+                           'help-echo url
+                           'action (lambda (button)
+                                     (browse-url
+                                      (button-get button 'clatter-url))))))
         (setq pos end)))
     (concat result (substring text pos))))
 
