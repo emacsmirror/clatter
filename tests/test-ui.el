@@ -668,6 +668,32 @@
     (should (equal (ensure-list (get-text-property (point-min) 'face))
                    '(clatter-fool clatter-notice)))))
 
+(ert-deftest clatter-test-fool-presence-events-are-omitted ()
+  "Fool JOIN, PART, and QUIT events are never inserted into chat buffers."
+  (dolist (style '(nil compact))
+    (dolist (visible '(nil t))
+      (let ((clatter-compact-system-messages style)
+            (clatter-fools '("fool"))
+            (clatter-fools-visible visible)
+            (clatter-smart-enabled nil))
+        (clatter-test-with-ui-connection conn
+          (clatter-ui--on-join conn '("fool" nil nil) "#test" nil nil)
+          (let ((buffer (clatter-get-buffer "testnet" "#test")))
+            (should (gethash "fool"
+                             (buffer-local-value 'clatter--nick-list buffer)))
+            (clatter-ui--on-part conn '("fool" nil nil) "#test" "bye")
+            (should-not (gethash "fool"
+                                 (buffer-local-value 'clatter--nick-list buffer)))
+            (clatter-ui--on-join conn '("fool" nil nil) "#test" nil nil)
+            (clatter-ui--on-quit conn '("fool" nil nil) "gone")
+            (should-not (gethash "fool"
+                                 (buffer-local-value 'clatter--nick-list buffer)))
+            (with-current-buffer buffer
+              (should-not (string-match-p
+                           "fool"
+                           (buffer-substring-no-properties
+                            (point-min) (point-max)))))))))))
+
 (ert-deftest clatter-test-fool-visibility-seeds-buffer-invisibility ()
   "New clatter buffers hide fools unless `clatter-fools-visible' is non-nil."
   (let ((clatter-fools-visible nil))

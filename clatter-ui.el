@@ -699,30 +699,34 @@ identical messages sent close together each reconcile only one local line."
 (defun clatter--insert-system-event (buffer event fields invisible)
   "Insert structured system EVENT with FIELDS into BUFFER.
 INVISIBLE carries the same message categories as `clatter-insert-system'."
-  (if (null clatter-compact-system-messages)
-      (clatter-insert-system buffer (plist-get fields :verbose) invisible)
-    (let* ((symbol (or (alist-get event clatter-compact-system-symbols) "***"))
-           (prefix (clatter--format-system-prefix symbol))
-           (text (clatter--format-system-event event fields))
-           (formatted (concat prefix " "
-                              (prog1 (setq text (copy-sequence text))
-                                (add-face-text-property
-                                 0 (length text) 'clatter-system t text)))))
-      (if (and (eq clatter-compact-system-messages 'compact)
-               (memq event '(join part quit away back))
-               (clatter--append-compact-system-group
-                buffer event text invisible))
-          nil
-        (let ((group-id (and (eq clatter-compact-system-messages 'compact)
-                             (memq event '(join part quit away back))
-                             (cl-incf clatter--compact-system-group-id))))
-          (clatter--insert-message
-           buffer formatted nil
-           (and group-id (list 'clatter-compact-system-group-id group-id))
-           nil invisible)
-          (when group-id
-            (clatter--record-compact-system-group
-             buffer group-id invisible)))))))
+  (unless (and (memq event '(join part quit))
+               (clatter-fool-p
+                (plist-get fields :nick)
+                (buffer-local-value 'clatter--network buffer)))
+    (if (null clatter-compact-system-messages)
+        (clatter-insert-system buffer (plist-get fields :verbose) invisible)
+      (let* ((symbol (or (alist-get event clatter-compact-system-symbols) "***"))
+             (prefix (clatter--format-system-prefix symbol))
+             (text (clatter--format-system-event event fields))
+             (formatted (concat prefix " "
+                                (prog1 (setq text (copy-sequence text))
+                                  (add-face-text-property
+                                   0 (length text) 'clatter-system t text)))))
+        (if (and (eq clatter-compact-system-messages 'compact)
+                 (memq event '(join part quit away back))
+                 (clatter--append-compact-system-group
+                  buffer event text invisible))
+            nil
+          (let ((group-id (and (eq clatter-compact-system-messages 'compact)
+                               (memq event '(join part quit away back))
+                               (cl-incf clatter--compact-system-group-id))))
+            (clatter--insert-message
+             buffer formatted nil
+             (and group-id (list 'clatter-compact-system-group-id group-id))
+             nil invisible)
+            (when group-id
+              (clatter--record-compact-system-group
+               buffer group-id invisible))))))))
 
 (defun clatter--compact-system-visibility (invisible)
   "Return grouping visibility from event INVISIBLE categories."
