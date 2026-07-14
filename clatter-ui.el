@@ -856,8 +856,18 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                      (eq (char-before group-end) ?\n)
                      (1- group-end)))
                (event-position group-start)
+               (first-event-start nil)
                (previous-event-end nil)
                (any-visible nil))
+          ;; Normalize the whole logical line, including segments inserted by
+          ;; an earlier loaded implementation.  Property gaps cause Visual
+          ;; Line mode to wrap those segments at column zero, inside the nick
+          ;; column.
+          (add-text-properties
+           group-start group-end
+           (list 'wrap-prefix
+                 (make-string (1+ clatter-nick-column-width) ?\s)
+                 'line-prefix ""))
           (while-let ((event-start
                        (text-property-not-all
                         event-position group-end
@@ -867,6 +877,8 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                                    nil group-end)
                                   group-end))
                    (event-visible (not (invisible-p event-start))))
+              (unless first-event-start
+                (setq first-event-start event-start))
               (when previous-event-end
                 (when-let* ((separator-start
                              (text-property-not-all
@@ -887,6 +899,20 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                 (setq any-visible t))
               (setq previous-event-end event-end
                     event-position event-end)))
+          ;; The indentation belongs to the group rather than its first
+          ;; action.  If that action is hidden but a later one remains visible,
+          ;; expose the indentation so the later action stays out of the nick
+          ;; column.  Restore its original categories when the whole group is
+          ;; hidden again.
+          (when first-event-start
+            (put-text-property
+             group-start first-event-start 'invisible
+             (unless any-visible
+               (get-text-property
+                group-start 'clatter-compact-system-prefix-invisible)))
+            (when any-visible
+              (remove-text-properties group-start first-event-start
+                                      '(display nil))))
           (dolist (overlay (overlays-at group-start))
             (when (overlay-get overlay 'clatter-timestamp)
               (overlay-put
@@ -1031,6 +1057,9 @@ existing group's visibility categories."
                               start end 'clatter-navigation-target nil)))
                   (put-text-property
                    start event-start 'invisible
+                   (clatter--compact-system-visibility invisible))
+                  (put-text-property
+                   start event-start 'clatter-compact-system-prefix-invisible
                    (clatter--compact-system-visibility invisible))
                   (put-text-property event-start end
                                      'clatter-compact-system-event t))

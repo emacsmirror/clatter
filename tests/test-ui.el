@@ -729,7 +729,52 @@ system messages."
           (let ((position (match-beginning 0)))
             (should (equal (get-text-property position 'wrap-prefix)
                            (make-string 15 ?\s)))
+            (should (equal (get-text-property position 'line-prefix) ""))
+            ;; Layout refresh must also repair compact segments left behind
+            ;; by an older loaded implementation.
+            (let ((inhibit-read-only t))
+              (remove-text-properties
+               position (+ position (length "← bob"))
+               '(wrap-prefix nil line-prefix nil)))
+            (should-not (get-text-property position 'wrap-prefix))
+            (clatter--refresh-compact-system-layout)
+            (should (equal (get-text-property position 'wrap-prefix)
+                           (make-string 15 ?\s)))
             (should (equal (get-text-property position 'line-prefix) ""))))))))
+
+(ert-deftest clatter-test-compact-system-visible-later-event-keeps-indent ()
+  "A visible later action retains indentation when the first action is hidden."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-message-order 'oldest-first)
+        (clatter-nick-column-width 14)
+        (clatter-smart-enabled nil)
+        (clatter-suppress-messages '(noise muted)))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter-ui-setup-buffer buffer)
+        (clatter--insert-system-event
+         buffer 'join '(:nick "hidden-user" :channel "#test")
+         '(join noise))
+        (clatter--insert-system-event
+         buffer 'part '(:nick "visible-user" :channel "#test")
+         '(part noise))
+        (with-current-buffer buffer
+          ;; Reproduce a mixed group whose later event has been reclassified
+          ;; as visible while its original prefix remains noise-suppressed.
+          (goto-char (point-min))
+          (search-forward "← visible-user")
+          (let ((event-start (match-beginning 0))
+                (event-end (match-end 0)))
+            (let ((inhibit-read-only t))
+              (put-text-property event-start event-end 'invisible 'part)))
+          (clatter--refresh-compact-system-layout)
+          (pcase-let ((`(,start . ,end)
+                       (clatter-test--compact-group-bounds)))
+            (should-not (invisible-p start))
+            (should
+             (equal (clatter-test--visible-text start end)
+                    (concat (make-string 13 ?\s)
+                            "← visible-user\n")))))))))
 
 (ert-deftest clatter-test-compact-system-separator-is-configurable ()
   "Compact grouped events use the configured separator."
