@@ -121,6 +121,49 @@
   :type 'string
   :group 'clatter)
 
+(defcustom clatter-compact-system-messages nil
+  "Control compact rendering of presence and moderation events.
+
+When nil, render the existing verbose system messages.  The value
+`compact' uses essential context and groups consecutive presence events
+on one line.  The value `essential' shows only the identities and action
+data needed to understand an event without grouping.  The value
+`reasons' additionally shows PART, QUIT, KICK, and AWAY reasons.  The
+value `full' also shows available channel, realname, invitee, and target
+context."
+  :type '(choice (const :tag "Verbose" nil)
+                 (const :tag "Grouped compact events" compact)
+                 (const :tag "Essential context" essential)
+                 (const :tag "Essential context and reasons" reasons)
+                 (const :tag "Full compact context" full))
+  :group 'clatter)
+
+(defcustom clatter-compact-system-group-window 180
+  "Seconds in which consecutive compact events may share a line.
+Only events with compatible visibility are grouped.  Any intervening
+message ends the group."
+  :type 'number
+  :group 'clatter)
+
+(defcustom clatter-compact-system-separator " · "
+  "String inserted between events on a grouped compact system line."
+  :type 'string
+  :group 'clatter)
+
+(defcustom clatter-compact-system-symbols
+  '((join . "→")
+    (part . "←")
+    (quit . "×")
+    (nick . "»")
+    (away . "○")
+    (back . "●")
+    (mode . "±")
+    (kick . "⬾")
+    (invite . "✉"))
+  "Alist mapping compact system event types to prefix symbols."
+  :type '(alist :key-type symbol :value-type string)
+  :group 'clatter)
+
 ;; --- Message insertion ---
 
 (defvar-local clatter--prompt-marker nil
@@ -131,6 +174,19 @@
 
 (defvar-local clatter--messages-marker nil
   "Marker for the start of the message area (below the input line).")
+
+(defvar-local clatter--message-generation 0
+  "Number of messages inserted into the current buffer.")
+
+(defvar-local clatter--compact-system-group nil
+  "Metadata for the most recent grouped compact system line.")
+
+(defvar clatter--compact-system-group-id 0
+  "Monotonic identifier for compact system group lines.")
+
+(defun clatter--compact-system-now ()
+  "Return the current time in seconds for compact event grouping."
+  (float-time))
 
 (defvar-local clatter--prompt-shows-nick nil
   "Non-nil when the current prompt already displays the connection nick.")
@@ -209,6 +265,7 @@ the input line with older ones scrolling down.  When `oldest-first', messages
 append at the bottom like a traditional IRC client."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
+      (cl-incf clatter--message-generation)
       (let ((pre-input (and clatter--input-marker
                             (marker-position clatter--input-marker))))
         (let ((inhibit-read-only t)
@@ -573,6 +630,183 @@ identical messages sent close together each reconcile only one local line."
                             (prog1 (setq text (copy-sequence text))
                               (add-face-text-property 0 (length text) 'clatter-system t text)))))
     (clatter--insert-message buffer formatted nil nil nil invisible)))
+
+(defun clatter--system-event-add-channel (text channel)
+  "Append CHANNEL to compact system event TEXT when available."
+  (if (and channel (not (string= channel "")))
+      (format "%s %s" text channel)
+    text))
+
+(defun clatter--system-event-add-reason (text reason)
+  "Append REASON to compact system event TEXT when available."
+  (if (and reason (not (string= reason "")))
+      (format "%s — %s" text reason)
+    text))
+
+(defun clatter--format-system-event (event fields)
+  "Format compact EVENT using structured plist FIELDS."
+  (let* ((style clatter-compact-system-messages)
+         (nick (plist-get fields :nick))
+         (channel (plist-get fields :channel))
+         (reason (plist-get fields :reason))
+         (show-reason (memq style '(reasons full)))
+         (show-full (eq style 'full)))
+    (pcase event
+      ('join
+       (let ((text nick)
+             (realname (plist-get fields :realname)))
+         (when (and show-full realname (not (string= nick realname)))
+           (setq text (format "%s (%s)" text realname)))
+         (if show-full
+             (clatter--system-event-add-channel text channel)
+           text)))
+      ((or 'part 'quit)
+       (let ((text (if show-full
+                       (clatter--system-event-add-channel nick channel)
+                     nick)))
+         (if show-reason
+             (clatter--system-event-add-reason text reason)
+           text)))
+      ('nick
+       (format "%s → %s" nick (plist-get fields :new-nick)))
+      ((or 'away 'back)
+       (let ((text (if show-full
+                       (clatter--system-event-add-channel nick channel)
+                     nick)))
+         (if (and (eq event 'away) show-reason)
+             (clatter--system-event-add-reason text reason)
+           text)))
+      ('mode
+       (let ((modes (plist-get fields :modes)))
+         (if show-full
+             (format "%s %s %s" nick (or channel "") modes)
+           (format "%s %s" nick modes))))
+      ('kick
+       (let* ((setter (plist-get fields :setter))
+              (text (format "%s ← %s" nick setter)))
+         (when show-full
+           (setq text (clatter--system-event-add-channel text channel)))
+         (if show-reason
+             (clatter--system-event-add-reason text reason)
+           text)))
+      ('invite
+       (if show-full
+           (format "%s → %s %s"
+                   nick (plist-get fields :invitee) channel)
+         (format "%s → %s" nick channel)))
+      (_ (or (plist-get fields :verbose) "")))))
+
+(defun clatter--insert-system-event (buffer event fields invisible)
+  "Insert structured system EVENT with FIELDS into BUFFER.
+INVISIBLE carries the same message categories as `clatter-insert-system'."
+  (if (null clatter-compact-system-messages)
+      (clatter-insert-system buffer (plist-get fields :verbose) invisible)
+    (let* ((symbol (or (alist-get event clatter-compact-system-symbols) "***"))
+           (prefix (clatter--format-system-prefix symbol))
+           (text (clatter--format-system-event event fields))
+           (formatted (concat prefix " "
+                              (prog1 (setq text (copy-sequence text))
+                                (add-face-text-property
+                                 0 (length text) 'clatter-system t text)))))
+      (if (and (eq clatter-compact-system-messages 'compact)
+               (memq event '(join part quit away back))
+               (clatter--append-compact-system-group
+                buffer event text invisible))
+          nil
+        (let ((group-id (and (eq clatter-compact-system-messages 'compact)
+                             (memq event '(join part quit away back))
+                             (cl-incf clatter--compact-system-group-id))))
+          (clatter--insert-message
+           buffer formatted nil
+           (and group-id (list 'clatter-compact-system-group-id group-id))
+           nil invisible)
+          (when group-id
+            (clatter--record-compact-system-group
+             buffer group-id invisible)))))))
+
+(defun clatter--compact-system-visibility (invisible)
+  "Return grouping visibility from event INVISIBLE categories."
+  (seq-remove (lambda (category)
+                (memq category '(join part quit away back)))
+              (ensure-list invisible)))
+
+(defun clatter--append-compact-system-group (buffer event text invisible)
+  "Append TEXT to BUFFER's compatible compact EVENT group.
+Return non-nil when the event was grouped.  INVISIBLE must match the
+existing group's visibility categories."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let* ((group clatter--compact-system-group)
+             (tail (plist-get group :tail)))
+        (when (and group
+                   (equal (clatter--compact-system-visibility invisible)
+                          (plist-get group :visibility))
+                   (= clatter--message-generation
+                      (plist-get group :generation))
+                   (markerp tail)
+                   (eq (marker-buffer tail) buffer))
+          (let ((now (clatter--compact-system-now)))
+            (when (<= (- now (plist-get group :time))
+                      clatter-compact-system-group-window)
+              (let ((pre-input (and clatter--input-marker
+                                    (marker-position clatter--input-marker)))
+                    (start (marker-position tail))
+                    (symbol (or (alist-get event clatter-compact-system-symbols)
+                                "***"))
+                    (separator-invisible
+                     (delete-dups
+                      (append (ensure-list (plist-get group :last-invisible))
+                              (ensure-list invisible)))))
+                (let ((inhibit-read-only t)
+                      (buffer-undo-list t))
+                  (save-excursion
+                    (goto-char tail)
+                    (insert
+                     (propertize clatter-compact-system-separator
+                                 'invisible separator-invisible)
+                     (propertize symbol 'invisible invisible)
+                     (propertize " " 'invisible invisible)
+                     (propertize text 'invisible invisible))
+                    (add-text-properties
+                     start (point)
+                     (list 'face 'clatter-system
+                           'read-only t
+                           'front-sticky nil
+                           'rear-nonsticky t))))
+                (when (and pre-input clatter--input-marker)
+                  (clatter--update-undo-list
+                   (- (marker-position clatter--input-marker) pre-input)))
+                (setf (plist-get clatter--compact-system-group :time) now)
+                (setf (plist-get clatter--compact-system-group :last-invisible)
+                      invisible)
+                t))))))))
+
+(defun clatter--record-compact-system-group (buffer group-id invisible)
+  "Record BUFFER's newly inserted compact GROUP-ID."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let ((start (text-property-any
+                    (point-min) (point-max)
+                    'clatter-compact-system-group-id group-id)))
+        (when start
+          (let ((inhibit-read-only t))
+            (save-excursion
+              (goto-char start)
+              (let ((end (line-end-position)))
+                (put-text-property start end 'invisible invisible)
+                (put-text-property end (min (1+ end) (point-max))
+                                   'invisible
+                                   (clatter--compact-system-visibility invisible))
+                (dolist (overlay (overlays-at start))
+                  (when (overlay-get overlay 'clatter-timestamp)
+                    (overlay-put overlay 'invisible invisible))))
+              (setq clatter--compact-system-group
+                    (list :visibility
+                          (clatter--compact-system-visibility invisible)
+                          :last-invisible invisible
+                          :generation clatter--message-generation
+                          :time (clatter--compact-system-now)
+                          :tail (copy-marker (line-end-position) t))))))))))
 
 (defun clatter-insert-error (buffer text)
   "Insert an error message TEXT into BUFFER."
@@ -1115,11 +1349,16 @@ the buffer margin-width variables."
          (is-muted (clatter-muted-p sender network))
          (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (clatter-insert-system buf (format "%s invites %s to join %s"
-                                       sender-nick
-                                       (if (string-equal nick my-nick) "you" nick)
-                                       channel)
-                           (if invisible (list 'invite invisible) 'invite))))
+    (clatter--insert-system-event
+     buf 'invite
+     (list :nick sender-nick
+           :invitee nick
+           :channel channel
+           :verbose (format "%s invites %s to join %s"
+                            sender-nick
+                            (if (string-equal nick my-nick) "you" nick)
+                            channel))
+     (if invisible (list 'invite invisible) 'invite))))
 
 (defun clatter-ui--on-join (conn sender channel _account realname)
   "Show SENDER joining CHANNEL on CONN, noting REALNAME when present."
@@ -1135,17 +1374,23 @@ the buffer margin-width variables."
       (clatter-send conn (clatter-irc-names channel))
       (when clatter-display-on-join
         (display-buffer buf)))
-    (clatter-insert-system buf
-                           (if (and realname (not (string= sender-nick realname)))
-                               (format "%s (%s) has joined %s" sender-nick (clatter-format-parse realname) channel)
-                             (format "%s has joined %s" sender-nick channel))
-                           (append (if invisible (list 'join invisible) '(join))
-                                   (and (not is-muted)
-                                        (not (string-equal-ignore-case my-nick sender-nick))
-                                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                        (clatter-smart-eval buf sender-nick 'join)
-                                        '(noise))))))
+    (let ((parsed-realname (and realname (clatter-format-parse realname))))
+      (clatter--insert-system-event
+       buf 'join
+       (list :nick sender-nick
+             :channel channel
+             :realname parsed-realname
+             :verbose (if (and realname (not (string= sender-nick realname)))
+                          (format "%s (%s) has joined %s"
+                                  sender-nick parsed-realname channel)
+                        (format "%s has joined %s" sender-nick channel)))
+       (append (if invisible (list 'join invisible) '(join))
+               (and (not is-muted)
+                    (not (string-equal-ignore-case my-nick sender-nick))
+                    (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                    (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                    (clatter-smart-eval buf sender-nick 'join)
+                    '(noise)))))))
 
 (defun clatter-ui--on-part (conn sender channel message)
   "Show SENDER leaving CHANNEL on CONN with optional MESSAGE."
@@ -1157,16 +1402,21 @@ the buffer margin-width variables."
          (invisible (clatter-sender-invisibility sender network)))
     (when buf
       (clatter-nick-remove buf sender-nick)
-      (clatter-insert-system buf
-                             (format "%s has left %s%s" sender-nick channel
-                                     (if message (format " (%s)" (clatter-format-parse message)) ""))
-                             (append (if invisible (list 'part invisible) '(part))
-                                     (and (not is-muted)
-                                          (not (string-equal-ignore-case my-nick sender-nick))
-                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (clatter-smart-eval buf sender-nick 'part)
-                                          '(noise)))))))
+      (let ((reason (and message (clatter-format-parse message))))
+        (clatter--insert-system-event
+         buf 'part
+         (list :nick sender-nick
+               :channel channel
+               :reason reason
+               :verbose (format "%s has left %s%s" sender-nick channel
+                                (if message (format " (%s)" reason) "")))
+         (append (if invisible (list 'part invisible) '(part))
+                 (and (not is-muted)
+                      (not (string-equal-ignore-case my-nick sender-nick))
+                      (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                      (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                      (clatter-smart-eval buf sender-nick 'part)
+                      '(noise))))))))
 
 (defun clatter-ui--on-quit (conn sender message)
   "Show SENDER quitting on CONN with optional MESSAGE."
@@ -1179,16 +1429,21 @@ the buffer margin-width variables."
       (when (gethash (downcase sender-nick)
                      (buffer-local-value 'clatter--nick-list buf))
         (clatter-nick-remove buf sender-nick)
-        (clatter-insert-system buf
-                               (format "%s has quit%s" sender-nick
-                                       (if message (format " (%s)" (clatter-format-parse message)) ""))
-                               (append (if invisible (list 'quit invisible) '(quit))
-                                       (and (not is-muted)
-                                            (not (string-equal-ignore-case my-nick sender-nick))
-                                            (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                            (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                            (clatter-smart-eval buf sender-nick 'quit)
-                                            '(noise))))))))
+        (let ((reason (and message (clatter-format-parse message))))
+          (clatter--insert-system-event
+           buf 'quit
+           (list :nick sender-nick
+                 :channel (buffer-local-value 'clatter--target buf)
+                 :reason reason
+                 :verbose (format "%s has quit%s" sender-nick
+                                  (if message (format " (%s)" reason) "")))
+           (append (if invisible (list 'quit invisible) '(quit))
+                   (and (not is-muted)
+                        (not (string-equal-ignore-case my-nick sender-nick))
+                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                        (clatter-smart-eval buf sender-nick 'quit)
+                        '(noise)))))))))
 
 (defun clatter-ui--on-nick (conn sender new-nick)
   "Show SENDER renaming to NEW-NICK on CONN."
@@ -1201,16 +1456,19 @@ the buffer margin-width variables."
       (when (gethash (downcase old-nick)
                      (buffer-local-value 'clatter--nick-list buf))
         (clatter-nick-rename buf old-nick new-nick)
-        (clatter-insert-system buf
-                               (format "%s is now known as %s"
-                                       old-nick new-nick)
-                               (append (if invisible (list 'nick invisible) '(nick))
-                                       (and (not is-muted)
-                                            (not (string-equal-ignore-case my-nick new-nick))
-                                            (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                            (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                            (clatter-smart-eval buf old-nick new-nick)
-                                            '(noise))))))
+        (clatter--insert-system-event
+         buf 'nick
+         (list :nick old-nick
+               :new-nick new-nick
+               :channel (buffer-local-value 'clatter--target buf)
+               :verbose (format "%s is now known as %s" old-nick new-nick))
+         (append (if invisible (list 'nick invisible) '(nick))
+                 (and (not is-muted)
+                      (not (string-equal-ignore-case my-nick new-nick))
+                      (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                      (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                      (clatter-smart-eval buf old-nick new-nick)
+                      '(noise))))))
     ;; The handler has already updated CONN's nick.  Refresh every prompt on
     ;; this network only when this was our own nick change and the configured
     ;; prompt may depend on the nick.
@@ -1255,16 +1513,22 @@ the buffer margin-width variables."
          (invisible (clatter-sender-invisibility sender network)))
     (when buf
       (clatter-nick-remove buf kicked)
-      (clatter-insert-system buf
-                             (format "%s was kicked by %s%s" kicked sender-nick
-                                     (if reason (format " (%s)" (clatter-format-parse reason)) ""))
-                             (append (if invisible (list 'kick invisible) '(kick))
-                                     (and (not is-muted)
-                                          (not (string-equal-ignore-case my-nick sender-nick))
-                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (clatter-smart-eval buf sender-nick 'kick)
-                                          '(noise)))))))
+      (let ((parsed-reason (and reason (clatter-format-parse reason))))
+        (clatter--insert-system-event
+         buf 'kick
+         (list :nick kicked
+               :setter sender-nick
+               :channel channel
+               :reason parsed-reason
+               :verbose (format "%s was kicked by %s%s" kicked sender-nick
+                                (if reason (format " (%s)" parsed-reason) "")))
+         (append (if invisible (list 'kick invisible) '(kick))
+                 (and (not is-muted)
+                      (not (string-equal-ignore-case my-nick sender-nick))
+                      (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                      (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                      (clatter-smart-eval buf sender-nick 'kick)
+                      '(noise))))))))
 
 (defun clatter-ui--on-names (conn channel names-str)
   "Populate the CHANNEL nick list on CONN from NAMES-STR."
@@ -1320,18 +1584,22 @@ the buffer margin-width variables."
     (dolist (buf (clatter-channel-buffers network))
       (when (gethash (downcase sender-nick)
                      (buffer-local-value 'clatter--nick-list buf))
-        (clatter-insert-system buf
-                               (if away-msg
-                                   (format "%s is away: %s"
-                                           sender-nick (clatter-format-parse away-msg))
-                                 (format "%s is back" sender-nick))
-                               (append (if invisible (list 'away invisible) '(away))
-                                       (and (not is-muted)
-                                            (not (string-equal-ignore-case my-nick sender-nick))
-                                            (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                            (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                            (clatter-smart-eval buf sender-nick 'away)
-                                            '(noise))))))))
+        (let ((reason (and away-msg (clatter-format-parse away-msg))))
+          (clatter--insert-system-event
+           buf (if away-msg 'away 'back)
+           (list :nick sender-nick
+                 :channel (buffer-local-value 'clatter--target buf)
+                 :reason reason
+                 :verbose (if away-msg
+                              (format "%s is away: %s" sender-nick reason)
+                            (format "%s is back" sender-nick)))
+           (append (if invisible (list 'away invisible) '(away))
+                   (and (not is-muted)
+                        (not (string-equal-ignore-case my-nick sender-nick))
+                        (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                        (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                        (clatter-smart-eval buf sender-nick 'away)
+                        '(noise)))))))))
 
 (defun clatter-ui--on-mode (conn target setter modes)
   "Show SETTER applying MODES on TARGET on CONN."
@@ -1343,16 +1611,20 @@ the buffer margin-width variables."
          (is-muted (clatter-muted-p setter network))
          (invisible (clatter-sender-invisibility setter network)))
     (when buf
-      (clatter-insert-system buf
-                             (format "%s sets mode %s"
-                                     setter-nick (string-join modes " "))
-                             (append (if invisible (list 'mode invisible) '(mode))
-                                     (and (not is-muted)
-                                          (not (string-equal-ignore-case my-nick setter-nick))
-                                          (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
-                                          (clatter-smart-eval buf setter-nick 'mode)
-                                          '(noise)))))))
+      (let ((mode-string (string-join modes " ")))
+        (clatter--insert-system-event
+         buf 'mode
+         (list :nick setter-nick
+               :channel target
+               :modes mode-string
+               :verbose (format "%s sets mode %s" setter-nick mode-string))
+         (append (if invisible (list 'mode invisible) '(mode))
+                 (and (not is-muted)
+                      (not (string-equal-ignore-case my-nick setter-nick))
+                      (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                      (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf))
+                      (clatter-smart-eval buf setter-nick 'mode)
+                      '(noise))))))))
 
 (defun clatter-ui--on-motd (conn lines)
   "Display MOTD LINES on CONN in the server buffer."
