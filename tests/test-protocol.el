@@ -95,6 +95,39 @@
   (should (equal (clatter-get-tag "time=2026-01-01T00:00:00Z;msgid=abc" "msgid")
                  "abc")))
 
+(ert-deftest clatter-test-unescape-tag ()
+  (should (equal "normal" (clatter-unescape-tag "normal")))
+  (should (equal "abc" (clatter-unescape-tag "a\\bc")))
+  (should (equal "abc" (clatter-unescape-tag "\\abc")))
+  (should (equal "hello;world" (clatter-unescape-tag "hello\\:world")))
+  (should (equal "hello;world;123" (clatter-unescape-tag "hello\\:world\\:123")))
+  (should (equal "hello world" (clatter-unescape-tag "hello\\sworld")))
+  (should (equal "hello world abc" (clatter-unescape-tag "hello\\sworld\\sabc")))
+  (should (equal "\\hello\\world" (clatter-unescape-tag "\\\\hello\\\\world")))
+  (should (equal "hello\nworld" (clatter-unescape-tag "hello\\nworld")))
+  (should (equal "trailingbackslash" (clatter-unescape-tag "trailingbackslash\\")))
+  (should (equal "first line\nsecond line\rsemi;colon\\backslash"
+                 (clatter-unescape-tag
+                  "first\\sline\\nsecond\\sline\\rsemi\\:colon\\\\backslash\\"))))
+
+(ert-deftest clatter-test-escape-tag ()
+  (should (equal "hello\\:world" (clatter-escape-tag "hello;world")))
+  (should (equal "hello\\:world\\:123" (clatter-escape-tag "hello;world;123")))
+  (should (equal "hello\\sworld" (clatter-escape-tag "hello world")))
+  (should (equal "hello\\sworld\\sabc" (clatter-escape-tag "hello world abc")))
+  (should (equal "\\\\hello\\\\world" (clatter-escape-tag "\\hello\\world")))
+  (should (equal "hello\\nworld" (clatter-escape-tag "hello\nworld")))
+  (should (equal "first\\sline\\nsecond\\sline\\rsemi\\:colon\\\\backslash"
+                 (clatter-escape-tag
+                  "first line\nsecond line\rsemi;colon\\backslash"))))
+
+(ert-deftest clatter-test-encode-tags ()
+  (should (equal "" (clatter-encode-tags nil)))
+  (should (equal "+abc" (clatter-encode-tags '(("+abc")))))
+  (should (equal "+abc=1" (clatter-encode-tags '(("+abc" . "1")))))
+  (should (equal "+abc=semi\\:colon" (clatter-encode-tags '(("+abc" . "semi;colon")))))
+  (should (equal "+abc;def=x123" (clatter-encode-tags '(("+abc") ("def" . "x123"))))))
+
 ;; --- Channel Name Validation ---
 
 (ert-deftest clatter-test-channel-name-p ()

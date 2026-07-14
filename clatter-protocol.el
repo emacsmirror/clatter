@@ -253,6 +253,38 @@ command, and parameters including trailing."
 
 ;; --- IRCv3 Tag Parsing ---
 
+(defun clatter-unescape-tag (tag)
+  "Unescape an IRCv3 tag."
+  (cl-loop with semicolon = ";"
+           with space = " "
+           with backslash = "\\"
+           with linefeed = "\r"
+           with newline = "\n"
+           with skip = ""
+           for chr across tag with escape-p
+           if escape-p
+           concat (progn
+                    (setq escape-p nil)
+                    (cond
+                     ((eq ?\: chr) semicolon)
+                     ((eq ?s chr) space)
+                     ((eq ?\\ chr) backslash)
+                     ((eq ?r chr) linefeed)
+                     ((eq ?n chr) newline)
+                     (t (char-to-string chr))))
+           else concat (if (setq escape-p (eq ?\\ chr))
+                           skip
+                         (char-to-string chr))))
+
+(defun clatter-escape-tag (tag)
+  "Escape an IRCv3 tag."
+  (setq tag (string-replace "\\" "\\\\" tag))
+  (setq tag (string-replace ";" "\\:" tag))
+  (setq tag (string-replace " " "\\s" tag))
+  (setq tag (string-replace "\r" "\\r" tag))
+  (setq tag (string-replace "\n" "\\n" tag))
+  tag)
+
 (defun clatter-parse-tags (tags-string)
   "Parse IRCv3 TAGS-STRING into an alist of (key . value) pairs.
 Tags format: key1=value1;key2=value2;key3"
@@ -261,9 +293,19 @@ Tags format: key1=value1;key2=value2;key3"
               (let ((eq-pos (cl-position ?= tag)))
                 (if eq-pos
                     (cons (substring tag 0 eq-pos)
-                          (substring tag (1+ eq-pos)))
+                          (clatter-unescape-tag
+                           (substring tag (1+ eq-pos))))
                   (cons tag nil))))
             (split-string tags-string ";"))))
+
+(defun clatter-encode-tags (tags-alist)
+  "Encode TAGS-ALIST into an IRCv3 message tag string."
+  (cl-loop for (tag . value) in tags-alist
+           collect (if (seq-empty-p value)
+                       (format "%s" tag)
+                     (format "%s=%s" tag (clatter-escape-tag value)))
+           into elts
+           finally return (string-join elts ";")))
 
 (defun clatter-get-parsed-tag (tags-alist key)
   "Get the value of KEY from TAGS-ALIST"
@@ -337,13 +379,21 @@ The last param is treated as trailing if it contains spaces."
       (clatter-format-line "PART" channel message)
     (clatter-format-line "PART" channel)))
 
-(defun clatter-irc-privmsg (target text)
-  "Format PRIVMSG to TARGET with TEXT."
-  (clatter-format-line "PRIVMSG" target text))
+(defun clatter-irc-privmsg (target text &optional tags-alist)
+  "Format PRIVMSG tagged with TAGS-ALIST to TARGET with TEXT."
+  (let* ((tags-prefix (clatter-encode-tags tags-alist))
+         (command (if (seq-empty-p tags-prefix)
+                      "PRIVMSG"
+                    (format "@%s PRIVMSG" tags-prefix))))
+    (clatter-format-line command target text)))
 
-(defun clatter-irc-notice (target text)
-  "Format NOTICE to TARGET with TEXT."
-  (clatter-format-line "NOTICE" target text))
+(defun clatter-irc-notice (target text &optional tags-alist)
+  "Format NOTICE tagged with TAGS-ALIST to TARGET with TEXT."
+  (let* ((tags-prefix (clatter-encode-tags tags-alist))
+         (command (if (seq-empty-p tags-prefix)
+                      "NOTICE"
+                    (format "@%s NOTICE" tags-prefix))))
+    (clatter-format-line command target text)))
 
 (defun clatter-irc-quit (&optional message)
   "Format QUIT command with optional MESSAGE."
@@ -443,22 +493,16 @@ The last param is treated as trailing if it contains spaces."
 
 ;; --- TAGMSG / Typing ---
 
-(defun clatter-irc-tagmsg (target &rest tags)
-  "Format a TAGMSG to TARGET with TAGS (plist of name/value pairs)."
-  (let ((tag-parts nil))
-    (cl-loop for (name value) on tags by #'cddr
-             do (push (if value
-                         (format "%s=%s" name value)
-                       name)
-                      tag-parts))
-    (format "@%s TAGMSG %s"
-            (string-join (nreverse tag-parts) ";")
-            target)))
+(defun clatter-irc-tagmsg (target tags-alist)
+  "Format a TAGMSG to TARGET with TAGS-ALIST."
+  (if tags-alist
+      (format "@%s TAGMSG %s" (clatter-encode-tags tags-alist) target)
+    (error "TAGMSG to %S has empty TAGS-ALIST" tags-alist)))
 
 (defun clatter-irc-typing (target state)
   "Format typing indicator to TARGET.
 STATE should be \"active\", \"paused\", or \"done\"."
-  (clatter-irc-tagmsg target "+typing" state))
+  (clatter-irc-tagmsg target `(("+typing" . ,state))))
 
 ;; --- Message Length / Splitting ---
 

@@ -649,16 +649,26 @@ reconciliation.  BUFFER defaults to the current buffer."
                 (remove-text-properties start end '(clatter-self-echo-nonce nil))))))
         (setq clatter--pending-self-echoes nil)))))
 
-(defun clatter-ui--send-privmsg (conn target text &optional msg-type buffer line)
+(defun clatter-ui--send-privmsg (conn target text &optional msg-type buffer tags)
   "Send TEXT to TARGET and render it according to `clatter-self-echo-mode'.
-MSG-TYPE is `privmsg' or `action'; BUFFER receives the local echo.  LINE, when
-non-nil, is the already formatted IRC command to send."
+MSG-TYPE is `privmsg' or `action'; BUFFER receives the local echo.  TAGS, when
+non-nil, are the message tags to be affixed to the message.
+If TEXT is a pair of strings its CAR will be considered the display text, while
+(CDR TEXT) will be considered the raw text to be sent as-is."
   (let* ((msg-type (or msg-type 'privmsg))
          (buffer (or buffer (current-buffer)))
          (sender (clatter-connection-nick conn)))
-    (if (eq 'action msg-type)
-        (clatter-send conn (clatter-irc-privmsg target line))
-      (clatter-send conn (or line (clatter-irc-privmsg target text))))
+    (clatter-send
+     conn
+     (clatter-irc-privmsg
+      target
+      ;; If TEXT is a pair, this is a CTCP message of the form
+      ;; (TEXT . CTCP-TEXT), where TEXT is the displayed text
+      ;; and CTCP-TEXT is the actual CTCP message to be sent.
+      (if (consp text)
+          (prog1 (cdr text) (setq text (car text)))
+        text)
+      tags))
     (when (clatter-ui--self-echo-p conn)
       (let* ((nonce (cl-incf clatter--self-echo-nonce))
              (tentative (propertize (copy-sequence text) 'clatter-self-echo-nonce nonce)))

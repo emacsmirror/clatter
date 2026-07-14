@@ -119,7 +119,7 @@ INPUT is the full string including the leading /."
     (when conn
       (when (and clatter--target (not (string= clatter--target "*server*")))
         (let ((ctcp-msg (format "\C-aACTION %s\C-a" args)))
-          (clatter-ui--send-privmsg conn clatter--target args 'action (current-buffer) ctcp-msg))))))
+          (clatter-ui--send-privmsg conn clatter--target (cons args ctcp-msg) 'action (current-buffer)))))))
 
 (defun clatter-cmd-nick (args)
   "Change nick to the NEWNICK given in ARGS."
@@ -668,6 +668,7 @@ Uses +draft/reply tag to thread the response."
          (msgid (and mouse-secondary-overlay
                      (eq (current-buffer) (overlay-buffer mouse-secondary-overlay))
                      (get-text-property (overlay-start mouse-secondary-overlay) 'clatter-msgid)))
+         (tags `(("+draft/reply" . ,msgid)))
          (target clatter--target)
          (conn (clatter--current-conn)))
     (cond
@@ -678,12 +679,9 @@ Uses +draft/reply tag to thread the response."
      ((null conn)
       (message "Not connected"))
      (t
-      (clatter-ui--send-privmsg conn target text 'privmsg (current-buffer)
-                                 (format "@+draft/reply=%s PRIVMSG %s :%s"
-                                         msgid target text))
+      (clatter-ui--send-privmsg conn target text 'privmsg (current-buffer) tags)
       ; Clear secondary selection
-      (save-mark-and-excursion (secondary-selection-to-region))
-      ))))
+      (save-mark-and-excursion (secondary-selection-to-region))))))
 
 (clatter-defcommand "reply" #'clatter-cmd-reply "r")
 
@@ -695,6 +693,8 @@ Uses +draft/react tag via TAGMSG."
          (msgid (and mouse-secondary-overlay
                      (eq (current-buffer) (overlay-buffer mouse-secondary-overlay))
                      (get-text-property (overlay-start mouse-secondary-overlay) 'clatter-msgid)))
+         (tags `(("+draft/react" . ,emoji)
+                 ("+draft/reply" . ,msgid)))
          (target clatter--target)
          (conn (clatter--current-conn)))
     (cond
@@ -705,8 +705,7 @@ Uses +draft/react tag via TAGMSG."
      ((null conn)
       (message "Not connected"))
      (t
-      (clatter-send conn (format "@+draft/react=%s;+draft/reply=%s TAGMSG %s"
-                                 emoji msgid target))
+      (clatter-send conn (clatter-irc-tagmsg target tags))
       ; Clear secondary selection
       (save-mark-and-excursion (secondary-selection-to-region))))))
 
