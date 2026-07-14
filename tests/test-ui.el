@@ -682,6 +682,36 @@
                                    (point-min) (point-max)))
                      3)))))))
 
+(ert-deftest clatter-test-compact-system-visible-mode-restores-layout ()
+  "Disabling Visible mode keeps partially suppressed groups separated."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-message-order 'oldest-first)
+        (clatter-suppress-messages '(join muted)))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter-ui-setup-buffer buffer)
+        (clatter--insert-system-event
+         buffer 'quit '(:nick "alcor" :channel "#test") 'quit)
+        (clatter--insert-system-event
+         buffer 'join '(:nick "hidden" :channel "#test") 'join)
+        (clatter--insert-system-event
+         buffer 'away '(:nick "Elouin" :channel "#test") 'away)
+        (with-current-buffer buffer
+          (visible-mode 1)
+          (visible-mode -1)
+          (goto-char (point-min))
+          (let (separators)
+            (while (search-forward clatter-compact-system-separator nil t)
+              (push (match-beginning 0) separators))
+            (setq separators (nreverse separators))
+            (should (= (length separators) 2))
+            (should (equal (get-text-property (car separators) 'display) ""))
+            (should-not (get-text-property (cadr separators) 'display))
+            (should-not (invisible-p (cadr separators))))
+          ;; The indentation belongs to the group rather than its first event.
+          (goto-char (point-min))
+          (should-not (invisible-p (point))))))))
+
 (ert-deftest clatter-test-compact-system-default-preserves-verbose-join ()
   "The default nil compact setting preserves the existing JOIN sentence."
   (let ((clatter-compact-system-messages nil)

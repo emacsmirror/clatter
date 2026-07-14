@@ -575,7 +575,9 @@ Messages from a fool are muted (hidden)."
   "Apply `clatter-fools-visible' to the current buffer."
   (if clatter-fools-visible
       (remove-from-invisibility-spec 'clatter-fool)
-    (add-to-invisibility-spec 'clatter-fool)))
+    (add-to-invisibility-spec 'clatter-fool))
+  (when (fboundp 'clatter--refresh-compact-system-layout)
+    (clatter--refresh-compact-system-layout)))
 
 (defun clatter--apply-fools-visibility ()
   "Apply `clatter-fools-visible' to every live clatter buffer."

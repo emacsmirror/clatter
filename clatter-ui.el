@@ -834,6 +834,64 @@ INVISIBLE carries the same message categories as `clatter-insert-system'."
                 (memq category '(join part quit away back)))
               (ensure-list invisible)))
 
+(defun clatter--refresh-compact-system-layout ()
+  "Refresh separators and timestamps in compact system groups.
+
+Compact actions remain independently suppressible.  This function keeps the
+shared layout coherent when `buffer-invisibility-spec' changes, notably when
+`visible-mode' is disabled and restores Clatter's suppression categories."
+  (when (derived-mode-p 'clatter-mode)
+    (let ((inhibit-read-only t)
+          (position (point-min)))
+      (while-let ((group-start
+                   (text-property-not-all
+                    position (point-max)
+                    'clatter-compact-system-group-id nil)))
+        (let* ((group-end (or (next-single-property-change
+                               group-start 'clatter-compact-system-group-id
+                               nil (point-max))
+                              (point-max)))
+               (event-position group-start)
+               (previous-event-end nil)
+               (any-visible nil))
+          (while-let ((event-start
+                       (text-property-not-all
+                        event-position group-end
+                        'clatter-compact-system-event nil)))
+            (let* ((event-end (or (next-single-property-change
+                                   event-start 'clatter-compact-system-event
+                                   nil group-end)
+                                  group-end))
+                   (event-visible (not (invisible-p event-start))))
+              (when previous-event-end
+                (when-let* ((separator-start
+                             (text-property-not-all
+                              previous-event-end event-start
+                              'clatter-compact-system-separator nil)))
+                  (let ((separator-end
+                         (or (next-single-property-change
+                              separator-start
+                              'clatter-compact-system-separator nil event-start)
+                             event-start)))
+                    (put-text-property separator-start separator-end 'display
+                                       (unless (and any-visible event-visible)
+                                         ""))
+                    (when (and any-visible event-visible)
+                      (remove-text-properties
+                       separator-start separator-end '(invisible nil))))))
+              (when event-visible
+                (setq any-visible t))
+              (setq previous-event-end event-end
+                    event-position event-end)))
+          (dolist (overlay (overlays-at group-start))
+            (when (overlay-get overlay 'clatter-timestamp)
+              (overlay-put
+               overlay 'invisible
+               (unless any-visible
+                 (overlay-get overlay
+                              'clatter-compact-system-invisible)))))
+          (setq position group-end))))))
+
 (defun clatter--end-compact-system-group ()
   "Forget the current buffer's pending compact system group."
   (when-let* ((tail (plist-get clatter--compact-system-group :tail)))
@@ -905,10 +963,17 @@ existing group's visibility categories."
                     (goto-char tail)
                     (insert
                      (propertize clatter-compact-system-separator
-                                 'invisible separator-invisible)
-                     (propertize symbol 'invisible invisible)
-                     (propertize " " 'invisible invisible)
-                     (propertize text 'invisible invisible))
+                                 'invisible separator-invisible
+                                 'clatter-compact-system-separator t)
+                     (propertize symbol
+                                 'invisible invisible
+                                 'clatter-compact-system-event t)
+                     (propertize " "
+                                 'invisible invisible
+                                 'clatter-compact-system-event t)
+                     (propertize text
+                                 'invisible invisible
+                                 'clatter-compact-system-event t))
                     (add-text-properties
                      start (point)
                      (list 'face 'clatter-system
@@ -924,6 +989,7 @@ existing group's visibility categories."
                 (setf (plist-get clatter--compact-system-group :time) now)
                 (setf (plist-get clatter--compact-system-group :last-invisible)
                       invisible)
+                (clatter--refresh-compact-system-layout)
                 t))))))))
 
 (defun clatter--record-compact-system-group (buffer group-id invisible)
@@ -939,12 +1005,22 @@ existing group's visibility categories."
               (goto-char start)
               (let ((end (line-end-position)))
                 (put-text-property start end 'invisible invisible)
+                (when-let* ((event-start
+                             (text-property-not-all
+                              start end 'clatter-navigation-target nil)))
+                  (put-text-property
+                   start event-start 'invisible
+                   (clatter--compact-system-visibility invisible))
+                  (put-text-property event-start end
+                                     'clatter-compact-system-event t))
                 (put-text-property end (min (1+ end) (point-max))
                                    'invisible
                                    (clatter--compact-system-visibility invisible))
                 (dolist (overlay (overlays-at start))
                   (when (overlay-get overlay 'clatter-timestamp)
-                    (overlay-put overlay 'invisible invisible))))
+                    (overlay-put overlay 'invisible invisible)
+                    (overlay-put overlay 'clatter-compact-system-invisible
+                                 invisible))))
               (setq clatter--compact-system-group
                     (list :id group-id
                           :visibility
@@ -955,7 +1031,8 @@ existing group's visibility categories."
                           ;; Move this marker explicitly after each append;
                           ;; insertion-type nil prevents unrelated edits at
                           ;; the boundary from silently relocating it.
-                          :tail (copy-marker (line-end-position)))))))))))
+                          :tail (copy-marker (line-end-position))))
+              (clatter--refresh-compact-system-layout))))))))
 
 (defun clatter-insert-error (buffer text)
   "Insert an error message TEXT into BUFFER."
@@ -1336,6 +1413,8 @@ Fall back to the network and target when the buffer has no topic."
       (add-to-invisibility-spec 'noise))
     (unless clatter-fools-visible
       (add-to-invisibility-spec 'clatter-fool))
+    (add-hook 'visible-mode-hook
+              #'clatter--refresh-compact-system-layout nil t)
     (clatter--setup-prompt buffer)
     ;; Add mode-line.  Optionally include the activity crumbs (see
     ;; `clatter-track-in-buffer-mode-line') so they are visible while
