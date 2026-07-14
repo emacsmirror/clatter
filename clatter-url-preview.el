@@ -152,7 +152,8 @@ No text is inserted if truncation or deletion has removed the source message."
                                 'wrap-prefix prefix))
             ;; A nil-insertion-type marker stays before unrelated messages,
             ;; but must move past this preview to form a stable local tail.
-            (set-marker (clatter-url-preview--anchor-tail anchor) (point)))))))
+            (set-marker (clatter-url-preview--anchor-tail anchor) (point))))
+        (clatter--refresh-input-spacers buffer))))
    ;; Compatibility for callers of the former low-level marker API.
    ((and (buffer-live-p buffer) (markerp anchor) (marker-buffer anchor))
     (with-current-buffer buffer
@@ -165,7 +166,8 @@ No text is inserted if truncation or deletion has removed the source message."
                               'read-only t
                               'front-sticky t
                               'line-prefix prefix
-                              'wrap-prefix prefix))))))))
+                              'wrap-prefix prefix))))
+      (clatter--refresh-input-spacers buffer)))))
 
 (defun clatter-url-preview--fetch (url buffer anchor)
   "Asynchronously fetch URL and display its title in BUFFER at ANCHOR.

@@ -130,7 +130,11 @@ URL-STR is used for the alt-text fallback."
           (let ((start (point)))
             (insert-image image (format "[image: %s]" url-str))
             (insert "\n")
-            (put-text-property start (point) 'line-prefix prefix)))))))
+            (put-text-property start (point) 'line-prefix prefix)))))
+    ;; Inline images arrive after their source message.  Recompute the
+    ;; oldest-first display spacer immediately so the input stays pinned.
+    (when (fboundp 'clatter--refresh-input-spacers)
+      (clatter--refresh-input-spacers buffer))))
 
 (defun clatter-image--fetch (url buffer insert-marker)
   "Fetch image at URL and insert into BUFFER at INSERT-MARKER.

@@ -177,6 +177,88 @@ message ends the group."
 (defvar-local clatter--messages-marker nil
   "Marker for the start of the message area (below the input line).")
 
+(defvar-local clatter--input-padding-end nil
+  "Marker after protected oldest-first padding and before message history.")
+
+(defun clatter--ensure-input-padding (lines)
+  "Ensure oldest-first history has at least LINES real blank lines above it.
+Real buffer lines avoid redisplay ambiguities caused by overlay display
+strings.  They give each window enough scrollable space to place the input on
+its final text row while short history grows upward."
+  (when (and (eq clatter-message-order 'oldest-first)
+             (markerp clatter--input-padding-end)
+             (marker-buffer clatter--input-padding-end))
+    (let* ((current (count-lines (point-min) clatter--input-padding-end))
+           (missing (max 0 (- lines current))))
+      (when (> missing 0)
+        (let ((inhibit-read-only t)
+              (buffer-undo-list t))
+          (save-excursion
+            (goto-char clatter--input-padding-end)
+            (insert (propertize
+                     (make-string missing ?\n)
+                     'read-only t
+                     'front-sticky t
+                     'rear-nonsticky t
+                     'clatter-input-padding t))
+            ;; This marker deliberately does not advance for ordinary message
+            ;; insertion, so move it explicitly only when extending padding.
+            (set-marker clatter--input-padding-end (point))))))))
+
+(defun clatter--window-follows-input-p (window)
+  "Return non-nil when WINDOW is displaying and following this input area."
+  (and (window-live-p window)
+       (eq (window-buffer window) (current-buffer))
+       (clatter-in-input-p (window-point window))))
+
+(defun clatter--recenter-input-window (window)
+  "Put the final input line at the bottom of WINDOW without moving point."
+  (let ((position (window-point window))
+        start)
+    (save-selected-window
+      (with-selected-window window
+        (save-excursion
+          (goto-char (clatter--input-end))
+          (recenter -1)
+          (setq start (window-start window)))))
+    (when (window-live-p window)
+      (set-window-point window position)
+      ;; Restoring point can make redisplay choose a different start.  Reapply
+      ;; the start calculated with input at the bottom and request it exactly.
+      (when start
+        (set-window-start window start t)))))
+
+(defun clatter--pin-input-in-window (window)
+  "Keep oldest-first input on the bottom line of following WINDOW."
+  (let* ((height (window-body-height window))
+         (used (max 1
+                    (count-screen-lines clatter--input-padding-end
+                                        (point-max) nil window))))
+    (when (or (<= used height)
+              (clatter--window-follows-input-p window))
+      (clatter--recenter-input-window window))))
+
+(defun clatter--refresh-input-spacers (&optional buffer)
+  "Refresh bottom-pinned input display for BUFFER's visible windows.
+Short histories remain stacked immediately above the input regardless of
+point.  Once history exceeds a window, only a window whose point remains in
+the input area follows new messages; a scrolled history view retains its
+viewport."
+  (let ((buffer (or buffer (current-buffer))))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (let ((windows (get-buffer-window-list buffer nil 'visible)))
+          (if (and (eq clatter-message-order 'oldest-first)
+                   clatter--prompt-marker
+                   clatter--input-marker
+                   clatter--input-padding-end)
+              (progn
+                (clatter--ensure-input-padding
+                 (max 0 (1- (apply #'max 1
+                                   (mapcar #'window-body-height windows)))))
+                (dolist (window windows)
+                  (clatter--pin-input-in-window window)))))))))
+
 (defun clatter-in-input-p (&optional position)
   "Return non-nil when POSITION is in the input area.
 POSITION defaults to point."
@@ -431,32 +513,37 @@ append at the bottom like a traditional IRC client."
         ;; input.  Shift those entries by the input's drift.
         (when (and pre-input clatter--input-marker)
           (clatter--update-undo-list
-           (- (marker-position clatter--input-marker) pre-input)))))))
+           (- (marker-position clatter--input-marker) pre-input)))
+        (clatter--refresh-input-spacers buffer)))))
 
 (defun clatter--maybe-truncate (_buffer)
   "Truncate the current buffer if it exceeds `clatter-buffer-max-lines'.
 Removes oldest messages from the appropriate end of the buffer."
-  (when (and clatter-buffer-max-lines
-             (> (count-lines (point-min) (point-max)) clatter-buffer-max-lines))
-    (let ((inhibit-read-only t)
-          (target-lines (- (count-lines (point-min) (point-max))
-                           clatter-buffer-max-lines)))
-      (save-excursion
-        (if (eq clatter-message-order 'oldest-first)
-            ;; Bottom prompt: oldest messages are at the very top; delete
-            ;; from there, leaving the newest messages and the prompt.
-            (progn
-              (goto-char (point-min))
-              (forward-line target-lines)
-              (dolist (ov (overlays-in (point-min) (point)))
-                (delete-overlay ov))
-              (delete-region (point-min) (point)))
-          ;; Top prompt (newest-first): oldest messages are at the bottom.
-          (goto-char (point-max))
-          (forward-line (- target-lines))
-          (dolist (ov (overlays-in (point) (point-max)))
-            (delete-overlay ov))
-          (delete-region (point) (point-max)))))))
+  (let* ((history-start (if (and (eq clatter-message-order 'oldest-first)
+                                 clatter--input-padding-end)
+                            (marker-position clatter--input-padding-end)
+                          (point-min)))
+         (line-count (count-lines history-start (point-max))))
+    (when (and clatter-buffer-max-lines
+               (> line-count clatter-buffer-max-lines))
+      (let ((inhibit-read-only t)
+            (target-lines (- line-count
+                             clatter-buffer-max-lines)))
+        (save-excursion
+          (if (eq clatter-message-order 'oldest-first)
+              ;; Preserve protected padding; delete from real history.
+              (progn
+                (goto-char history-start)
+                (forward-line target-lines)
+                (dolist (ov (overlays-in history-start (point)))
+                  (delete-overlay ov))
+                (delete-region history-start (point)))
+            ;; Top prompt (newest-first): oldest messages are at the bottom.
+            (goto-char (point-max))
+            (forward-line (- target-lines))
+            (dolist (ov (overlays-in (point) (point-max)))
+              (delete-overlay ov))
+            (delete-region (point) (point-max))))))))
 
 (defun clatter--find-message-position-by-msgid (buffer msgid)
   "Find position of message in BUFFER identified by MSGID."
@@ -937,7 +1024,8 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
           (when (and newline-position any-visible)
             (remove-text-properties newline-position group-end
                                     '(invisible nil display nil)))
-          (setq position group-end))))))
+          (setq position group-end)))
+      (clatter--refresh-input-spacers (current-buffer)))))
 
 (defun clatter--end-compact-system-group ()
   "Forget the current buffer's pending compact system group."
@@ -1193,7 +1281,8 @@ When BUFFER is nil, use the current buffer."
       ;; so a nick change cannot disrupt someone composing a message.
       (when point-in-input
         (goto-char (+ (marker-position clatter--input-marker)
-                      (min input-offset (length input))))))))
+                      (min input-offset (length input)))))
+      (clatter--refresh-input-spacers (current-buffer)))))
 
 (defun clatter--setup-prompt (buffer)
   "Set up the input prompt in BUFFER.
@@ -1210,6 +1299,8 @@ conventional IRC client, with messages accumulating above it."
           ;; Bottom prompt: [messages...] then prompt+input on the last line.
           (progn
             (goto-char (point-min))
+            (setq clatter--input-padding-end (point-marker))
+            (set-marker-insertion-type clatter--input-padding-end nil)
             ;; Both markers start at the prompt; messages insert here.
             (setq clatter--messages-marker (point-marker))
             (setq clatter--prompt-marker (point-marker))
@@ -1222,6 +1313,7 @@ conventional IRC client, with messages accumulating above it."
             (set-marker-insertion-type clatter--prompt-marker t))
         ;; Top prompt: prompt+input on line 1, messages below.
         (goto-char (point-min))
+        (setq clatter--input-padding-end nil)
         (setq clatter--prompt-marker (point-marker))
         (set-marker-insertion-type clatter--prompt-marker nil)
         (insert prompt)
@@ -1234,7 +1326,8 @@ conventional IRC client, with messages accumulating above it."
           (setq clatter--messages-marker (point-marker))
           (set-marker-insertion-type clatter--messages-marker nil)))
       (goto-char clatter--input-marker)
-      (add-hook 'pre-command-hook #'clatter--move-to-prompt nil t))))
+      (add-hook 'pre-command-hook #'clatter--move-to-prompt nil t)
+      (clatter--refresh-input-spacers buffer))))
 
 (defun clatter--input-end ()
   "Return the buffer position just past the user input.
@@ -1256,14 +1349,16 @@ messages."
   "Clear the user input area."
   (when (and clatter--input-marker clatter--messages-marker)
     (let ((inhibit-read-only t))
-      (delete-region clatter--input-marker (clatter--input-end)))))
+      (delete-region clatter--input-marker (clatter--input-end)))
+    (clatter--refresh-input-spacers (current-buffer))))
 
 (defun clatter--set-input (input)
   "Replace the prompt input with INPUT."
   (clatter--clear-input)
   (when clatter--input-marker
     (goto-char clatter--input-marker)
-    (insert input)))
+    (insert input)
+    (clatter--refresh-input-spacers (current-buffer))))
 
 (defun clatter--move-to-prompt ()
   "Move point to the input line before a self-inserting command.
@@ -1512,8 +1607,12 @@ Fall back to the network and target when the buffer has no topic."
     ;; Ensure window margins are synced for timestamp display
     (add-hook 'window-configuration-change-hook
               #'clatter--sync-window-margins nil t)
+    (add-hook 'window-configuration-change-hook
+              #'clatter--refresh-input-spacers 20 t)
+    (add-hook 'post-command-hook #'clatter--refresh-input-spacers 90 t)
     ;; Outbound typing notifications
-    (clatter--setup-outbound-typing buffer)))
+    (clatter--setup-outbound-typing buffer)
+    (clatter--refresh-input-spacers buffer)))
 
 (defun clatter--sync-window-margins ()
   "Ensure the current window has correct margins for timestamp display.

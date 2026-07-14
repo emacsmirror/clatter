@@ -22,6 +22,23 @@
   (should (clatter-image--url-p "https://example.com/a.png#section"))
   (should (clatter-image--url-p "https://example.com/a.png?v=2#x")))
 
+(ert-deftest clatter-image-insert-refreshes-input-spacer ()
+  "An asynchronously inserted image immediately refreshes input pinning."
+  (with-temp-buffer
+    (let ((marker (copy-marker (point-min)))
+          refreshed-buffer)
+      (cl-letf (((symbol-function 'image-size)
+                 (lambda (&rest _) '(20 . 10)))
+                ((symbol-function 'insert-image)
+                 (lambda (_image alt &rest _)
+                   (insert alt)))
+                ((symbol-function 'clatter--refresh-input-spacers)
+                 (lambda (&optional buffer)
+                   (setq refreshed-buffer buffer))))
+        (clatter-image--insert 'fake-image (current-buffer) marker
+                               "https://example.com/a.png"))
+      (should (eq refreshed-buffer (current-buffer))))))
+
 (ert-deftest clatter-image-extract-urls-basic ()
   "All URLs in a message are returned in order."
   (should (equal (clatter-image--extract-urls "see http://a.com/x.png here")
