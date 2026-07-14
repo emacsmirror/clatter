@@ -515,6 +515,39 @@
 
 ;; --- Compact system messages ---
 
+(defun clatter-test--visible-text (start end)
+  "Return visually displayed text between START and END.
+Honor the text invisibility and string `display' properties used by compact
+system messages."
+  (let ((position start)
+        pieces)
+    (while (< position end)
+      (cond
+       ((invisible-p position)
+        (setq position
+              (or (next-single-property-change
+                   position 'invisible nil end)
+                  end)))
+       ((stringp (get-text-property position 'display))
+        (push (get-text-property position 'display) pieces)
+        (setq position
+              (or (next-single-property-change position 'display nil end)
+                  end)))
+       (t
+        (push (buffer-substring-no-properties position (1+ position)) pieces)
+        (cl-incf position))))
+    (apply #'concat (nreverse pieces))))
+
+(defun clatter-test--compact-group-bounds ()
+  "Return bounds of the first compact system group in the current buffer."
+  (when-let* ((start (text-property-not-all
+                      (point-min) (point-max)
+                      'clatter-compact-system-group-id nil)))
+    (cons start
+          (or (next-single-property-change
+               start 'clatter-compact-system-group-id nil (point-max))
+              (point-max)))))
+
 (ert-deftest clatter-test-compact-system-event-presets ()
   "Compact presets format every supported event with the promised context."
   (dolist
@@ -579,6 +612,124 @@
             (search-forward "○")
             (should (memq 'away (ensure-list
                                  (get-text-property (1- (point)) 'invisible))))))))))
+
+(ert-deftest clatter-test-compact-system-layout-visibility-matrix ()
+  "Every hidden-action combination preserves compact alignment and spacing."
+  (dolist (order '(oldest-first newest-first))
+    (dolist (hidden '(()
+                      (quit) (part) (join) (away)
+                      (quit part) (quit join) (quit away)
+                      (part join) (part away) (join away)
+                      (quit part join) (part join away)))
+      (let ((clatter-compact-system-messages 'compact)
+            (clatter-message-order order)
+            (clatter-nick-column-width 14)
+            (clatter-smart-enabled nil)
+            (clatter-suppress-messages (append hidden '(muted))))
+        (clatter-test-with-ui-connection conn
+          (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+            (clatter-ui-setup-buffer buffer)
+            (clatter--insert-system-event
+             buffer 'quit '(:nick "alice" :channel "#test") 'quit)
+            (clatter--insert-system-event
+             buffer 'part '(:nick "bob" :channel "#test") 'part)
+            (clatter--insert-system-event
+             buffer 'join '(:nick "carol" :channel "#test") 'join)
+            (clatter--insert-system-event
+             buffer 'away '(:nick "dave" :channel "#test") 'away)
+            (with-current-buffer buffer
+              (pcase-let* ((`(,start . ,end)
+                            (clatter-test--compact-group-bounds))
+                           (visible-events
+                            (delq nil
+                                  (list (unless (memq 'quit hidden) "× alice")
+                                        (unless (memq 'part hidden) "← bob")
+                                        (unless (memq 'join hidden) "→ carol")
+                                        (unless (memq 'away hidden) "○ dave"))))
+                           (expected
+                            (concat (make-string 13 ?\s)
+                                    (string-join visible-events " · ")
+                                    "\n")))
+                (should (equal (clatter-test--visible-text start end)
+                               expected))
+                (dotimes (_ 2)
+                  (visible-mode 1)
+                  (should
+                   (equal (clatter-test--visible-text start end)
+                          (concat (make-string 13 ?\s)
+                                  "× alice · ← bob · → carol · ○ dave\n")))
+                  (visible-mode -1)
+                  (should (equal (clatter-test--visible-text start end)
+                                 expected)))))))))))
+
+(ert-deftest clatter-test-compact-system-noise-splits-groups-without-misalignment ()
+  "Noise-tagged actions do not pull an active PART out of alignment."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-compact-system-messages 'compact)
+          (clatter-message-order order)
+          (clatter-nick-column-width 14)
+          (clatter-smart-enabled t)
+          (clatter-smart-noise '(join part quit away))
+          (clatter-suppress-messages '(noise muted)))
+      (clatter-test-with-ui-connection conn
+        (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+          (clatter-ui-setup-buffer buffer)
+          (clatter--insert-system-event
+           buffer 'quit '(:nick "alice" :channel "#test") '(quit noise))
+          (clatter--insert-system-event
+           buffer 'part '(:nick "bob" :channel "#test") 'part)
+          (clatter--insert-system-event
+           buffer 'join '(:nick "carol" :channel "#test") '(join noise))
+          (with-current-buffer buffer
+            (let ((groups 0)
+                  (position (point-min)))
+              (while-let ((start
+                           (text-property-not-all
+                            position (point-max)
+                            'clatter-compact-system-group-id nil)))
+                (cl-incf groups)
+                (setq position
+                      (or (next-single-property-change
+                           start 'clatter-compact-system-group-id
+                           nil (point-max))
+                          (point-max))))
+              (should (= groups 3)))
+            (let* ((part-position
+                    (save-excursion
+                      (goto-char (point-min))
+                      (search-forward "← bob")
+                      (match-beginning 0)))
+                   (line-start (save-excursion
+                                 (goto-char part-position)
+                                 (line-beginning-position)))
+                   (line-end (save-excursion
+                               (goto-char part-position)
+                               (1+ (line-end-position)))))
+              (should
+               (equal (clatter-test--visible-text line-start line-end)
+                      (concat (make-string 13 ?\s) "← bob\n"))))))))))
+
+(ert-deftest clatter-test-compact-system-appends-preserve-visual-line-prefixes ()
+  "Appended compact actions retain wrapping alignment in Visual Line mode."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-message-order 'oldest-first)
+        (clatter-nick-column-width 14))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter-ui-setup-buffer buffer)
+        (with-current-buffer buffer
+          (visual-line-mode 1))
+        (clatter--insert-system-event
+         buffer 'join '(:nick "alice" :channel "#test") 'join)
+        (clatter--insert-system-event
+         buffer 'part '(:nick "bob" :channel "#test") 'part)
+        (with-current-buffer buffer
+          (goto-char (point-min))
+          (search-forward "← bob")
+          (let ((position (match-beginning 0)))
+            (should (equal (get-text-property position 'wrap-prefix)
+                           (make-string 15 ?\s)))
+            (should (equal (get-text-property position 'line-prefix) ""))))))))
 
 (ert-deftest clatter-test-compact-system-separator-is-configurable ()
   "Compact grouped events use the configured separator."
@@ -711,6 +862,33 @@
           ;; The indentation belongs to the group rather than its first event.
           (goto-char (point-min))
           (should-not (invisible-p (point))))))))
+
+(ert-deftest clatter-test-compact-system-visible-action-keeps-prompt-boundary ()
+  "A partly hidden compact line cannot visually merge with the prompt."
+  (let ((clatter-compact-system-messages 'compact)
+        (clatter-message-order 'oldest-first)
+        (clatter-prompt-format "[testnick]: ")
+        (clatter-suppress-messages '(quit away muted)))
+    (clatter-test-with-ui-connection conn
+      (let ((buffer (clatter-get-or-create-buffer "testnet" "#test")))
+        (clatter-ui-setup-buffer buffer)
+        (clatter--insert-system-event
+         buffer 'quit '(:nick "alice" :channel "#test") 'quit)
+        (clatter--insert-system-event
+         buffer 'join '(:nick "alice" :channel "#test") 'join)
+        (clatter--insert-system-event
+         buffer 'away '(:nick "bob" :channel "#test") 'away)
+        (with-current-buffer buffer
+          (let ((newline (1- (marker-position clatter--prompt-marker))))
+            ;; Reproduce the stale mixed-visibility state reported from a
+            ;; long-running buffer, then require layout refresh to repair it.
+            (let ((inhibit-read-only t))
+              (put-text-property newline (1+ newline) 'invisible 'noise))
+            (clatter--refresh-compact-system-layout)
+            (should (eq (char-after newline) ?\n))
+            (should-not (invisible-p newline))
+            (should (= (1+ newline)
+                       (marker-position clatter--prompt-marker)))))))))
 
 (ert-deftest clatter-test-compact-system-default-preserves-verbose-join ()
   "The default nil compact setting preserves the existing JOIN sentence."

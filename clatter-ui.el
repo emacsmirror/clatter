@@ -851,6 +851,10 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                                group-start 'clatter-compact-system-group-id
                                nil (point-max))
                               (point-max)))
+               (newline-position
+                (and (> group-end group-start)
+                     (eq (char-before group-end) ?\n)
+                     (1- group-end)))
                (event-position group-start)
                (previous-event-end nil)
                (any-visible nil))
@@ -890,6 +894,13 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                (unless any-visible
                  (overlay-get overlay
                               'clatter-compact-system-invisible)))))
+          ;; A hidden newline visually joins the last visible action to the
+          ;; following line.  In `oldest-first' buffers that following line is
+          ;; the input prompt, so always expose the boundary whenever any
+          ;; action in the compact group is visible.
+          (when (and newline-position any-visible)
+            (remove-text-properties newline-position group-end
+                                    '(invisible nil display nil)))
           (setq position group-end))))))
 
 (defun clatter--end-compact-system-group ()
@@ -919,6 +930,13 @@ shared layout coherent when `buffer-invisibility-spec' changes, notably when
                     (text-property-any
                      (line-beginning-position) (1+ position)
                      'clatter-compact-system-group-id group-id))
+                  ;; Do not append to a compact group created by an older
+                  ;; loaded implementation that lacks per-event metadata.
+                  (save-excursion
+                    (goto-char position)
+                    (text-property-not-all
+                     (line-beginning-position) position
+                     'clatter-compact-system-event nil))
                   ;; A stale marker must never be allowed to enter the
                   ;; editable prompt, regardless of message ordering.
                   (or (not clatter--prompt-marker)
@@ -981,7 +999,10 @@ existing group's visibility categories."
                            (plist-get group :id)
                            'read-only t
                            'front-sticky nil
-                           'rear-nonsticky t))
+                           'rear-nonsticky t
+                           'wrap-prefix
+                           (make-string (1+ clatter-nick-column-width) ?\s)
+                           'line-prefix ""))
                     (set-marker tail (point))))
                 (when (and pre-input clatter--input-marker)
                   (clatter--update-undo-list
