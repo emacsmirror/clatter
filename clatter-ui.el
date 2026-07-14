@@ -545,7 +545,7 @@ SERVER-TIME overrides the current time for the timestamp."
                                             (format "%s:" ref-sender)))
                               (front (propertize (format "↳ %s " front-nick) 'face 'shadow)))
                          (add-face-text-property 0 (length preview) 'shadow nil preview)
-                         (let ((context (concat front preview "\n"))
+                         (let ((context (concat front preview))
                                (action
                                 (lambda (_button)
                                   (clatter-jump-to-msgid buffer reply-to))))
@@ -557,7 +557,7 @@ SERVER-TIME overrides the current time for the timestamp."
                                                       'reply-to reply-to
                                                       'help-echo "Click or press RET to jump to reply context")
                                                 context)
-                           context))))
+                           (concat context "\n"))))
          (formatted
           (cond
            ((eq 'action msg-type)
