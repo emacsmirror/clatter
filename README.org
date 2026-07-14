@@ -118,6 +118,7 @@ Example:
 *** Activity Tracking (clatter-track)
 - Global mode-line activity indicator
 - Unread counts and mention detection per channel
+- Configurable mention/DM/activity indicators, faces, and count styles
 - Priority sorting: mentions > DMs > regular activity
 - Clickable mode-line entries (switch to buffer on click)
 - Muted targets remain visible but dimmed; for example,
