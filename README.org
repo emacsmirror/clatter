@@ -119,7 +119,10 @@ Example:
 - Unread counts and mention detection per channel
 - Priority sorting: mentions > DMs > regular activity
 - Clickable mode-line entries (switch to buffer on click)
-- Channel mute/unmute support
+- Muted targets remain visible but dimmed; for example,
+  =(setq clatter-track-muted-channels '(\"*server*\" \"#bots\"))=
+- Excluded targets are omitted from every tracker surface; for example,
+  =(setq clatter-track-exclude-targets '(\"*server*\"))=
 - Consult integration (narrow with =i= in =consult-buffer=)
 - =M-x clatter-track-switch= to jump to most urgent activity
 - =M-x clatter-track-list= to list all activity
