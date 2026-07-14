@@ -230,7 +230,12 @@ Prevents notification spam from rapid messages."
     (list :actions '("default" "Open buffer")
           :on-action (lambda (&rest _)
                        (when (buffer-live-p buffer)
-                         (pop-to-buffer buffer))))))
+                         ;; Attempt to focus/raise the frame containing
+                         ;; the buffer after popping it.
+                         (and-let* ((popped (pop-to-buffer buffer))
+                                    (window (get-buffer-window popped))
+                                    (frame (window-frame window)))
+                           (select-frame-set-input-focus frame)))))))
 
 (defun clatter-notify--dbus-sound-params ()
   "Return D-Bus sound parameters for the configured notification sound."
