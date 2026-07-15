@@ -259,6 +259,12 @@ Return the trimmed character."
 
       ;; --- Registration complete ---
       ("001"
+       ;; Update nick from server response: the bouncer may assign us a
+       ;; different nick than what we configured (e.g. our upstream nick).
+       ;; Without this, DM routing breaks because clatter compares the
+       ;; PRIVMSG target against the configured nick, not the actual one.
+       (when (and params (stringp (nth 0 params)) (not (string-empty-p (nth 0 params))))
+         (setf (clatter-connection-nick conn) (nth 0 params)))
        (clatter--watchdog "REGISTERED %s nick=%s"
                           (clatter-connection-network-id conn)
                           (clatter-connection-nick conn))
