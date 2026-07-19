@@ -731,27 +731,20 @@ reconciliation.  BUFFER defaults to the current buffer."
                 (remove-text-properties start end '(clatter-self-echo-nonce nil))))))
         (setq clatter--pending-self-echoes nil)))))
 
-(defun clatter-ui--send-privmsg (conn target text &optional msg-type buffer tags)
+(defun clatter-ui--send-privmsg-1 (conn target text &optional msg-type buffer tags)
   "Send TEXT to TARGET and render it according to `clatter-self-echo-mode'.
 MSG-TYPE is `privmsg' or `action'; BUFFER receives the local echo.  TAGS, when
-non-nil, are the message tags to be affixed to the message.
-If TEXT is a pair of strings its CAR will be considered the display text, while
-(CDR TEXT) will be considered the raw text to be sent as-is."
+non-nil, are the message tags to be affixed to the message."
   (let* ((msg-type (or msg-type 'privmsg))
          (buffer (or buffer (current-buffer)))
          (sender (clatter-connection-nick conn))
          (echo-message-p (member "echo-message" (clatter-connection-cap-enabled conn))))
-    (clatter-send
-     conn
-     (clatter-irc-privmsg
-      target
-      ;; If TEXT is a pair, this is a CTCP message of the form
-      ;; (TEXT . CTCP-TEXT), where TEXT is the displayed text
-      ;; and CTCP-TEXT is the actual CTCP message to be sent.
-      (if (consp text)
-          (prog1 (cdr text) (setq text (car text)))
-        text)
-      tags))
+    (clatter-send conn (clatter-irc-privmsg
+                        target
+                        (if (eq 'action msg-type)
+                            (clatter-irc-ctcp-action-format text)
+                          text)
+                        tags))
     (cond
      ;; If the server has echo-message and clatter-self-echo-mode is
      ;; 'optimistic, we can tentatively echo the message locally in the
@@ -777,6 +770,20 @@ If TEXT is a pair of strings its CAR will be considered the display text, while
                                (list sender "*" "*")       ;; * = Placeholder
                                target text
                                nil)))))))
+
+(defun clatter-ui--send-privmsg (conn target text &optional msg-type buffer tags)
+  "Split and send TEXT to TARGET, rendering sent parts according to
+`clatter-self-echo-mode'. MSG-TYPE is `privmsg' or `action';  BUFFER
+receives the local echo.  TAGS, when non-nil, are the message tags to be
+affixed to the message."
+  (let* ((command+overhead (concat (clatter-irc-format-tagged-privmsg tags)
+                                   ;; Include CTCP ^AACTION ...^A overhead
+                                   (when (eq msg-type 'action)
+                                     (clatter-irc-ctcp-action-format))))
+         (parts (clatter-split-long-message target text command+overhead)))
+    (mapc (lambda (part)
+            (clatter-ui--send-privmsg-1 conn target part msg-type buffer tags))
+          parts)))
 
 (defun clatter-ui--reconcile-self-echo (buffer sender target text msg-type server-time)
   "Reconcile a server echo with its tentative local message in BUFFER.
@@ -1466,9 +1473,7 @@ If the input contains multiple lines and exceeds
          (target clatter--target)
          (conn (clatter-get-connection network)))
     (when (and conn target (not (string= target "*server*")))
-      (let ((parts (clatter-split-long-message target text)))
-        (dolist (part parts)
-          (clatter-ui--send-privmsg conn target part 'privmsg (current-buffer)))))))
+      (clatter-ui--send-privmsg conn target text 'privmsg (current-buffer)))))
 
 (defun clatter--handle-command (input)
   "Parse and execute INPUT as a /command."

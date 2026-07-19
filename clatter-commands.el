@@ -118,8 +118,7 @@ INPUT is the full string including the leading /."
   (let ((conn (clatter--require-conn)))
     (when conn
       (when (and clatter--target (not (string= clatter--target "*server*")))
-        (let ((ctcp-msg (format "\C-aACTION %s\C-a" args)))
-          (clatter-ui--send-privmsg conn clatter--target (cons args ctcp-msg) 'action (current-buffer)))))))
+        (clatter-ui--send-privmsg conn clatter--target args 'action (current-buffer))))))
 
 (defun clatter-cmd-nick (args)
   "Change nick to the NEWNICK given in ARGS."

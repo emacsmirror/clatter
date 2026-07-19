@@ -260,7 +260,6 @@ command, and parameters including trailing."
            with backslash = "\\"
            with linefeed = "\r"
            with newline = "\n"
-           with skip = ""
            for chr across tag with escape-p
            if escape-p
            concat (progn
@@ -272,8 +271,7 @@ command, and parameters including trailing."
                      ((eq ?r chr) linefeed)
                      ((eq ?n chr) newline)
                      (t (char-to-string chr))))
-           else concat (if (setq escape-p (eq ?\\ chr))
-                           skip
+           else concat (unless (setq escape-p (eq ?\\ chr))
                          (char-to-string chr))))
 
 (defun clatter-escape-tag (tag)
@@ -314,6 +312,21 @@ Tags format: key1=value1;key2=value2;key3"
 (defun clatter-get-tag (tags-string key)
   "Get the value of KEY from TAGS-STRING."
   (clatter-get-parsed-tag (clatter-parse-tags tags-string) key))
+
+(defun clatter-format-tagged-command (command &optional tags-alist)
+  "Format a tagged COMMAND with TAGS-ALIST."
+  (let ((tags-prefix (clatter-encode-tags tags-alist)))
+    (if (seq-empty-p tags-prefix)
+        command
+      (format "@%s %s" tags-prefix command))))
+
+(defun clatter-irc-format-tagged-privmsg (&optional tags-alist)
+  "Format PRIVMSG tagged with TAGS-ALIST."
+   (clatter-format-tagged-command "PRIVMSG" tags-alist))
+
+(defun clatter-irc-format-tagged-notice (&optional tags-alist)
+  "Format NOTICE tagged with TAGS-ALIST."
+   (clatter-format-tagged-command "NOTICE" tags-alist))
 
 (defun clatter-get-parsed-server-time (tags-alist)
   "Extract server-time from IRCv3 TAGS-ALIST.
@@ -381,19 +394,15 @@ The last param is treated as trailing if it contains spaces."
 
 (defun clatter-irc-privmsg (target text &optional tags-alist)
   "Format PRIVMSG tagged with TAGS-ALIST to TARGET with TEXT."
-  (let* ((tags-prefix (clatter-encode-tags tags-alist))
-         (command (if (seq-empty-p tags-prefix)
-                      "PRIVMSG"
-                    (format "@%s PRIVMSG" tags-prefix))))
-    (clatter-format-line command target text)))
+  (clatter-format-line
+   (clatter-irc-format-tagged-privmsg tags-alist)
+   target text))
 
 (defun clatter-irc-notice (target text &optional tags-alist)
   "Format NOTICE tagged with TAGS-ALIST to TARGET with TEXT."
-  (let* ((tags-prefix (clatter-encode-tags tags-alist))
-         (command (if (seq-empty-p tags-prefix)
-                      "NOTICE"
-                    (format "@%s NOTICE" tags-prefix))))
-    (clatter-format-line command target text)))
+  (clatter-format-line
+   (clatter-irc-format-tagged-notice tags-alist)
+   target text))
 
 (defun clatter-irc-quit (&optional message)
   "Format QUIT command with optional MESSAGE."
@@ -477,19 +486,23 @@ The last param is treated as trailing if it contains spaces."
 
 ;; --- CTCP ---
 
+(defun clatter-irc-ctcp-format (command &optional text)
+  "Format a CTCP message for COMMAND with optional TEXT."
+  (if text
+      (format "\C-a%s %s\C-a" command text)
+    (format "\C-a%s\C-a" command)))
+
+(defun clatter-irc-ctcp-action-format (&optional text)
+  "Format a CTCP ACTION message containing TEXT."
+  (clatter-irc-ctcp-format "ACTION" (or text "")))
+
 (defun clatter-irc-ctcp-reply (target command &optional text)
   "Format a CTCP reply (via NOTICE) to TARGET for COMMAND with optional TEXT."
-  (let ((ctcp-text (if text
-                       (format "\C-a%s %s\C-a" command text)
-                     (format "\C-a%s\C-a" command))))
-    (clatter-irc-notice target ctcp-text)))
+    (clatter-irc-notice target (clatter-irc-ctcp-format command text)))
 
 (defun clatter-irc-ctcp-request (target command &optional text)
   "Format a CTCP request (via PRIVMSG) to TARGET for COMMAND with optional TEXT."
-  (let ((ctcp-text (if text
-                       (format "\C-a%s %s\C-a" command text)
-                     (format "\C-a%s\C-a" command))))
-    (clatter-irc-privmsg target ctcp-text)))
+    (clatter-irc-privmsg target (clatter-irc-ctcp-format command text)))
 
 ;; --- TAGMSG / Typing ---
 
