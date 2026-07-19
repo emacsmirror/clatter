@@ -686,11 +686,6 @@ SERVER-TIME overrides the current time for the timestamp."
   "Insert a NOTICE from SENDER with TEXT into BUFFER."
   (clatter-insert-generic 'notice buffer sender text conn server-time invisible))
 
-(defun clatter-ui--self-echo-p (conn)
-  "Return non-nil when CONN should display a local echo immediately."
-  (or (eq clatter-self-echo-mode 'optimistic)
-      (not (member "echo-message" (clatter-connection-cap-enabled conn)))) )
-
 (defun clatter-ui--record-pending-self-echo (buffer target sender text msg-type nonce)
   "Record tentative outgoing message metadata for later reconciliation."
   (with-current-buffer buffer
@@ -744,7 +739,8 @@ If TEXT is a pair of strings its CAR will be considered the display text, while
 (CDR TEXT) will be considered the raw text to be sent as-is."
   (let* ((msg-type (or msg-type 'privmsg))
          (buffer (or buffer (current-buffer)))
-         (sender (clatter-connection-nick conn)))
+         (sender (clatter-connection-nick conn))
+         (echo-message-p (member "echo-message" (clatter-connection-cap-enabled conn))))
     (clatter-send
      conn
      (clatter-irc-privmsg
@@ -756,19 +752,31 @@ If TEXT is a pair of strings its CAR will be considered the display text, while
           (prog1 (cdr text) (setq text (car text)))
         text)
       tags))
-    (when (clatter-ui--self-echo-p conn)
+    (cond
+     ;; If the server has echo-message and clatter-self-echo-mode is
+     ;; 'optimistic, we can tentatively echo the message locally in the
+     ;; expectation we'll receive a server-side echo later.
+     ((and echo-message-p (eq clatter-self-echo-mode 'optimistic))
       (let* ((nonce (cl-incf clatter--self-echo-nonce))
              (tentative (propertize (copy-sequence text) 'clatter-self-echo-nonce nonce)))
         (pcase msg-type
           ('action (clatter-insert-action buffer sender tentative conn))
           (_ (clatter-insert-privmsg buffer sender tentative conn)))
-        ;; Only optimistic messages with echo-message negotiated expect a
-        ;; server echo to replace the local line.  Without that capability,
-        ;; retain the established local fallback without a record that could
-        ;; swallow an unrelated later self message.
-        (when (and (eq clatter-self-echo-mode 'optimistic)
-                   (member "echo-message" (clatter-connection-cap-enabled conn)))
-          (clatter-ui--record-pending-self-echo buffer target sender text msg-type nonce))))))
+        (clatter-ui--record-pending-self-echo buffer target sender text msg-type nonce)))
+     ;; If the server doesn't echo messages, we have to simulate the echo
+     ;; by triggering the message hooks.
+     ((not echo-message-p)
+      (pcase msg-type
+        ('action (run-hook-with-args 'clatter-action-hook
+                                     conn
+                                     (list sender "*" "*") ;; * = Placeholder
+                                     target text
+                                     nil))
+        (_ (run-hook-with-args 'clatter-privmsg-hook
+                               conn
+                               (list sender "*" "*")       ;; * = Placeholder
+                               target text
+                               nil)))))))
 
 (defun clatter-ui--reconcile-self-echo (buffer sender target text msg-type server-time)
   "Reconcile a server echo with its tentative local message in BUFFER.
@@ -1682,7 +1690,8 @@ the buffer margin-width variables."
          (is-muted (clatter-muted-p sender network))
          (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (unless (and (clatter-nick-equal-p sender-nick my-nick case-mapping)
+    (unless (and (member "echo-message" (clatter-connection-cap-enabled conn))
+                 (clatter-nick-equal-p sender-nick my-nick case-mapping)
                  (clatter-ui--reconcile-self-echo buf sender-nick buf-target text 'privmsg server-time))
       (clatter-insert-privmsg buf sender-nick text conn server-time invisible))
     (when (and (not (clatter-channel-name-p target))
@@ -1711,7 +1720,8 @@ the buffer margin-width variables."
          (is-muted (clatter-muted-p sender network))
          (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
-    (unless (and (clatter-nick-equal-p sender-nick my-nick case-mapping)
+    (unless (and (member "echo-message" (clatter-connection-cap-enabled conn))
+                 (clatter-nick-equal-p sender-nick my-nick case-mapping)
                  (clatter-ui--reconcile-self-echo buf sender-nick buf-target text 'action server-time))
       (clatter-insert-action buf sender-nick text conn server-time invisible))
     (when (and (not (clatter-channel-name-p target))
