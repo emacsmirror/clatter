@@ -968,6 +968,11 @@ these files existing.
 | =clatter-read-state-file=          | =~/.emacs.d/clatter/read-state.el= | Where local read state lives             |
 | =clatter-read-state-save-delay=    | =2=                                | Debounce seconds for read-state writes   |
 
+=M-x clatter-chathistory-targets= queries every connected server and displays
+its channels and query targets as a tree.  It uses the activity-list navigation
+keys: =RET= visits, =o= visits in another window, =a= visits and buries the
+browser, and =g= refreshes.
+
 =M-x clatter-chathistory-more= fetches older messages;
 =M-x clatter-read-marker-mark= and =M-x clatter-read-marker-query= drive the
 marker manually. Requires the =server-time=, =batch= and =message-tags=

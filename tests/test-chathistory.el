@@ -268,6 +268,71 @@ timestamp is a parameter rather than a server-time tag."
             (should-not (clatter-test-sent-matching "TARGETS TARGETS"))))
       (clatter-test-cleanup))))
 
+(ert-deftest clatter-chathistory-targets-browser-groups-and-opens-targets ()
+  "The browser queries every server and exposes targets as navigable children."
+  (let ((alpha (clatter-test-make-connection-with-caps
+                '("server-time" "batch" "message-tags" "chathistory")
+                "alpha"))
+        (zeta (clatter-test-make-connection-with-caps
+               '("server-time" "batch" "message-tags" "chathistory")
+               "zeta"))
+        browser)
+    (unwind-protect
+        (clatter-test-with-mock-send
+          (save-window-excursion
+            (clatter-chathistory-targets))
+          (setq browser
+                (get-buffer clatter-chathistory--targets-buffer-name))
+          (should (= 2
+                     (cl-count-if
+                      (lambda (line)
+                        (string-prefix-p "CHATHISTORY TARGETS " line))
+                      clatter-test--sent-lines)))
+          (clatter-chathistory--record-targets
+           zeta "chathistory-targets" nil
+           (list (list :target "alice")))
+          (clatter-chathistory--record-targets
+           alpha "draft/chathistory-targets" nil
+           (list (list :target "#emacs")
+                 (list :target "bob")))
+          (with-current-buffer browser
+            (should
+             (equal
+              (mapcar #'car (funcall tabulated-list-entries))
+              '(("alpha") ("alpha" . "#emacs") ("alpha" . "bob")
+                ("zeta") ("zeta" . "alice"))))
+            (should (eq (lookup-key clatter-chathistory-targets-mode-map
+                                    (kbd "RET"))
+                        #'clatter-chathistory-targets-visit))
+            (should (eq (lookup-key clatter-chathistory-targets-mode-map
+                                    (kbd "o"))
+                        #'clatter-chathistory-targets-visit-other-window))
+            (should (eq (lookup-key clatter-chathistory-targets-mode-map
+                                    (kbd "a"))
+                        #'clatter-chathistory-targets-visit-quit))
+            (goto-char (point-min))
+            (search-forward "#emacs")
+            (let ((name-start (- (point) (length "#emacs"))))
+              (should (eq (get-text-property name-start 'face) 'link))
+              (should (button-at name-start))
+              (should-not (eq (get-text-property (1- name-start) 'face)
+                              'link))
+              (should-not (button-at (1- name-start))))
+            (goto-char (point-min))
+            (while (and (not (equal (tabulated-list-get-id)
+                                    '("alpha" . "#emacs")))
+                        (= (forward-line 1) 0)))
+            (should (equal (tabulated-list-get-id)
+                           '("alpha" . "#emacs")))
+            (save-window-excursion
+              (clatter-chathistory-targets-visit)))
+          (should (clatter-get-buffer "alpha" "#emacs"))
+          (should (clatter-test-sent-matching
+                   "^CHATHISTORY LATEST #emacs \\* 50$")))
+      (when (buffer-live-p browser)
+        (kill-buffer browser))
+      (clatter-test-cleanup))))
+
 (provide 'test-chathistory)
 
 ;;; test-chathistory.el ends here
