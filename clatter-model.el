@@ -430,6 +430,11 @@ Handles prefixes like @nick, +nick, ~nick."
     (modify-syntax-entry ?{ "_" st)
     (modify-syntax-entry ?} "_" st)
     (modify-syntax-entry ?| "_" st)
+    ;; Chat is prose: punctuation syntax for quotes like text-mode, so
+    ;; electric-pair pairs/skips unconditionally instead of treating an
+    ;; unmatched quote in the scrollback as opening a string at the
+    ;; input line (which caused a spurious pair when closing quotes).
+    (modify-syntax-entry ?\" "." st)
     st)
   "Syntax table for `clatter-mode'.
 Makes IRC channel prefixes and nick characters part of symbol syntax.")
