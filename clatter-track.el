@@ -114,11 +114,13 @@ fall back to the legacy indicator for their activity type."
 
 (defcustom clatter-track-count-style 'suffix
   "Style used to display unread counts in the activity tracker.
-The value `suffix' renders the legacy :N form.  `superscript' and
+The value `suffix' renders the legacy :N form.  `parens' renders the
+count in parentheses, e.g. #chan (10).  `superscript' and
 `subscript' raise or lower the exact count.  `glyph' renders one as ·,
 two as :, three as ⋮, and larger counts as a raised +N.  `none' hides
 the count.  `clatter-track-show-counts' remains the master switch."
   :type '(choice (const :tag "Colon suffix (:N)" suffix)
+                 (const :tag "Parenthesized count" parens)
                  (const :tag "Raised number" superscript)
                  (const :tag "Lowered number" subscript)
                  (const :tag "Compact glyphs" glyph)
@@ -398,6 +400,7 @@ Returns list of plists sorted by priority: mentions > DMs > activity."
           (eq clatter-track-count-style 'none))
       ""
     (pcase clatter-track-count-style
+      ('parens (format " (%d)" unread))
       ('superscript
        (propertize (number-to-string unread) 'display '(raise 0.3)))
       ('subscript

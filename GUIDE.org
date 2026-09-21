@@ -838,7 +838,7 @@ argument to refresh faces already in use).
 | =clatter-track-exclude-targets=         | =nil=              | Targets hidden from every tracker surface                                |
 | =clatter-track-shorten=                 | =nil=              | =nil=, an integer N, =drop-vowels= or =syllable= channel shortening      |
 | =clatter-track-show-counts=             | =t=                | Show unread counts                                                       |
-| =clatter-track-count-style=             | ='suffix=          | =suffix=, =superscript=, =subscript=, =glyph=, =none=                    |
+| =clatter-track-count-style=             | ='suffix=          | =suffix=, =parens=, =superscript=, =subscript=, =glyph=, =none=          |
 | =clatter-track-indicators=              | =@= / =*= / (none) | Prefix glyph for mention / DM / activity                                 |
 | =clatter-track-faces-alist=             | (4 faces)          | Face per activity type                                                   |
 | =clatter-track-show-in-clatter-buffers= | =nil=              | Also show crumbs in each clatter buffer                                  |

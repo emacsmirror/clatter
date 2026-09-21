@@ -64,6 +64,11 @@
      (equal (substring-no-properties
              (clatter-track--format-entry (clatter-track-styling-test--info)))
             "#test")))
+  (let ((clatter-track-count-style 'parens))
+    (should
+     (equal (substring-no-properties
+             (clatter-track--format-entry (clatter-track-styling-test--info)))
+            "#test (3)")))
   (let ((clatter-track-count-style 'suffix)
         (clatter-track-show-counts nil))
     (should
