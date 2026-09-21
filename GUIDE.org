@@ -837,6 +837,8 @@ argument to refresh faces already in use).
 | =clatter-track-muted-channels=          | =nil=              | Targets dimmed but still tracked                                         |
 | =clatter-track-exclude-targets=         | =nil=              | Targets hidden from every tracker surface                                |
 | =clatter-track-shorten=                 | =nil=              | =nil=, an integer N, =drop-vowels= or =syllable= channel shortening      |
+| =clatter-track-layout=                  | ='legacy=          | =legacy= output or opt-in adaptive =strip=                             |
+| =clatter-track-max-width=               | =0.4=              | Strip allocation as window fraction or integer columns                   |
 | =clatter-track-show-counts=             | =t=                | Show unread counts                                                       |
 | =clatter-track-count-style=             | ='suffix=          | =suffix=, =parens=, =superscript=, =subscript=, =glyph=, =none=          |
 | =clatter-track-indicators=              | =@= / =*= / (none) | Prefix glyph for mention / DM / activity                                 |
@@ -860,13 +862,29 @@ When =clatter-track-shorten= is non-nil, channel names are shortened in the
 indicator. An integer N truncates the name body to N chars (for example,
 =#systemcrafters= becomes =#syst= with 5); =drop-vowels= strips vowels; and
 =syllable= keeps the first char of each CamelCase or delimiter segment
-(=#system-crafters= becomes =#sc=). =nil= shows the full
-=clatter:network/#channel= buffer name. Colliding names are extended until
-unique; query nicks and the server buffer are never shortened. Shortening
-applies only to the compact mode-line indicator; =M-x clatter-track-list=
-always shows the full =clatter:network/#channel= buffer name. Hovering an
-entry (in the mode line or =*clatter-activity*=) shows a tooltip with the
-full, unshortened channel name and its unread count.
+(=#system-crafters= becomes =#sc=). With =nil=, the legacy layout shows the
+full =clatter:network/#channel= buffer name and the strip layout shows the raw
+target. Colliding strip labels fall back to raw targets and then gain a network
+or buffer identity suffix. Query nicks and the server buffer are never
+shortened. Shortening applies only to the compact mode-line indicator;
+=M-x clatter-track-list= always shows the full =clatter:network/#channel=
+buffer name. Hovering an entry (in the mode line or =*clatter-activity*=)
+shows a tooltip with the full, unshortened channel name and unread count.
+
+The default =legacy= layout preserves the existing indicator. To opt into the
+width-aware strip and parenthesized counts:
+
+#+begin_src emacs-lisp
+(setopt clatter-track-layout 'strip
+        clatter-track-count-style 'parens
+        clatter-track-max-width 0.4)
+(custom-set-faces
+ '(clatter-track-count ((t (:height 0.9)))))
+#+end_src
+
+The strip uses =clatter-track-max-width= as a fraction of its window or, for an
+integer, a column budget. Zero hides it. Customize =clatter-track-count= with
+native face attributes such as relative =:height=; terminals ignore font size.
 
 When =clatter-track-switch-return-to-origin= is =t=, repeated
 =M-x clatter-track-switch= calls cycle through active buffers by priority, and

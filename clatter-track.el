@@ -72,14 +72,14 @@ or (\"#spam\" \"#bots\") to omit selected channels."
 
 (defcustom clatter-track-shorten nil
   "Shorten channel names in the track indicator.
-nil shows the full buffer name, including the clatter:network/ prefix.
-An integer N truncates the channel name body to N chars; e.g. 5 turns
-#systemcrafters into #syst.  `drop-vowels' strips vowels from the body.
-`syllable' keeps the first char of each CamelCase or delimiter segment,
-lowercased (so #system-crafters becomes #sc).  Only channel targets
-(#, &, !, +) are shortened; query nicks and `*server*' are unchanged.
-Collisions are disambiguated by extending each name until unique."
-  :type '(choice (const :tag "Off (full buffer name)" nil)
+nil shows the full buffer name in the legacy layout and the raw target
+in the strip layout.  An integer N truncates the channel name body to
+N chars; e.g. 5 turns #systemcrafters into #syst.  `drop-vowels'
+strips vowels from the body.  `syllable' keeps the first char of each
+CamelCase or delimiter segment, lowercased (so #system-crafters
+becomes #sc).  Only channel targets (#, &, !, +) are shortened; query
+nicks and `*server*' are unchanged.  Collisions are disambiguated."
+  :type '(choice (const :tag "Off (full name)" nil)
                  (integer :tag "Truncate to N chars")
                  (const :tag "Drop vowels" drop-vowels)
                  (const :tag "Syllable / CamelHump" syllable))
@@ -127,6 +127,42 @@ the count.  `clatter-track-show-counts' remains the master switch."
                  (const :tag "No count" none))
   :group 'clatter)
 
+(defcustom clatter-track-layout 'legacy
+  "Tracker mode-line presentation.
+`legacy' renders the single cached string with full buffer-name labels.
+`strip' renders a bracketed, space-efficient strip that fits a budget
+derived from `clatter-track-max-width', overflowing hidden
+conversations as an attention-first `+N' summary."
+  :type '(choice (const :tag "Legacy cached string" legacy)
+                 (const :tag "Adaptive strip" strip))
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (and (fboundp 'clatter-track--layout-active-p)
+                    (clatter-track--layout-active-p))
+           (clatter-track--update)
+           (force-mode-line-update t)))
+  :group 'clatter)
+
+(defcustom clatter-track-max-width 0.4
+  "Maximum width of the adaptive tracker strip.
+Only used when `clatter-track-layout' is `strip'.  A float in [0.0,1.0]
+allocates that fraction of the rendering window's body width; zero
+hides the strip.  A nonnegative integer allocates that many columns
+\(converted to pixels on graphical frames using the mode-line base
+face).  Values outside these ranges are rejected by the Custom setter."
+  :type '(choice (float :tag "Window width fraction")
+                 (integer :tag "Columns"))
+  :set (lambda (sym val)
+         (unless (or (and (floatp val) (>= val 0.0) (<= val 1.0))
+                     (and (integerp val) (>= val 0)))
+           (signal 'args-out-of-range
+                   (list sym val "float in [0.0,1.0] or nonnegative integer")))
+         (set-default sym val)
+         (when (and (fboundp 'clatter-track--layout-active-p)
+                    (clatter-track--layout-active-p))
+           (clatter-track--update)))
+  :group 'clatter)
+
 (defcustom clatter-track-global-mode-line t
   "Install the activity indicator into the global `mode-line-format'.
 When non-nil (the default), `clatter-track-mode' appends
@@ -166,6 +202,18 @@ so the crumbs appear everywhere.  Setting this through Customize or
            (clatter-track--refresh-mode-lines))))
 
 ;; --- Faces ---
+(defface clatter-track-count
+  '((t :height 1.0))
+  "Face applied to the unread-count span in both tracker layouts.
+Composed over the entry's urgency or muted face, so only the count's
+typography changes; relative `:height' only has a visual effect on
+graphical frames."
+  :group 'clatter)
+
+(defface clatter-track-separator
+  '((t :inherit shadow))
+  "Face used only for strip brackets and separators."
+  :group 'clatter)
 
 (defface clatter-track-mention
   '((t :inherit error :weight bold))
@@ -194,6 +242,14 @@ so the crumbs appear everywhere.  Setting this through Customize or
 
 (defvar clatter-track--string ""
   "Current track string for the mode-line.")
+(defvar clatter-track--strip-entries nil
+  "Prepared strip-entry plists for the adaptive layout, or nil.
+Refreshed by `clatter-track--update'; never collected during redisplay.
+Keys: :buffer :label :suffix :count-str :marker :face :type :help
+:unread :mention :dm :full-name.")
+
+(defvar clatter-track--rendered-layout 'legacy
+  "Layout used by the most recent `clatter-track--update'.")
 
 (defvar clatter-track--switch-origin nil
   "Buffer the user was in before the current `clatter-track-switch' sequence.
@@ -424,13 +480,21 @@ Returns list of plists sorted by priority: mentions > DMs > activity."
          (face (clatter-track--face type muted))
          (prefix (clatter-track--indicator type))
          (count-str (clatter-track--format-count unread)))
-    (propertize (format "%s%s%s" prefix name count-str)
-                'face face
-                'help-echo (format "%s - %d unread%s"
-                                   full-name unread
-                                   (if mention " (mentioned)" ""))
-                'mouse-face 'highlight
-                'local-map (clatter-track--make-click-map (plist-get info :buffer)))))
+    (let ((entry (propertize (format "%s%s%s" prefix name count-str)
+                             'face face
+                             'help-echo (format "%s - %d unread%s"
+                                                full-name unread
+                                                (if mention " (mentioned)" ""))
+                             'mouse-face 'highlight
+                             'local-map (clatter-track--make-click-map
+                                         (plist-get info :buffer)))))
+      ;; Compose the count face over the entry face on the count span
+      ;; only; the name and indicator keep the entry's own styling.
+      (when (> (length count-str) 0)
+        (add-face-text-property (- (length entry) (length count-str))
+                                (length entry)
+                                'clatter-track-count nil entry))
+      entry)))
 
 (defun clatter-track--make-click-map (buffer)
   "Return a keymap that switches to BUFFER on click."
@@ -452,14 +516,549 @@ Returns list of plists sorted by priority: mentions > DMs > activity."
                 "]")
       "")))
 
+;; --- Adaptive strip layout ---
+
+;; Widths are measured in pixels on GUI frames (native
+;; `string-pixel-width') and in display columns on terminal frames,
+;; where face heights are ignored.
+(require 'subr-x)                  ; `string-pixel-width'
+(require 'mule-util)               ; `truncate-string-to-width'
+
+(defun clatter-track--layout-active-p ()
+  "Return non-nil when the tracker update timer is running."
+  (and clatter-track--timer t))
+
+(defun clatter-track--frame-graphic-p ()
+  "Return non-nil when the selected frame uses a window system."
+  (display-graphic-p))
+
+(defun clatter-track--strip-measure (string)
+  "Return the width of STRING in pixels on GUI, columns otherwise."
+  (if (clatter-track--frame-graphic-p)
+      (string-pixel-width string)
+    (string-width string)))
+
+(defun clatter-track--strip-ellipsis ()
+  "Return the ellipsis string displayable on the selected frame."
+  (if (char-displayable-p ?…) "…" "..."))
+
+(defun clatter-track--strip-separator ()
+  "Return the separator string displayable on the selected frame."
+  (if (char-displayable-p ?·) " · " " | "))
+
+(defun clatter-track--strip-face-list (&rest faces)
+  "Return FACES composed over the window's mode-line base face."
+  (let ((base (if (mode-line-window-selected-p)
+                  'mode-line-active
+                'mode-line-inactive)))
+    (nconc (delq nil faces) (list base))))
+
+(defun clatter-track--strip-open-str ()
+  "Return the styled strip opening bracket with its leading space."
+  (propertize " [" 'face
+              (clatter-track--strip-face-list
+               'clatter-track-separator)))
+
+(defun clatter-track--strip-close-str ()
+  "Return the styled strip closing bracket."
+  (propertize "]" 'face
+              (clatter-track--strip-face-list
+               'clatter-track-separator)))
+
+(defun clatter-track--strip-sep-str ()
+  "Return the styled strip separator."
+  (propertize (clatter-track--strip-separator) 'face
+              (clatter-track--strip-face-list
+               'clatter-track-separator)))
+
+(defun clatter-track--strip-cap-name (name cap &optional face)
+  "Return NAME cut to CAP columns using its rendered FACE.
+Keep the full name whenever it is no wider than its capped form; a
+wide ellipsis can cost more pixels than the letters it replaces."
+  (if (< (string-width name) cap)
+      name
+    (let* ((capped (truncate-string-to-width
+                    name cap 0 nil (clatter-track--strip-ellipsis)))
+           (faces (clatter-track--strip-face-list face))
+           (full-rendered (propertize (copy-sequence name) 'face faces))
+           (capped-rendered
+            (propertize (copy-sequence capped) 'face faces)))
+      (if (<= (clatter-track--strip-measure full-rendered)
+              (clatter-track--strip-measure capped-rendered))
+          name
+        capped))))
+
+(defun clatter-track--strip-help (info)
+  "Return the full-identity tooltip for collector INFO."
+  (format "%s (%s) - %d unread%s"
+          (or (plist-get info :full-name) (plist-get info :name))
+          (or (and (buffer-live-p (plist-get info :buffer))
+                   (buffer-name (plist-get info :buffer)))
+              "dead buffer")
+          (or (plist-get info :unread) 0)
+          (if (plist-get info :mention) " (mentioned)" "")))
+
+(defun clatter-track--prepare-strip-entries (infos)
+  "Prepare strip presentation data from collector INFOS.
+Returns a list of plists with keys :buffer :label :suffix
+:count-str :marker :face :type :unread :mention :dm :full-name :help.
+Called from `clatter-track--update' outside redisplay."
+  (clatter-track--strip-uniquify-entries
+   (delq nil
+         (mapcar
+          (lambda (info)
+            (let ((buf (plist-get info :buffer)))
+              (when (buffer-live-p buf)
+                (let* ((raw (plist-get info :full-name))
+                       (name (plist-get info :name))
+                       (label (if clatter-track-shorten
+                                  (or name raw)
+                                (or raw name)))
+                       (type (clatter-track--entry-type info)))
+                  (list :buffer buf
+                        :label label
+                        :suffix ""
+                        :count-str (clatter-track--format-count
+                                    (plist-get info :unread))
+                        :marker (clatter-track--indicator type)
+                        :face (clatter-track--face
+                               type (plist-get info :muted))
+                        :type type
+                        :unread (plist-get info :unread)
+                        :mention (plist-get info :mention)
+                        :dm (plist-get info :dm)
+                        :full-name raw
+                        :help (clatter-track--strip-help info))))))
+          infos))))
+
+(defun clatter-track--strip-uniquify-entries (entries)
+  "Disambiguate colliding strip labels in ENTRIES.
+Distinct raw targets with the same shortened label use their raw labels.
+Remaining collisions get distinct @NETWORK suffixes when possible, or
+@BUFFER-NAME suffixes otherwise."
+  (setq entries
+        (cl-remove-if-not
+         (lambda (entry) (buffer-live-p (plist-get entry :buffer)))
+         entries))
+  (let ((indices (number-sequence 0 (1- (length entries)))))
+    ;; Distinct raw targets with the same shortened label use raw labels.
+    (dolist (i indices)
+      (let* ((entry (nth i entries))
+             (label (plist-get entry :label))
+             (same (cl-remove-if-not
+                    (lambda (j)
+                      (equal label (plist-get (nth j entries) :label)))
+                    indices))
+             (raws (delete-dups
+                    (mapcar (lambda (j)
+                              (or (plist-get (nth j entries) :full-name)
+                                  (plist-get (nth j entries) :label)))
+                            same))))
+        (when (> (length raws) 1)
+          (dolist (j same)
+            (setf (plist-get (nth j entries) :label)
+                  (or (plist-get (nth j entries) :full-name)
+                      (plist-get (nth j entries) :label)))))))
+    ;; Remaining collisions get a stable identity suffix.
+    (let (handled)
+      (dolist (i indices)
+        (unless (memq i handled)
+          (let* ((label (plist-get (nth i entries) :label))
+                 (same (cl-remove-if-not
+                        (lambda (j)
+                          (equal label (plist-get (nth j entries) :label)))
+                        indices)))
+            (setq handled (append same handled))
+            (when (> (length same) 1)
+              (let* ((networks
+                      (mapcar
+                       (lambda (j)
+                         (buffer-local-value
+                          'clatter--network
+                          (plist-get (nth j entries) :buffer)))
+                       same))
+                     (network-suffixes-p
+                      (and (cl-every
+                            (lambda (network)
+                              (and (stringp network)
+                                   (not (string-empty-p network))))
+                            networks)
+                           (= (length (delete-dups
+                                       (copy-sequence networks)))
+                              (length networks)))))
+                (dolist (j same)
+                  (let* ((entry (nth j entries))
+                         (buf (plist-get entry :buffer))
+                         (identity
+                          (if network-suffixes-p
+                              (buffer-local-value 'clatter--network buf)
+                            (buffer-name buf))))
+                    (setf (plist-get entry :suffix)
+                          (concat "@" identity)))))))))))
+  entries)
+
+(defvar clatter-track--strip-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mode-line mouse-1] 'clatter-track--strip-click)
+    map)
+  "Shared keymap for every strip span.
+Click targets are resolved from the `clatter-track-target' text
+property, so no per-entry closures or keymaps are allocated.")
+
+(defun clatter-track--strip-click (event)
+  "Act on mouse-1 EVENT over a strip span.
+Switches to the target buffer and clears its activity, or opens the
+activity list for an overflow span.  Acts only in the clicked window."
+  (interactive "e")
+  (let* ((posn (event-start event))
+         (window (posn-window posn))
+         (posn-str (posn-string posn))
+         (target (and (consp posn-str)
+                      (stringp (car posn-str))
+                      (get-text-property
+                       (or (cdr posn-str) 0)
+                       'clatter-track-target (car posn-str)))))
+    (if (not (window-live-p window))
+        (clatter-track--update)
+      (select-window window)
+      (cond
+       ((bufferp target)
+        (if (buffer-live-p target)
+            (progn
+              (switch-to-buffer target)
+              (clatter-clear-activity target)
+              (clatter-track--update))
+          (clatter-track--update)))
+       ((eq target 'overflow)
+        (clatter-track-list))
+       (t (clatter-track--update))))))
+
+(defun clatter-track--strip-span (string face help target)
+  "Return propertized STRING with FACE, HELP and click TARGET.
+TARGET is a buffer or the symbol `overflow'."
+  (propertize string
+              'face face
+              'help-echo help
+              'mouse-face 'highlight
+              'clatter-track-target target
+              'local-map clatter-track--strip-keymap))
+
+(defun clatter-track--strip-marker-span (entry)
+  "Return the styled indicator span for strip ENTRY."
+  (clatter-track--strip-span
+   (or (plist-get entry :marker) "")
+   (clatter-track--strip-face-list (plist-get entry :face))
+   (plist-get entry :help)
+   (plist-get entry :buffer)))
+
+(defun clatter-track--strip-name-span (entry name)
+  "Return the styled name span for ENTRY, label NAME plus suffix."
+  (clatter-track--strip-span
+   (concat name (or (plist-get entry :suffix) ""))
+   (clatter-track--strip-face-list (plist-get entry :face))
+   (plist-get entry :help)
+   (plist-get entry :buffer)))
+
+(defun clatter-track--strip-count-span (entry)
+  "Return the styled count span for strip ENTRY.
+The count face composes ahead of the entry's urgency or muted face."
+  (clatter-track--strip-span
+   (or (plist-get entry :count-str) "")
+   (clatter-track--strip-face-list 'clatter-track-count
+                                   (plist-get entry :face))
+   (plist-get entry :help)
+   (plist-get entry :buffer)))
+
+(defun clatter-track--strip-entry-span (entry name)
+  "Return the full styled span for ENTRY with label NAME."
+  (concat (clatter-track--strip-marker-span entry)
+          (clatter-track--strip-name-span entry name)
+          (clatter-track--strip-count-span entry)))
+
+(defun clatter-track--make-overflow-data
+    (convs unread mentions dms top)
+  "Return overflow data from aggregate counts and highest-priority TOP."
+  (let ((top-type (and top (plist-get top :type))))
+    (list :convs convs
+          :unread unread
+          :mentions mentions
+          :dms dms
+          :marker (and top (memq top-type '(mention dm))
+                       (plist-get top :marker))
+          :face (and top (plist-get top :face))
+          :help (format
+                 "Hidden: %d conversation%s, %d unread message%s total (%d with mentions, %d DM%s). Click to open the activity list."
+                 convs (if (= convs 1) "" "s")
+                 unread (if (= unread 1) "" "s")
+                 mentions
+                 dms (if (= dms 1) "" "s")))))
+
+(defun clatter-track--strip-overflow-data (entries)
+  "Return overflow summary data for hidden strip ENTRIES."
+  (let ((convs 0)
+        (unread 0)
+        (mentions 0)
+        (dms 0))
+    (dolist (entry entries)
+      (cl-incf convs)
+      (cl-incf unread (or (plist-get entry :unread) 0))
+      (when (plist-get entry :mention) (cl-incf mentions))
+      (when (plist-get entry :dm) (cl-incf dms)))
+    (clatter-track--make-overflow-data
+     convs unread mentions dms (car entries))))
+
+(defun clatter-track--strip-overflow-span (data)
+  "Return the styled +N overflow span for overflow DATA."
+  (let* ((marker (or (plist-get data :marker) ""))
+         (body (concat "+" (number-to-string (plist-get data :convs)))))
+    (clatter-track--strip-span
+     (if (string-empty-p marker) body (concat marker body))
+     (clatter-track--strip-face-list (plist-get data :face))
+     (plist-get data :help)
+     'overflow)))
+
+(defun clatter-track--strip-overflow-forms (data budget)
+  "Return the first overflow form of DATA fitting BUDGET, or nil.
+Wrapped, marked, plain and bare forms are tried in order; every
+nonempty form stays clickable with the full summary tooltip."
+  (let* ((plain (concat "+" (number-to-string (plist-get data :convs))))
+         (marker (or (plist-get data :marker) ""))
+         (marked (if (string-empty-p marker) plain (concat marker plain)))
+         (face (clatter-track--strip-face-list (plist-get data :face)))
+         (help (plist-get data :help))
+         (span (lambda (s)
+                 (clatter-track--strip-span s face help 'overflow))))
+    (cl-some
+     (lambda (form)
+       (and (<= (clatter-track--strip-measure form) budget) form))
+     (list (concat (clatter-track--strip-open-str)
+                   (funcall span marked)
+                   (clatter-track--strip-close-str))
+           (funcall span marked)
+           (funcall span plain)
+           (funcall span "+")))))
+
+(defun clatter-track--strip-total-width (strings sep-w)
+  "Sum measured widths of STRINGS with SEP-W between each."
+  (let ((acc 0)
+        (first t))
+    (dolist (s strings acc)
+      (setq acc (+ acc (clatter-track--strip-measure s)
+                   (if first 0 sep-w)))
+      (setq first nil))))
+
+(defun clatter-track--strip-prefix-count (entries budget)
+  "Return the largest leading prefix of ENTRIES that fits BUDGET.
+Each entry uses its eight-column name candidate.  Visible widths and
+hidden overflow aggregates are each scanned once."
+  (let* ((n (length entries))
+         (entryv (vconcat entries))
+         (spans (make-vector n nil))
+         (suffixes (make-vector (1+ n) nil))
+         (open-w (clatter-track--strip-measure
+                  (clatter-track--strip-open-str)))
+         (close-w (clatter-track--strip-measure
+                   (clatter-track--strip-close-str)))
+         (sep-w (clatter-track--strip-measure
+                 (clatter-track--strip-sep-str)))
+         (best 0)
+         (acc 0))
+    (dotimes (i n)
+      (let ((entry (aref entryv i)))
+        (aset spans i
+              (clatter-track--strip-entry-span
+               entry
+               (clatter-track--strip-cap-name
+                (plist-get entry :label) 8 (plist-get entry :face))))))
+    (let ((convs 0)
+          (unread 0)
+          (mentions 0)
+          (dms 0))
+      (dotimes (offset n)
+        (let* ((i (- n offset 1))
+               (entry (aref entryv i)))
+          (cl-incf convs)
+          (cl-incf unread (or (plist-get entry :unread) 0))
+          (when (plist-get entry :mention) (cl-incf mentions))
+          (when (plist-get entry :dm) (cl-incf dms))
+          (aset suffixes i
+                (clatter-track--make-overflow-data
+                 convs unread mentions dms entry)))))
+    (dotimes (i n)
+      (setq acc (+ acc (clatter-track--strip-measure (aref spans i))
+                   (if (zerop i) 0 sep-w)))
+      (let* ((hidden (aref suffixes (1+ i)))
+             (ovf-w
+              (and hidden
+                   (clatter-track--strip-measure
+                    (clatter-track--strip-overflow-span hidden)))))
+        (when (<= (+ open-w acc close-w
+                     (if hidden (+ sep-w ovf-w) 0))
+                  budget)
+          (setq best (1+ i)))))
+    best))
+
+(defun clatter-track--strip-name-caps (visible width)
+  "Return per-entry name caps fitting WIDTH, or nil at cap eight.
+Finds the largest common display-column cap by binary search from
+eight columns to the widest full name, then spends remaining width
+expanding names in priority order."
+  (let* ((n (length visible))
+         (full-ws (mapcar (lambda (e) (string-width (plist-get e :label)))
+                           visible))
+         ;; The caller has already accounted for brackets, separators
+         ;; and overflow; only name-span widths are fitted here.
+         (width-at
+          (lambda (caps)
+            (apply #'+
+                   (cl-mapcar (lambda (e cap)
+                                (clatter-track--strip-measure
+                                 (clatter-track--strip-entry-span
+                                  e (clatter-track--strip-cap-name
+                                     (plist-get e :label) cap
+                                     (plist-get e :face)))))
+                              visible caps))))
+         (fits (lambda (caps) (<= (funcall width-at caps) width))))
+    (when (funcall fits (make-list n 8))
+      (let ((lo 8)
+            (hi (apply #'max (cons 8 full-ws)))
+            (cap 8))
+        (while (<= lo hi)
+          (let ((mid (floor (+ lo hi) 2)))
+            (if (funcall fits (make-list n mid))
+                (progn (setq cap mid) (setq lo (1+ mid)))
+              (setq hi (1- mid)))))
+        (let ((caps (make-list n cap)))
+          ;; Priority distribution: expand each name as far as it fits.
+          (dotimes (i n)
+            (let ((ilo cap)
+                  (ihi (nth i full-ws))
+                  (ibest (nth i caps)))
+              (while (<= ilo ihi)
+                (let ((mid (floor (+ ilo ihi) 2)))
+                  (let ((trial (append (cl-subseq caps 0 i)
+                                       (list mid)
+                                       (nthcdr (1+ i) caps))))
+                    (if (funcall fits trial)
+                        (progn (setq ibest mid ilo (1+ mid))
+                               (setq caps trial))
+                      (setq ihi (1- mid))))))
+              (setf (nth i caps) ibest)))
+          caps)))))
+
+(defun clatter-track--strip-build (entries k budget)
+  "Return the assembled strip for the first K ENTRIES within BUDGET.
+Expands name caps to spend remaining space, then re-measures the
+final assembled string.  Returns nil when the prefix cannot fit; the
+caller demotes its last visible entry to overflow."
+  (let* ((visible (cl-subseq entries 0 k))
+         (hidden (nthcdr k entries))
+         (ovf (and hidden (clatter-track--strip-overflow-data hidden)))
+         (open (clatter-track--strip-open-str))
+         (close (clatter-track--strip-close-str))
+         (sep (clatter-track--strip-sep-str))
+         (ovf-span (and ovf (clatter-track--strip-overflow-span ovf)))
+         (sep-w (clatter-track--strip-measure sep))
+         (fixed-w (+ (clatter-track--strip-measure open)
+                     (clatter-track--strip-measure close)
+                     (* (1- k) sep-w)
+                     (if ovf-span
+                         (+ sep-w (clatter-track--strip-measure ovf-span))
+                       0))))
+    (when (<= fixed-w budget)
+      (let ((caps (clatter-track--strip-name-caps
+                   visible (- budget fixed-w))))
+        (when caps
+          (let* ((spans (cl-mapcar (lambda (e cap)
+                                   (clatter-track--strip-entry-span
+                                    e (clatter-track--strip-cap-name
+                                       (plist-get e :label) cap
+                                       (plist-get e :face))))
+                                 visible caps))
+                 (final (concat open
+                                (mapconcat #'identity spans sep)
+                                (if ovf-span (concat sep ovf-span) "")
+                                close)))
+            (when (<= (clatter-track--strip-measure final) budget)
+              final)))))))
+
+(defun clatter-track--strip-final (entries k budget)
+  "Return the strip for prefix K of ENTRIES within BUDGET.
+When font shaping makes an assembled string exceed the budget, moves
+the last visible entry into overflow and retries; falls back to
+summary-only forms when no entry fits."
+  (let ((result nil)
+        (k k))
+    (while (and (not result) (> k 0))
+      (setq result (clatter-track--strip-build entries k budget))
+      (unless result (cl-decf k)))
+    (or result
+        (clatter-track--strip-overflow-forms
+         (clatter-track--strip-overflow-data entries) budget)
+        "")))
+
+(defun clatter-track--format-strip (entries budget)
+  "Return the fitted strip string for prepared ENTRIES within BUDGET.
+BUDGET is in pixels on graphical frames and display columns on
+terminal frames.  Returns \"\" for empty activity or a zero budget."
+  (if (or (null entries) (<= budget 0))
+      ""
+    (let ((k (clatter-track--strip-prefix-count entries budget)))
+      (if (zerop k)
+          (or (clatter-track--strip-overflow-forms
+               (clatter-track--strip-overflow-data entries) budget)
+              "")
+        (clatter-track--strip-final entries k budget)))))
+
+(defun clatter-track--strip-budget ()
+  "Return the strip budget for the selected window.
+Pixels on graphical frames, display columns on terminal frames,
+clamped to the window body width."
+  (let* ((window (selected-window))
+         (graphic (clatter-track--frame-graphic-p))
+         (window-w (if graphic
+                       (window-body-width window t)
+                     (window-body-width window)))
+         (budget
+          (cond
+           ((and (floatp clatter-track-max-width)
+                 (>= clatter-track-max-width 0.0)
+                 (<= clatter-track-max-width 1.0))
+            (floor (* clatter-track-max-width window-w)))
+           ((integerp clatter-track-max-width)
+            (if graphic
+                (floor
+                 (* clatter-track-max-width
+                    (clatter-track--strip-measure
+                     (propertize
+                      "0" 'face
+                      (if (mode-line-window-selected-p)
+                          'mode-line-active
+                        'mode-line-inactive)))))
+              clatter-track-max-width))
+           (t 0))))
+    (max 0 (min budget window-w))))
+
+(defun clatter-track--mode-line ()
+  "Return the tracker string for the selected window.
+The legacy layout returns the cached global string; the strip layout
+fits the prepared snapshot to the current window's budget.  Resizing
+therefore needs no extra timer, hook or per-window cache."
+  (if (eq clatter-track-layout 'strip)
+      (clatter-track--format-strip
+       clatter-track--strip-entries (clatter-track--strip-budget))
+    clatter-track--string))
+
 ;; --- Mode-line integration ---
 
 (defvar clatter-track-mode-line-item
-  '(:eval clatter-track--string)
+  '(:eval (clatter-track--mode-line))
   "Mode-line construct showing clatter activity.
-Add this to a custom mode line (for example a `doom-modeline' segment)
-and set `clatter-track-global-mode-line' to nil so clatter does not
-also append it to the global `mode-line-format'.")
+Renders the legacy cached string or the adaptive strip according to
+`clatter-track-layout'.  Add this to a custom mode line (for example a
+`doom-modeline' segment) and set `clatter-track-global-mode-line' to
+nil so clatter does not also append it to the global
+`mode-line-format'.")
 
 (put 'clatter-track-mode-line-item 'risky-local-variable t)
 
@@ -517,11 +1116,30 @@ The presence of the item follows `clatter-track-show-in-clatter-buffers'."
         (force-mode-line-update)))))
 
 (defun clatter-track--update ()
-  "Update the track string and force mode-line refresh."
-  (let ((new-string (clatter-track--format-string)))
-    (unless (string= new-string clatter-track--string)
-      (setq clatter-track--string new-string)
-      (force-mode-line-update t))))
+  "Refresh tracker caches and force mode-line redisplay.
+The legacy string is skipped when unchanged by characters and
+properties; the strip snapshot is always replaced, since buffer
+identity, tooltips, muting and count-style properties can change
+without changing visible characters.  A layout transition always
+forces redisplay, including transitions configured with ordinary
+`setq'."
+  (let ((layout-changed
+         (not (eq clatter-track-layout clatter-track--rendered-layout))))
+    (if (eq clatter-track-layout 'strip)
+        (progn
+          (setq clatter-track--strip-entries
+                (clatter-track--prepare-strip-entries
+                 (clatter-track--collect)))
+          (force-mode-line-update t))
+      (let* ((new-string (clatter-track--format-string))
+             (string-changed
+              (not (equal-including-properties
+                    new-string clatter-track--string))))
+        (when string-changed
+          (setq clatter-track--string new-string))
+        (when (or string-changed layout-changed)
+          (force-mode-line-update t))))
+    (setq clatter-track--rendered-layout clatter-track-layout)))
 
 ;; --- Auto-clear on buffer switch ---
 
@@ -843,6 +1461,8 @@ Renders the activity summary as a tabulated list; revert it with `g'
   (interactive)
   ;; Install mode-line item (honors `clatter-track-global-mode-line')
   (clatter-track--sync-global-mode-line)
+  ;; Populate the chosen renderer immediately after installation.
+  (clatter-track--update)
   ;; Start update timer
   (when clatter-track--timer
     (cancel-timer clatter-track--timer))
@@ -876,7 +1496,8 @@ Renders the activity summary as a tabulated list; revert it with `g'
   (remove-hook 'clatter-privmsg-hook #'clatter-track--on-activity)
   (remove-hook 'clatter-action-hook #'clatter-track--on-activity-action)
   (remove-hook 'clatter-notice-hook #'clatter-track--on-activity-notice)
-  (setq clatter-track--string "")
+  (setq clatter-track--string ""
+        clatter-track--strip-entries nil)
   (force-mode-line-update t)
   (when (called-interactively-p 'interactive)
     (message "[clatter-track] Activity tracking disabled")))

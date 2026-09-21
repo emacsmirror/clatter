@@ -359,6 +359,271 @@ so a small `clatter-track-shorten' value must not truncate the Buffer column."
                        (default-value 'mode-line-format))))
       (set-default 'mode-line-format mode-line-format))))
 
+;;; Adaptive strip layout
+
+(ert-deftest clatter-track-mode-line-item-evals-renderer ()
+  "The public item delegates to the renderer function."
+  (should (equal clatter-track-mode-line-item
+                 '(:eval (clatter-track--mode-line)))))
+
+(ert-deftest clatter-track-strip-update-refreshes-snapshot-and-renders ()
+  "The strip snapshot is refreshed on update and rendered per window.
+Also covers changing layout while active, and empty activity."
+  (let ((clatter-track-layout 'legacy))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (let ((buf (clatter-get-or-create-buffer "net" "#emacs" 'channel)))
+            (with-current-buffer buf
+              (setq clatter--unread-count 2)
+              (setq clatter--has-mention t))
+            (clatter-track--update)
+            ;; Legacy string is populated.
+            (should (string-match-p "#emacs" clatter-track--string))
+            ;; Switching layout while active refreshes without new activity.
+            (let ((clatter-track-layout 'strip))
+              (clatter-track--update)
+              (should clatter-track--strip-entries)
+              ;; The renderer fits the snapshot in the selected window.
+              (let ((rendered (clatter-track--mode-line)))
+                (should (stringp rendered))
+                (should (string-match-p "#emacs" rendered)))
+              ;; A wider allocation shows the same entry.
+              (let ((clatter-track-max-width 1.0))
+                (should (string-match-p
+                         "#emacs" (clatter-track--mode-line))))
+              ;; Zero budget hides the strip.
+              (let ((clatter-track-max-width 0.0))
+                (should (equal (clatter-track--mode-line) ""))))
+            ;; Clearing activity empties the snapshot.
+            (with-current-buffer buf
+              (clatter-clear-activity buf))
+            (let ((clatter-track-layout 'strip))
+              (clatter-track--update)
+              (should (equal (clatter-track--mode-line) "")))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-track-layout-changes-force-legacy-redisplay ()
+  "Strip-to-legacy changes force redisplay through setters and `setq'."
+  (let ((old-layout clatter-track-layout)
+        (old-rendered clatter-track--rendered-layout)
+        (old-string clatter-track--string)
+        (old-timer clatter-track--timer)
+        (forced nil))
+    (unwind-protect
+        (progn
+          (setq clatter-track-layout 'strip
+                clatter-track--rendered-layout 'strip
+                clatter-track--timer t
+                clatter-track--string "same")
+          (cl-letf (((symbol-function 'clatter-track--format-string)
+                     (lambda () "same"))
+                    ((symbol-function 'force-mode-line-update)
+                     (lambda (&optional _all) (setq forced t))))
+            (funcall (get 'clatter-track-layout 'custom-set)
+                     'clatter-track-layout 'legacy)
+            (should forced)
+            (setq forced nil
+                  clatter-track-layout 'legacy
+                  clatter-track--rendered-layout 'strip)
+            (clatter-track--update)
+            (should forced)
+            (should (eq clatter-track--rendered-layout 'legacy))))
+      (setq clatter-track-layout old-layout
+            clatter-track--rendered-layout old-rendered
+            clatter-track--string old-string
+            clatter-track--timer old-timer))))
+
+(ert-deftest clatter-track-disable-clears-both-caches ()
+  "Disabling clears the legacy string and the strip snapshot.
+The strip renderer must not recollect and resurrect cleared state."
+  (let ((clatter-track-layout 'strip))
+    (unwind-protect
+        (let ((buf (clatter-get-or-create-buffer "net" "#emacs" 'channel)))
+          (with-current-buffer buf (setq clatter--unread-count 1))
+          (clatter-track--update)
+          (should clatter-track--strip-entries)
+          (clatter-track-disable)
+          (should (equal clatter-track--string ""))
+          (should-not clatter-track--strip-entries)
+          ;; Rendering after disable stays empty even on redisplay.
+          (should (equal (clatter-track--mode-line) "")))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-track-disable-removes-all-activity-hooks ()
+  "Disabling removes PRIVMSG, ACTION, and NOTICE update hooks."
+  (let ((clatter-privmsg-hook '(clatter-track--on-activity))
+        (clatter-action-hook '(clatter-track--on-activity-action))
+        (clatter-notice-hook '(clatter-track--on-activity-notice))
+        (clatter-track--timer nil))
+    (clatter-track-disable)
+    (should-not (memq 'clatter-track--on-activity clatter-privmsg-hook))
+    (should-not
+     (memq 'clatter-track--on-activity-action clatter-action-hook))
+    (should-not
+     (memq 'clatter-track--on-activity-notice clatter-notice-hook))))
+
+(ert-deftest clatter-track-strip-click-acts-in-event-window ()
+  "A strip click switches the event window to its distinct target."
+  (let ((clatter-track-layout 'strip)
+        (first (generate-new-buffer " *clatter-track-click-a*"))
+        (second (generate-new-buffer " *clatter-track-click-b*")))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (dolist (buf (list first second))
+            (with-current-buffer buf
+              (clatter-mode)
+              (setq-local clatter--network "net")
+              (setq-local clatter--target
+                          (if (eq buf first) "#first" "#second"))
+              (setq-local clatter--unread-count 3)))
+          (let* ((first-window (selected-window))
+                 (second-window (split-window-right)))
+            (set-window-buffer first-window first)
+            (set-window-buffer second-window second)
+            (select-window first-window)
+            (clatter-track--update)
+            (let* ((entry
+                    (cl-find-if
+                     (lambda (item)
+                       (eq (plist-get item :buffer) first))
+                     clatter-track--strip-entries))
+                   (span (clatter-track--strip-entry-span
+                          entry (plist-get entry :label)))
+                   (event (list 'mode-line
+                                (list second-window 'mode-line 1 0
+                                      (cons span 1) 0 0))))
+              (should entry)
+              (clatter-track--strip-click event)
+              (should (eq (selected-window) second-window))
+              (should (eq (window-buffer second-window) first))
+              (with-current-buffer first
+                (should (zerop clatter--unread-count)))
+              (with-current-buffer second
+                (should (= clatter--unread-count 3))))))
+      (when (buffer-live-p first) (kill-buffer first))
+      (when (buffer-live-p second) (kill-buffer second))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-track-strip-click-dead-window-does-not-navigate ()
+  "A stale event window refreshes without switching a live target."
+  (let ((clatter-track-layout 'strip)
+        (target (generate-new-buffer " *clatter-track-click-target*"))
+        (origin (current-buffer)))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (with-current-buffer target
+            (clatter-mode)
+            (setq-local clatter--target "#target")
+            (setq-local clatter--unread-count 2))
+          (let* ((dead-window (split-window-right))
+                 (entry (list :buffer target :label "#target" :suffix ""
+                              :count-str ":2" :marker "" :face nil
+                              :type 'activity :unread 2 :help "target"))
+                 (span (clatter-track--strip-entry-span entry "#target"))
+                 (event (list 'mode-line
+                              (list dead-window 'mode-line 1 0
+                                    (cons span 1) 0 0))))
+            (delete-window dead-window)
+            (clatter-track--strip-click event)
+            (should (eq (current-buffer) origin))
+            (with-current-buffer target
+              (should (= clatter--unread-count 2)))))
+      (when (buffer-live-p target) (kill-buffer target)))))
+
+(ert-deftest clatter-track-strip-click-dead-buffer-does-not-navigate ()
+  "Clicking a stale target never selects an unrelated buffer."
+  (let ((clatter-track-layout 'strip)
+        (victim (generate-new-buffer " *clatter-track-dead*"))
+        (origin (generate-new-buffer " *clatter-track-origin*")))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (set-window-buffer (selected-window) origin)
+          (select-window (selected-window))
+          (with-current-buffer victim
+            (clatter-mode)
+            (setq-local clatter--network "net")
+            (setq-local clatter--target "#victim")
+            (setq-local clatter--unread-count 1))
+          (clatter-track--update)
+          (let* ((entry (car clatter-track--strip-entries))
+                 (span (clatter-track--strip-entry-span
+                        entry (plist-get entry :label))))
+            (kill-buffer (plist-get entry :buffer))
+            (let ((event (list 'mode-line
+                                (list (selected-window) 'mode-line 1 0
+                                      (cons span 1) 0 0))))
+              (clatter-track--strip-click event)
+              ;; No wrong-buffer navigation: the origin stays selected.
+              (should (eq (current-buffer) origin))
+              ;; The refresh cleared the stale entry from the snapshot.
+              (should-not
+               (cl-some (lambda (e)
+                          (eq (plist-get e :buffer) (plist-get entry :buffer)))
+                        clatter-track--strip-entries)))))
+      (when (buffer-live-p origin) (kill-buffer origin))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-track-strip-click-overflow-opens-activity-list ()
+  "An overflow click opens the activity list with all current entries."
+  (let ((clatter-track-layout 'strip))
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (let ((a (clatter-get-or-create-buffer "net" "#alpha" 'channel))
+                (b (clatter-get-or-create-buffer "net" "#beta-long-name" 'channel))
+                (c (clatter-get-or-create-buffer "net" "#gamma-longer-name" 'channel)))
+            (dolist (buf (list a b c))
+              (with-current-buffer buf (setq clatter--unread-count 1)))
+            (select-window (selected-window))
+            (clatter-track--update)
+            ;; Build an overflow span and click it.
+            (let* ((entries clatter-track--strip-entries)
+                   (ovf (clatter-track--strip-overflow-data entries))
+                   (span (clatter-track--strip-overflow-span ovf))
+                   (event (list 'mode-line
+                                (list (selected-window) 'mode-line 1 0
+                                      (cons span 1) 0 0))))
+              (clatter-track--strip-click event)
+              (let ((list-buf (get-buffer "*clatter-activity*")))
+                (should list-buf)
+                (with-current-buffer list-buf
+                  (let ((text (buffer-substring (point-min) (point-max))))
+                    (should (string-match-p "#alpha" text))
+                    (should (string-match-p "#beta" text))
+                    (should (string-match-p "#gamma" text))))))))
+      (dolist (name '("*clatter:net/#alpha*" "*clatter:net/#beta-long-name*"
+                      "*clatter:net/#gamma-longer-name*" "*clatter-activity*"))
+        (let ((buf (get-buffer name)))
+          (when (buffer-live-p buf) (kill-buffer buf))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-track-max-width-setter-validates-range ()
+  "The Custom setter rejects invalid allocations without applying them."
+  (let ((old-width (default-value 'clatter-track-max-width))
+        (old-timer clatter-track--timer))
+    (unwind-protect
+        (progn
+          (setq clatter-track--timer nil)
+          (dolist (invalid '(-0.1 1.5 -1))
+            (let ((before (default-value 'clatter-track-max-width)))
+              (should-error
+               (funcall (get 'clatter-track-max-width 'custom-set)
+                        'clatter-track-max-width invalid))
+              (should (equal (default-value 'clatter-track-max-width)
+                             before))))
+          (funcall (get 'clatter-track-max-width 'custom-set)
+                   'clatter-track-max-width 0.25)
+          (should (equal clatter-track-max-width 0.25))
+          (funcall (get 'clatter-track-max-width 'custom-set)
+                   'clatter-track-max-width 12)
+          (should (equal clatter-track-max-width 12)))
+      (set-default 'clatter-track-max-width old-width)
+      (setq clatter-track--timer old-timer))))
+
 (provide 'test-track)
 
 ;;; test-track.el ends here
