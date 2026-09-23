@@ -17,6 +17,8 @@
 (require 'clatter-config)
 (require 'clatter-model)
 
+(declare-function consult--buffer-state "consult")
+
 ;; --- Configuration ---
 
 (defcustom clatter-track-enabled t
@@ -1182,6 +1184,7 @@ Use with `consult-buffer' by adding to `consult-buffer-sources'."
           :category 'buffer
           :face 'clatter-track-activity
           :items #'clatter-track-buffer-source
+          :state #'consult--buffer-state
           :action (lambda (name)
                     (let ((buf (get-buffer name)))
                       (when buf
