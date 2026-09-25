@@ -167,19 +167,19 @@ comparison is local to each Clatter buffer."
   :type 'boolean
   :group 'clatter)
 
-(defcustom clatter-display-on-join t
+(defcustom clatter-display-on-join nil
   "Whether to display a channel buffer when you join it.
 
 The buffer is always created so that activity tracking continues to work.
-Set this to nil to keep autojoined channels from changing the window layout."
+Set this to t to have autojoined channels change the window layout."
   :type 'boolean
   :group 'clatter)
 
-(defcustom clatter-display-on-welcome t
+(defcustom clatter-display-on-welcome nil
   "Whether to display the server buffer after receiving the welcome message.
 
-The server buffer is always created.  Set this to nil to connect without
-changing the window layout."
+The server buffer is always created.  Set this to t to connect with the
+server buffer changing the window layout."
   :type 'boolean
   :group 'clatter)
 

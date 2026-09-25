@@ -706,8 +706,8 @@ legitimate second client.
 | =clatter-prompt-alignment=           | =nil=           | =right= aligns the prompt with the nick column                   |
 | =clatter-away-indicator=             | ="@"=           | Marker appended to your nick while away                          |
 | =clatter-bot-label=                  | ="[bot]"=       | Label on messages from nicks with bot mode                       |
-| =clatter-display-on-join=            | =t=             | Show the channel buffer when you join                            |
-| =clatter-display-on-welcome=         | =t=             | Show the server buffer after the welcome numeric                 |
+|| =clatter-display-on-join=            | =nil=           | Show the channel buffer when you join                            |
+|| =clatter-display-on-welcome=         | =nil=           | Show the server buffer after the welcome numeric                 |
 | =clatter-receive-query-display=      | ='bury=         | Incoming DM buffers: =bury=, =buffer= or =pop=                   |
 
 *** Compact system messages
