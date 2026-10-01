@@ -16,7 +16,7 @@ scratch for Emacs.
 *Full reference: [[file:GUIDE.org][GUIDE.org]]* - slash commands, keybindings, every user option,
 and the details of SASL, bouncers, proxies and troubleshooting.
 
-#+CAPTION: The optional newest-first layout.
+#+CAPTION: A personal configuration with oldest-first messages in light and dark themes, with a mode-line activity tracker.
 #+ATTR_ORG: :width 800
 [[file:images/screenshot.png]]
 
