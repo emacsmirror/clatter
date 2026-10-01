@@ -437,14 +437,14 @@ before sending.  Set to nil to disable the warning."
   :type 'integer
   :group 'clatter)
 
-(defcustom clatter-message-order 'newest-first
+(defcustom clatter-message-order 'oldest-first
   "Order in which messages appear in channel buffers.
-`newest-first' places new messages directly below the input line
-with older messages scrolling downward (default).
-`oldest-first' places new messages at the bottom of the buffer,
-like a traditional IRC client."
-  :type '(choice (const :tag "Newest first (below input)" newest-first)
-                 (const :tag "Oldest first (traditional)" oldest-first))
+`oldest-first' (default) places older messages above newer messages,
+with the input prompt pinned at the bottom like a traditional IRC client.
+`newest-first' places new messages directly below the input line at the
+top, with older messages scrolling downward."
+  :type '(choice (const :tag "Oldest first (traditional)" oldest-first)
+                 (const :tag "Newest first (below input)" newest-first))
   :group 'clatter)
 
 (defcustom clatter-move-to-prompt t

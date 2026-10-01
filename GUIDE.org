@@ -690,7 +690,7 @@ legitimate second client.
 
 | Variable                             | Default         | Description                                                      |
 |--------------------------------------+-----------------+------------------------------------------------------------------|
-| =clatter-message-order=              | ='newest-first= | Input at top with messages below, or =oldest-first=              |
+| =clatter-message-order=              | ='oldest-first= | Older messages above newer ones, input at bottom; or =newest-first= |
 | =clatter-timestamp-format=           | ="%H:%M"=       | Timestamp format string                                          |
 | =clatter-timestamp-side=             | ='right=        | =left=/=right= margin, =inline= overlay, =divider= row, or =nil= |
 | =clatter-timestamp-interval=         | =1=             | Minutes between time marks, all sides                            |
@@ -709,6 +709,16 @@ legitimate second client.
 || =clatter-display-on-join=            | =nil=           | Show the channel buffer when you join                            |
 || =clatter-display-on-welcome=         | =nil=           | Show the server buffer after the welcome numeric                 |
 | =clatter-receive-query-display=      | ='bury=         | Incoming DM buffers: =bury=, =buffer= or =pop=                   |
+
+Messages appear oldest-first by default, with the input prompt pinned at
+the bottom. To put the input at the top with newest messages directly below it:
+
+#+begin_src emacs-lisp
+(setopt clatter-message-order 'newest-first)
+#+end_src
+
+Set the option before Clatter initializes its buffers; recreate existing
+buffers to apply a different order.
 
 *** Compact system messages
 

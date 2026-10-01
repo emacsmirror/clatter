@@ -896,9 +896,9 @@ Adds timestamp unless NO-TIMESTAMP is non-nil.
 MSG-PROPS is an optional plist of extra text properties for the message line.
 TIME is an optional Emacs time value (from IRCv3 server-time) for the timestamp.
 MESSAGE-LINE-SPACING sets spacing below the message's final display line.
-When `clatter-message-order' is `newest-first', messages appear directly below
-the input line with older ones scrolling down.  When `oldest-first', messages
-append at the bottom like a traditional IRC client."
+When `clatter-message-order' is `oldest-first' (the default), messages append
+above the bottom input prompt.  With `newest-first', messages appear directly
+below the top input line with older ones scrolling down."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (cl-incf clatter--message-generation)

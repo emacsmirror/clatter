@@ -207,7 +207,7 @@ Case-insensitive; matches every network.  Combined with
   "Major mode for the feed inbox buffer."
   ;; The insert path reads `clatter-message-order' in the destination
   ;; buffer.  This buffer has no prompt and no markers, so insertion
-  ;; always appends at point-max; with the global `newest-first' default,
+  ;; always appends at point-max; if the user selects `newest-first',
   ;; truncation would delete the newest lines and grouping would inspect
   ;; the wrong neighbor.
   (setq-local clatter-message-order 'oldest-first)

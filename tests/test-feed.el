@@ -355,7 +355,8 @@ every URL twice."
 
 Regression: the buffer is oldest-first regardless of the user's global
 `clatter-message-order', so truncation must cut from the top."
-  (let ((clatter-buffer-max-lines 4))
+  (let ((clatter-buffer-max-lines 4)
+        (clatter-message-order 'newest-first))
     (clatter-test-feed--with-capture conn
       (dotimes (i 12)
         (clatter-feed--on-privmsg conn '("alice" "user" "host") "#emacs"
@@ -563,28 +564,27 @@ must accept anywhere on the last line."
 
 (ert-deftest clatter-test-feed-fallback-prefers-newest-match ()
   "With duplicate sender+text and no server-time, the newest match wins.
-Regression: under the default `newest-first' order the newest message is
-at the top of the source buffer, not the bottom."
-  (clatter-test-feed--with-capture conn
-    (clatter-ui--on-privmsg conn '("alice" "user" "host") "#emacs" "dup" nil)
-    (clatter-ui--on-privmsg conn '("alice" "user" "host") "#emacs" "dup" nil)
-    (let* ((chan (clatter-get-buffer "testnet" "#emacs"))
-           (matches (with-current-buffer chan
-                      (save-excursion
-                        (goto-char (point-min))
-                        (let (acc)
-                          (while (not (eobp))
-                            (when (equal "dup" (get-text-property
-                                                (point) 'clatter-text))
-                              (push (point) acc))
-                            (forward-line 1))
-                          (nreverse acc))))))
-      (should (= 2 (length matches)))
-      ;; Default order is newest-first: the newest of the two duplicates
-      ;; is the earlier buffer position.
-      (should (eq clatter-message-order 'newest-first))
-      (should (= (clatter-feed--find-message chan "alice" "dup" nil)
-                 (car matches))))))
+Both message orders must find the newest duplicate, not just the last line."
+  (dolist (clatter-message-order '(oldest-first newest-first))
+    (clatter-test-feed--with-capture conn
+      (clatter-ui--on-privmsg conn '("alice" "user" "host") "#emacs" "dup" nil)
+      (clatter-ui--on-privmsg conn '("alice" "user" "host") "#emacs" "dup" nil)
+      (let* ((chan (clatter-get-buffer "testnet" "#emacs"))
+             (matches (with-current-buffer chan
+                        (save-excursion
+                          (goto-char (point-min))
+                          (let (acc)
+                            (while (not (eobp))
+                              (when (equal "dup" (get-text-property
+                                                  (point) 'clatter-text))
+                                (push (point) acc))
+                              (forward-line 1))
+                            (nreverse acc))))))
+        (should (= 2 (length matches)))
+        (should (= (clatter-feed--find-message chan "alice" "dup" nil)
+                   (if (eq clatter-message-order 'newest-first)
+                       (car matches)
+                     (car (last matches)))))))))
 
 ;;; Hide
 

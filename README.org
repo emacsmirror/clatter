@@ -5,8 +5,10 @@
 * clatter.el - An IRCv3 Client for Emacs
 
 A dedicated, fully IRCv3-compliant IRC client for Emacs. Pure Elisp, no
-Emacs Lisp dependencies. Buffer per channel, newest message at the top with
-the input prompt above it, and multi-network support out of the box.
+Emacs Lisp dependencies. Buffer per channel, oldest messages above newer
+messages with the input prompt at the bottom, and multi-network support
+out of the box. Set =clatter-message-order= to ='newest-first= for a top
+prompt with newest messages directly below it.
 
 Spiritual successor to [[https://github.com/glenneth1/CLatter][CLatter]] (the Common Lisp TUI client), redesigned from
 scratch for Emacs.
@@ -14,6 +16,7 @@ scratch for Emacs.
 *Full reference: [[file:GUIDE.org][GUIDE.org]]* - slash commands, keybindings, every user option,
 and the details of SASL, bouncers, proxies and troubleshooting.
 
+#+CAPTION: The optional newest-first layout.
 #+ATTR_ORG: :width 800
 [[file:images/screenshot.png]]
 
