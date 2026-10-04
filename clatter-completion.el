@@ -20,9 +20,14 @@
 
 ;; --- Configuration ---
 
-(defcustom clatter-completion-add-colon t
-  "Add \": \" after nick completion at the start of input."
-  :type 'boolean
+(define-obsolete-variable-alias 'clatter-completion-add-colon
+  'clatter-completion-nick-suffix "clatter.el devo")
+
+(defcustom clatter-completion-nick-suffix ": "
+  "String inserted after a nick completed at the start of input.
+An empty string inserts nothing.  Legacy boolean t from
+`clatter-completion-add-colon' disables the suffix."
+  :type 'string
   :group 'clatter)
 
 ;; --- Nick completion ---
@@ -58,8 +63,10 @@ Completes nick names from the current channel."
                     (format " [%s]" prefix-char)))))
             :exit-function
             (lambda (_nick status)
-              (and (eq status 'finished) at-start clatter-completion-add-colon
-                   (insert ": ")))))))
+              (and (eq status 'finished) at-start
+                   (stringp clatter-completion-nick-suffix)
+                   (> (length clatter-completion-nick-suffix) 0)
+                   (insert clatter-completion-nick-suffix)))))))
 
 ;; --- /command completion ---
 

@@ -1022,7 +1022,7 @@ window is resized:
 
 | Variable                       | Default | Description                              |
 |--------------------------------+---------+------------------------------------------|
-| =clatter-completion-add-colon= | =t=     | Append =:= after a nick at start of line |
+| =clatter-completion-nick-suffix= | =": "=  | String appended after nick completion at start of input |
 
 Completion is a standard CAPF, so it works with corfu, vertico and orderless.
 It completes nicks, =/commands= and =#channels=; annotations show channel prefix

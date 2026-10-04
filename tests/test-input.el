@@ -11,6 +11,7 @@
 (require 'test-helper)
 (require 'clatter-ui)
 (require 'clatter-commands)
+(require 'clatter-completion)
 
 (defmacro clatter-input-test--with (order &rest body)
   "Run BODY in a fresh clatter-mode buffer with message ORDER and a prompt."
@@ -85,6 +86,51 @@ Within BODY, `buffer' and `window' name the temporary buffer and its window."
   (seq-filter
    (lambda (overlay) (overlay-get overlay 'clatter-input-formatting))
    (overlays-in (point-min) (point-max))))
+
+(ert-deftest clatter-completion-nick-suffix-default ()
+  "Nick completion at the start of input appends the default suffix."
+  (let ((clatter-completion-nick-suffix ": "))
+    (clatter-input-test--with 'oldest-first
+      (setq-local clatter--nick-list (make-hash-table :test 'equal))
+      (puthash "alice" '("" . "alice") clatter--nick-list)
+      (goto-char clatter--input-marker)
+      (insert "ali")
+      (let ((capf (clatter-completion--nick-capf)))
+        (should capf)
+        (delete-region (nth 0 capf) (nth 1 capf))
+        (insert "alice")
+        (funcall (plist-get (nthcdr 3 capf) :exit-function) 'alice 'finished))
+      (should (equal (clatter--get-input) "alice: ")))))
+
+(ert-deftest clatter-completion-nick-suffix-custom ()
+  "Nick completion at the start of input appends a custom suffix."
+  (let ((clatter-completion-nick-suffix " / "))
+    (clatter-input-test--with 'oldest-first
+      (setq-local clatter--nick-list (make-hash-table :test 'equal))
+      (puthash "alice" '("" . "alice") clatter--nick-list)
+      (goto-char clatter--input-marker)
+      (insert "ali")
+      (let ((capf (clatter-completion--nick-capf)))
+        (should capf)
+        (delete-region (nth 0 capf) (nth 1 capf))
+        (insert "alice")
+        (funcall (plist-get (nthcdr 3 capf) :exit-function) 'alice 'finished))
+      (should (equal (clatter--get-input) "alice / ")))))
+
+(ert-deftest clatter-completion-nick-suffix-empty ()
+  "An empty nick completion suffix inserts no extra characters."
+  (let ((clatter-completion-nick-suffix ""))
+    (clatter-input-test--with 'oldest-first
+      (setq-local clatter--nick-list (make-hash-table :test 'equal))
+      (puthash "alice" '("" . "alice") clatter--nick-list)
+      (goto-char clatter--input-marker)
+      (insert "ali")
+      (let ((capf (clatter-completion--nick-capf)))
+        (should capf)
+        (delete-region (nth 0 capf) (nth 1 capf))
+        (insert "alice")
+        (funcall (plist-get (nthcdr 3 capf) :exit-function) 'alice 'finished))
+      (should (equal (clatter--get-input) "alice")))))
 
 (ert-deftest clatter-prompt-format-expands-placeholders ()
   "String prompt formats expand target, nick, network, and percent."
