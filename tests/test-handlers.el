@@ -139,6 +139,45 @@
             (remove-hook 'clatter-batch-complete-hook batch-handler)))
       (clatter-test-cleanup))))
 
+(ert-deftest clatter-test-batch-playback-does-not-answer-ctcp ()
+  "Replayed CTCP queries must neither be answered nor reach live hooks."
+  (let ((conn (clatter-test-make-connection))
+        (clatter-ctcp-hook (list (lambda (&rest _args)
+                                   (ert-fail "Replayed CTCP reached a live hook")))))
+    (unwind-protect
+        (dolist (batch-type '("chathistory" "znc.in/playback"))
+          (dolist (query '("PING ace80482-df03-49ff-aed2-c3d0d7f665b6"
+                           "VERSION" "TIME" "FINGER"))
+            (clatter-test-with-mock-send
+             (let ((calls (clatter-test-capture-hook clatter-system-hook
+                            (clatter-dispatch-message
+                             conn (clatter-test-parse
+                                   (format ":server BATCH +history %s knighthk"
+                                           batch-type)))
+                            (clatter-dispatch-message
+                             conn (clatter-test-parse
+                                   (format "@batch=history;time=2026-10-03T14:00:00Z :knighthk!~k@host PRIVMSG testnick :\C-a%s\C-a"
+                                           query)))
+                            (clatter-dispatch-message
+                             conn (clatter-test-parse ":server BATCH -history")))))
+               (should-not calls)
+               (should-not clatter-test--sent-lines)))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-live-ctcp-ping-is-answered ()
+  "A live CTCP PING is still answered and announced."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (clatter-test-with-mock-send
+         (let ((calls (clatter-test-capture-hook clatter-system-hook
+                        (clatter-dispatch-message
+                         conn (clatter-test-parse
+                               ":knighthk!~k@host PRIVMSG testnick :\C-aPING ace80482-df03-49ff-aed2-c3d0d7f665b6\C-a")))))
+           (should calls)
+           (should (equal clatter-test--sent-lines
+                          '("NOTICE knighthk :\C-aPING ace80482-df03-49ff-aed2-c3d0d7f665b6\C-a")))))
+      (clatter-test-cleanup))))
+
 (ert-deftest clatter-test-batch-playback-waits-for-cap-negotiation ()
   "Completed playback waits for CAP negotiation to finish."
   (let ((conn (clatter-test-make-connection))
@@ -205,6 +244,42 @@
       (clatter-test-cleanup))))
 
 ;; --- NOTICE dispatch ---
+
+(ert-deftest clatter-test-batch-playback-ignores-ctcp-replies ()
+  "Replayed CTCP replies are not printed as live system lines."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (dolist (batch-type '("chathistory" "znc.in/playback"))
+          (dolist (reply '("PING ace80482-df03-49ff-aed2-c3d0d7f665b6"
+                           "VERSION \C-bERC\C-b 5.6.2-git" "TIME old time"))
+            (clatter-test-with-mock-send
+             (let ((calls (clatter-test-capture-hook clatter-ctcp-reply-hook
+                            (clatter-dispatch-message
+                             conn (clatter-test-parse
+                                   (format ":server BATCH +history %s knighthk"
+                                           batch-type)))
+                            (clatter-dispatch-message
+                             conn (clatter-test-parse
+                                   (format "@batch=history;time=2026-10-03T14:00:00Z :knighthk!~k@host NOTICE testnick :\C-a%s\C-a"
+                                           reply)))
+                            (clatter-dispatch-message
+                             conn (clatter-test-parse ":server BATCH -history")))))
+               (should-not calls)
+               (should-not clatter-test--sent-lines)))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-live-ctcp-ping-reply-is-shown ()
+  "A live CTCP PING reply still reaches `clatter-ctcp-reply-hook'."
+  (let ((conn (clatter-test-make-connection)))
+    (unwind-protect
+        (let ((calls (clatter-test-capture-hook clatter-ctcp-reply-hook
+                       (clatter-dispatch-message
+                        conn (clatter-test-parse
+                              ":knighthk!~k@host NOTICE testnick :\C-aPING ace80482-df03-49ff-aed2-c3d0d7f665b6\C-a")))))
+          (should (= (length calls) 1))
+          (should (equal (nth 2 (car calls)) "PING"))
+          (should (equal (nth 3 (car calls)) "ace80482-df03-49ff-aed2-c3d0d7f665b6")))
+      (clatter-test-cleanup))))
 
 (ert-deftest clatter-test-dispatch-notice ()
   "NOTICE dispatches to clatter-notice-hook."

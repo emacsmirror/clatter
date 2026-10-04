@@ -436,9 +436,12 @@ Return the trimmed character."
              (let* ((ctcp-content (substring raw-text 1 (1- (length raw-text))))
                     (space-pos (cl-position ?\s ctcp-content))
                     (ctcp-cmd (if space-pos (substring ctcp-content 0 space-pos) ctcp-content))
-                    (ctcp-args (if space-pos (substring ctcp-content (1+ space-pos)) "")))
-               (run-hook-with-args 'clatter-ctcp-reply-hook
-                                   conn parsed-prefix ctcp-cmd ctcp-args))
+                    (ctcp-args (if space-pos (substring ctcp-content (1+ space-pos)) ""))
+                    ;; A batch tag means playback, not a reply that just arrived.
+                    (batch-id (clatter-get-parsed-tag (clatter-parse-tags tags) "batch")))
+               (unless batch-id
+                 (run-hook-with-args 'clatter-ctcp-reply-hook
+                                     conn parsed-prefix ctcp-cmd ctcp-args)))
            (let* ((sender-nick (clatter-prefix-nick parsed-prefix))
                   (parsed-tags (clatter-parse-tags tags))
                   ;; --- >> EXTRACT MESSAGE TAGS ---
@@ -835,8 +838,9 @@ MSGID, SERVER-TIME, IS-BOT, REPLY-TO, IS-REPLY-TO-ME, and BATCH-ID."
            (run-hook-with-args 'clatter-action-hook
                                conn sender target text
                                server-time))))
-      ;; Don't respond to our own CTCP requests
-      ((guard self-p) nil)
+      ;; Own requests, and playback. Answering a replayed query writes
+      ;; another NOTICE into the bouncer log, which the next reconnect repeats.
+      ((guard (or self-p batch-id)) nil)
       ("VERSION"
        (clatter-send conn (clatter-irc-ctcp-reply
                            sender-nick "VERSION"
