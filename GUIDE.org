@@ -696,6 +696,7 @@ legitimate second client.
 | =clatter-timestamp-interval=         | =1=             | Minutes between time marks, all sides                            |
 | =clatter-timestamp-only-if-changed=  | =nil=           | Show a timestamp only when it differs from the previous          |
 | =clatter-fill-column=                | =80=            | Wrap column; =auto= derives it from the window, =nil= disables   |
+| =clatter-fill-collapse-spaces=       | =nil=           | When =t=, collapse runs of spaces to one during message wrapping |
 | =clatter-sender-format=              | ="<%nick>"=     | Sender prefix; =%nick= is the nickname                           |
 | =clatter-nick-column-width=          | =20=            | Width of the right-aligned nick column                           |
 | =clatter-nick-column-truncate=       | =nil=           | When =t=, clip nicks longer than the column to =<nick…>=         |

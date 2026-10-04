@@ -927,6 +927,55 @@ always showing fool messages."
       ;; A wrapped message produces more than the single trailing newline.
       (should (> (cl-count ?\n (buffer-string)) 1)))))
 
+(ert-deftest clatter-test-insert-message-preserves-spaces ()
+  "Space runs survive filling even when the message does not wrap."
+  (let ((clatter-fill-column 40)
+        (clatter-fill-collapse-spaces nil)
+        (clatter-nick-column-width 7))
+    (with-temp-buffer
+      (clatter--insert-message
+       (current-buffer) "<alice> here  are    multiple    spaces" t)
+      (should (equal (buffer-string)
+                     "<alice> here  are    multiple    spaces\n")))))
+
+(ert-deftest clatter-test-insert-message-preserves-spaces-when-wrapped ()
+  "Wrapped lines keep internal space runs without trailing whitespace."
+  (let ((clatter-fill-column 30)
+        (clatter-fill-collapse-spaces nil)
+        (clatter-nick-column-width 7))
+    (with-temp-buffer
+      (clatter--insert-message
+       (current-buffer)
+       "<alice> here  are    multiple    spaces and enough filler to force wrapping"
+       t)
+      (should
+       (equal (buffer-string)
+              "<alice> here  are\n        multiple    spaces and\n        enough filler to force\n        wrapping\n"))
+      (should-not (string-match-p "[ \t]+$" (buffer-string))))))
+
+(ert-deftest clatter-test-insert-message-collapse-spaces-when-enabled ()
+  "The opt-in collapsing setting restores the old filling behavior."
+  (let ((clatter-fill-column 40)
+        (clatter-fill-collapse-spaces t)
+        (clatter-nick-column-width 7))
+    (with-temp-buffer
+      (clatter--insert-message
+       (current-buffer) "<alice> here  are    multiple    spaces" t)
+      (should (equal (buffer-string)
+                     "<alice> here are multiple spaces\n")))))
+
+(ert-deftest clatter-test-insert-message-preserves-user-nbsp ()
+  "Decoding encoded spaces leaves genuine sender-typed NBSPs unchanged."
+  (let ((clatter-fill-column 40)
+        (clatter-fill-collapse-spaces nil)
+        (clatter-nick-column-width 7))
+    (with-temp-buffer
+      (clatter--insert-message
+       (current-buffer) "<alice> here\u00a0 are    spaces" t)
+      (should (equal (buffer-string) "<alice> here\u00a0 are    spaces\n"))
+      (should-not (text-property-not-all
+                   (point-min) (point-max) 'clatter--fill-space nil)))))
+
 ;; --- Fool visibility ---
 
 ;; --- Smart noise visibility ---

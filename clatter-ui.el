@@ -765,6 +765,39 @@ column is too narrow to wrap past the nick indent."
          (when (> col floor-col) col)))
       (col (when (and (integerp col) (> col floor-col)) col)))))
 
+(defun clatter--fill-preserve-spaces (start end)
+  "Fill START to END without collapsing runs of spaces.
+Only temporarily encoded spaces are decoded; sender-typed NBSPs stay intact.
+Trim trailing whitespace within the filled region."
+  (save-excursion
+    (save-restriction
+      (narrow-to-region start end)
+      (goto-char (point-min))
+      ;; Leave one breakable space at the end of each run.
+      (while (re-search-forward "  +" nil t)
+        (let* ((run-start (match-beginning 0))
+               (run-end (match-end 0))
+               (nbsp-end (1- run-end)))
+          (replace-match
+           (concat (subst-char-in-string
+                    ?\s ?\u00a0 (buffer-substring run-start nbsp-end))
+                   (buffer-substring nbsp-end run-end))
+           t t)
+          (put-text-property run-start nbsp-end 'clatter--fill-space t)))
+      (fill-region (point-min) (point-max))
+      (goto-char (point-min))
+      (let (pos)
+        (while (setq pos (text-property-not-all
+                         (point) (point-max) 'clatter--fill-space nil))
+          (goto-char pos)
+          (insert-and-inherit (apply #'propertize " " (text-properties-at pos)))
+          (delete-char 1)
+          (remove-text-properties (1- (point)) (point)
+                                  '(clatter--fill-space nil))))
+      (goto-char (point-min))
+      (while (re-search-forward "[ \t]+$" nil t)
+        (replace-match "" t t)))))
+
 (defun clatter--timestamp-margin-p ()
   "Return non-nil when timestamps use a window margin."
   (memq clatter-timestamp-side '(left right)))
@@ -958,7 +991,9 @@ below the top input line with older ones scrolling down."
                   (let ((fill-column eff-col)
                         (fill-prefix wrap-prefix)
                         (adaptive-fill-mode nil))
-                    (fill-region start (1- (point))))))
+                    (if clatter-fill-collapse-spaces
+                        (fill-region start (1- (point)))
+                      (clatter--fill-preserve-spaces start (1- (point)))))))
               (when ts-str
                 (let* ((eol (1- (point)))
                        (ov (if (eq clatter-timestamp-side 'inline)

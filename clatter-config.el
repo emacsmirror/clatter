@@ -254,6 +254,13 @@ body width), floored one column past the nick indent and capped at
                  (integer :tag "Column number"))
   :group 'clatter)
 
+(defcustom clatter-fill-collapse-spaces nil
+  "When non-nil, runs of consecutive spaces in messages collapse to one.
+This restores the pre-space-preservation filling behavior; nil (the
+default) keeps multiple spaces intact across wrapping."
+  :type 'boolean
+  :group 'clatter)
+
 (defcustom clatter-nick-column-width 20
   "Width of the nick column for right-aligned nick display.
 Nicks are right-aligned within this column.  Increase if you
