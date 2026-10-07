@@ -119,30 +119,66 @@ It must not error on (downcase nil) and must not touch any buffer."
            conn "chathistory-targets" nil
            (list (list :target "alcor" :time (encode-time 0 0 12 1 1 2026 t))))
           (should (clatter-test-sent-matching
-                   "^CHATHISTORY LATEST alcor \\* 50$")))
+                   "^CHATHISTORY LATEST alcor \\* 100$")))
       (clatter-test-cleanup))))
 
-(ert-deftest clatter-chathistory-targets-batch-fetches-since-for-existing-dm ()
-  "TARGETS batch with an existing DM buffer triggers CHATHISTORY AFTER."
-  (let ((conn (clatter-test-make-connection-with-caps
-               '("server-time" "batch" "message-tags" "chathistory")))
-        (clatter-read-state-enabled nil)
-        buf)
+(ert-deftest clatter-chathistory-reconnect-keeps-latest-unseen-window ()
+  "Channel and DM reconnects keep the newest 100 messages of a longer gap."
+  (let* ((conn (clatter-test-make-connection-with-caps
+                '("server-time" "batch" "message-tags" "chathistory")
+                "testnet" "testnick"))
+         (clatter-read-state-enabled nil)
+         (seen (encode-time 0 0 10 1 1 2026 t))
+         (backlog (cl-loop for i from -10 to 150
+                           collect (cons i (time-add seen (* i 60))))))
     (unwind-protect
-        (progn
-          (setq buf (clatter-get-or-create-buffer "testnet" "alcor" 'query))
-          (with-current-buffer buf
-            (setq clatter-chathistory--last-timestamp
-                  (encode-time 0 0 10 1 1 2026 t)))
-          (clatter-test-with-mock-send
-            (clatter-chathistory--on-targets-batch
-             conn "chathistory-targets" nil
-             (list (list :target "alcor" :time (encode-time 0 0 12 1 1 2026 t))))
-            (should (clatter-test-sent-matching
-                     "^CHATHISTORY AFTER alcor timestamp="))))
-      (clatter-test-cleanup)
-      (when (buffer-live-p buf)
-        (kill-buffer buf)))))
+        (dolist (target '("#emacs" "alcor"))
+          (let ((buf (clatter-get-or-create-buffer
+                      "testnet" target
+                      (if (clatter-channel-name-p target) 'channel 'query))))
+            (with-current-buffer buf
+              (setq-local clatter-chathistory--last-timestamp seen))
+            (clatter-test-with-mock-send
+              (if (clatter-channel-name-p target)
+                  (clatter-chathistory--on-join
+                   conn '("testnick" "user" "host") target nil nil)
+                (clatter-chathistory--on-targets-batch
+                 conn "chathistory-targets" nil
+                 (list (list :target target :time (cdr (car (last backlog)))))))
+              (let* ((request (split-string (clatter-test-last-sent)))
+                     (operation (nth 1 request))
+                     (reference (nth 3 request))
+                     (limit (string-to-number (nth 4 request))))
+                (should (equal (nth 2 request) target))
+                (should (member operation '("LATEST" "AFTER")))
+                (should (string-prefix-p "timestamp=" reference))
+                (let* ((bound (clatter-parse-iso8601
+                               (substring reference (length "timestamp="))))
+                       (unseen (cl-remove-if-not
+                                (lambda (entry) (time-less-p bound (cdr entry)))
+                                backlog))
+                       ;; A truncating server keeps newest for LATEST,
+                       ;; but oldest for AFTER.
+                       (page (if (equal operation "LATEST")
+                                 (last unseen limit)
+                               (cl-subseq unseen 0 (min limit (length unseen))))))
+                  (should (equal bound seen))
+                  (should (equal (mapcar #'car page)
+                                 (number-sequence 51 150))))))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-chathistory-first-join-fetches-latest ()
+  "An automatic first join requests the latest 100 messages without a cursor."
+  (let ((conn (clatter-test-make-connection-with-caps
+               '("server-time" "batch" "message-tags" "chathistory")
+               "testnet" "testnick")))
+    (unwind-protect
+        (clatter-test-with-mock-send
+          (clatter-chathistory--on-join
+           conn '("testnick" "user" "host") "#emacs" nil nil)
+          (should (equal clatter-test--sent-lines
+                         '("CHATHISTORY LATEST #emacs * 100"))))
+      (clatter-test-cleanup))))
 
 (ert-deftest clatter-chathistory-targets-batch-skips-channels ()
   "TARGETS batch skips channel targets (channels are handled on JOIN)."
@@ -264,7 +300,7 @@ timestamp is a parameter rather than a server-time tag."
              conn (clatter-test-parse
                    "@batch=tgt CHATHISTORY TARGETS alcor 2026-01-01T12:00:00.000Z"))
             (clatter-dispatch-message conn (clatter-test-parse "BATCH -tgt"))
-            (should (clatter-test-sent-matching "^CHATHISTORY LATEST alcor \\* 50$"))
+            (should (clatter-test-sent-matching "^CHATHISTORY LATEST alcor \\* 100$"))
             (should-not (clatter-test-sent-matching "TARGETS TARGETS"))))
       (clatter-test-cleanup))))
 
@@ -328,7 +364,7 @@ timestamp is a parameter rather than a server-time tag."
               (clatter-chathistory-targets-visit)))
           (should (clatter-get-buffer "alpha" "#emacs"))
           (should (clatter-test-sent-matching
-                   "^CHATHISTORY LATEST #emacs \\* 50$")))
+                   "^CHATHISTORY LATEST #emacs \\* 100$")))
       (when (buffer-live-p browser)
         (kill-buffer browser))
       (clatter-test-cleanup))))

@@ -29,7 +29,7 @@
   :type 'boolean
   :group 'clatter)
 
-(defcustom clatter-chathistory-limit 50
+(defcustom clatter-chathistory-limit 100
   "Maximum number of messages to fetch per target."
   :type 'integer
   :group 'clatter)
@@ -105,13 +105,14 @@ TIME is an Emacs time value."
                             target ts n)))))
 
 (defun clatter-chathistory-fetch-since (conn target timestamp &optional limit)
-  "Fetch messages since TIMESTAMP for TARGET via CONN.
-Used on reconnect to fill in gaps."
+  "Fetch the latest LIMIT messages after TIMESTAMP for TARGET via CONN.
+LIMIT defaults to `clatter-chathistory-limit'.  Used on reconnect to
+fetch the most recent unseen messages, excluding TIMESTAMP itself."
   (when (clatter-chathistory--available-p conn)
     (let ((n (or limit clatter-chathistory-limit))
           (ts (clatter-chathistory--format-time timestamp)))
       (clatter-send conn
-                    (format "CHATHISTORY AFTER %s timestamp=%s %d"
+                    (format "CHATHISTORY LATEST %s timestamp=%s %d"
                             target ts n)))))
 
 ;; --- TARGETS (DM discovery) ---

@@ -590,6 +590,8 @@ types at runtime without losing any history."
   :group 'clatter)
 
 ;; --- IRCv3 capabilities we want to negotiate ---
+;; Omit draft/event-playback and event-playback so CHATHISTORY returns
+;; conversation messages rather than JOIN/PART and other channel events.
 
 (defconst clatter-wanted-capabilities
   '("server-time"

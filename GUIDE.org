@@ -249,8 +249,16 @@ behaves as a plain single connection.
 
 The defaults are already what you want with a bouncer:
 =clatter-chathistory-enabled=, =clatter-chathistory-on-join= and
-=clatter-chathistory-on-reconnect= are all on, and clatter requests
-=CHATHISTORY LATEST= on first join and =CHATHISTORY AFTER= on rejoin.
+=clatter-chathistory-on-reconnect= are all on. Clatter requests the latest
+100 messages on first join and for newly discovered DMs. On rejoin or
+reconnect, =CHATHISTORY LATEST= is bounded by the last known message
+timestamp, keeping only the most recent 100 unseen messages without
+repeating messages already in the buffer. Longer gaps are not fetched
+automatically. =M-x clatter-chathistory-more= fetches messages older than
+the earliest message already in the buffer.
+Clatter does not negotiate =draft/event-playback= or =event-playback=,
+so CHATHISTORY playback focuses on conversation rather than JOIN/PART
+and other channel events.
 
 If your bouncer does not implement IRCv3 =read-marker=, =clatter-read-state-enabled=
 (on by default) persists last-read timestamps locally as a fallback.
@@ -988,9 +996,9 @@ these files existing.
 | Variable                           | Default                            | Description                              |
 |------------------------------------+------------------------------------+------------------------------------------|
 | =clatter-chathistory-enabled=      | =t=                                | Enable IRCv3 CHATHISTORY                 |
-| =clatter-chathistory-limit=        | =50=                               | Messages fetched per request             |
+| =clatter-chathistory-limit=        | =100=                              | Messages fetched per request             |
 | =clatter-chathistory-on-join=      | =t=                                | Fetch on channel join                    |
-| =clatter-chathistory-on-reconnect= | =t=                                | Fetch the gap on reconnect               |
+| =clatter-chathistory-on-reconnect= | =t=                                | Fetch recent unseen messages on reconnect |
 | =clatter-read-marker-enabled=      | =t=                                | Sync read position with the server       |
 | =clatter-read-marker-auto-send=    | =t=                                | Send MARKREAD when switching to a buffer |
 | =clatter-read-state-enabled=       | =t=                                | Local last-read fallback for bouncers    |
