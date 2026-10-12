@@ -20,6 +20,9 @@
 (require 'clatter-pals)
 (require 'clatter-ui)
 
+;; History edits isolate Flyspell's dynamically scoped change records.
+(defvar flyspell-changes)
+
 ;; --- Configuration ---
 
 (defface clatter-url-preview-title
@@ -42,6 +45,18 @@
   :type 'integer
   :group 'clatter)
 
+(defcustom clatter-url-preview-max-concurrent-fetches 4
+  "Maximum number of distinct URL title fetches to run at once.
+Excess URLs are skipped, not queued."
+  :type 'integer
+  :group 'clatter)
+
+(defcustom clatter-url-preview-max-response-bytes (* 64 1024)
+  "Hard byte limit for a URL title response, including streamed responses.
+Responses exceeding this limit are discarded even if the server ignores Range."
+  :type 'integer
+  :group 'clatter)
+
 (defcustom clatter-url-preview-exclude-patterns
   '("\\.png$" "\\.jpg$" "\\.jpeg$" "\\.gif$" "\\.webp$" "\\.svg$"
     "\\.pdf$" "\\.zip$" "\\.tar" "\\.mp3$" "\\.mp4$" "\\.mkv$"
@@ -59,7 +74,10 @@
   "Maximum number of cached URL titles.")
 
 (defvar clatter-url-preview--pending (make-hash-table :test 'equal)
-  "URLs currently being fetched (to avoid duplicate requests).")
+  "Clean URLs mapped to their owned in-flight request records.")
+
+(cl-defstruct clatter-url-preview--request
+  url destination anchor process output (bytes 0) done)
 
 (cl-defstruct (clatter-url-preview--anchor
                (:constructor clatter-url-preview--make-anchor-record))
@@ -69,7 +87,7 @@ START and END delimit the original rendered message.  TAIL is advanced after
 each preview, so synchronous cache hits retain URL order and later previews
 are not inserted before earlier ones.  REMAINING owns the markers: the last
 cache hit or asynchronous request detaches them."
-  buffer start end tail text remaining)
+  buffer start end tail text length remaining)
 
 (defun clatter-url-preview--should-fetch-p (url)
   "Return non-nil if URL should be fetched for title preview."
@@ -114,6 +132,9 @@ cache hit or asynchronous request detaches them."
                        (< start-pos (point-max))
                        (<= end-pos (point-max))
                        (< start-pos end-pos)
+                       (or (null (clatter-url-preview--anchor-length anchor))
+                           (= (- end-pos start-pos)
+                              (clatter-url-preview--anchor-length anchor)))
                        ;; Actual UI messages carry this property.  The
                        ;; fallback keeps the helper usable in minimal tests.
                        (or (null (clatter-url-preview--anchor-text anchor))
@@ -145,66 +166,130 @@ No text is inserted if truncation or deletion has removed the source message."
              (eq buffer (clatter-url-preview--anchor-buffer anchor))
              (clatter-url-preview--anchor-live-p anchor))
     (with-current-buffer buffer
-      (let ((inhibit-read-only t)
-            (prefix (make-string (1+ clatter-nick-column-width) ?\s)))
-        (save-excursion
-          (goto-char (clatter-url-preview--anchor-tail anchor))
-          (insert (propertize (format "↳ %s\n" title)
-                              'face 'clatter-url-preview-title
-                              'read-only t
-                              'front-sticky t
-                              'line-prefix prefix
-                              'wrap-prefix prefix))
-          ;; A nil-insertion-type marker stays before unrelated messages,
-          ;; but must move past this preview to form a stable local tail.
-          (set-marker (clatter-url-preview--anchor-tail anchor) (point))))
-      (clatter--refresh-input-spacers buffer))))
+      (clatter--flyspell-prune-changes)
+      (let ((pre-input (and clatter--input-marker
+                            (marker-position clatter--input-marker))))
+        (let ((inhibit-read-only t)
+              (buffer-undo-list t)
+              (flyspell-changes nil)
+              (prefix (make-string (1+ clatter-nick-column-width) ?\s)))
+          (save-excursion
+            (goto-char (clatter-url-preview--anchor-tail anchor))
+            (insert (propertize (format "↳ %s\n" title)
+                                'face 'clatter-url-preview-title
+                                'read-only t
+                                'front-sticky t
+                                'line-prefix prefix
+                                'wrap-prefix prefix))
+            ;; Advance only our local tail, not the original message end.
+            (set-marker (clatter-url-preview--anchor-tail anchor) (point)))
+          (clatter--maybe-truncate buffer)
+          (clatter--refresh-input-spacers buffer))
+        (when (and pre-input clatter--input-marker)
+          (let ((shift (- (marker-position clatter--input-marker) pre-input)))
+            (clatter--update-undo-list shift)
+            (clatter--flyspell-update-changes shift)))))))
+
+(defun clatter-url-preview--dispose-request (request)
+  "Idempotently release resources owned by REQUEST, never a newer request."
+  (unless (clatter-url-preview--request-done request)
+    (setf (clatter-url-preview--request-done request) t)
+    (when (eq (gethash (clatter-url-preview--request-url request)
+                      clatter-url-preview--pending)
+              request)
+      (remhash (clatter-url-preview--request-url request)
+               clatter-url-preview--pending))
+    (let ((process (clatter-url-preview--request-process request))
+          (output (clatter-url-preview--request-output request)))
+      (when (and process (process-live-p process))
+        (delete-process process))
+      (when (buffer-live-p output)
+        (kill-buffer output)))
+    (clatter-url-preview--release-anchor
+     (clatter-url-preview--request-anchor request))))
+
+(defun clatter-url-preview--filter (request process chunk)
+  "Append CHUNK only while REQUEST owns PROCESS and stays within its byte limit."
+  (unless (clatter-url-preview--request-process request)
+    (setf (clatter-url-preview--request-process request) process))
+  (unless (clatter-url-preview--request-done request)
+    (let ((size (+ (clatter-url-preview--request-bytes request)
+                   (string-bytes chunk)))
+          (output (clatter-url-preview--request-output request)))
+      (if (or (not (eq (gethash (clatter-url-preview--request-url request)
+                               clatter-url-preview--pending)
+                       request))
+              (not (buffer-live-p output))
+              (> size clatter-url-preview-max-response-bytes))
+          (clatter-url-preview--dispose-request request)
+        (setf (clatter-url-preview--request-bytes request) size)
+        (with-current-buffer output
+          (goto-char (point-max))
+          (insert chunk))))))
+
+(defun clatter-url-preview--sentinel (request process _event)
+  "Render a completed owned REQUEST and always dispose its resources."
+  (when (and (not (clatter-url-preview--request-done request))
+             (memq (process-status process) '(exit signal failed closed)))
+    (setf (clatter-url-preview--request-process request) process)
+    (unwind-protect
+        (when (and (eq (gethash (clatter-url-preview--request-url request)
+                               clatter-url-preview--pending)
+                      request)
+                   (eq (process-exit-status process) 0)
+                   (buffer-live-p (clatter-url-preview--request-output request)))
+          ;; Copy only the title, never the entire response at completion.
+          (let ((title
+                 (with-current-buffer (clatter-url-preview--request-output request)
+                   (goto-char (point-min))
+                   (when (re-search-forward "<title[^>]*>[^<]*</title>" nil t)
+                     (clatter-url-preview--extract-title
+                      (decode-coding-string (match-string-no-properties 0)
+                                            'utf-8 t))))))
+            (when title
+              (when (> (hash-table-count clatter-url-preview--cache)
+                       clatter-url-preview--cache-max)
+                (clrhash clatter-url-preview--cache))
+              (puthash (clatter-url-preview--request-url request)
+                       title clatter-url-preview--cache)
+              (clatter-url-preview--insert
+               title (clatter-url-preview--request-destination request)
+               (clatter-url-preview--request-anchor request)))))
+      (clatter-url-preview--dispose-request request))))
 
 (defun clatter-url-preview--fetch (url buffer anchor)
-  "Asynchronously fetch URL and display its title in BUFFER at ANCHOR.
-Uses curl subprocess to avoid blocking Emacs on DNS/TLS."
-  (let ((clean-url (substring-no-properties url))
-        (fetch-buffer (generate-new-buffer " *clatter-url-fetch*")))
-    (puthash clean-url t clatter-url-preview--pending)
-    (condition-case nil
-        (let ((process (start-process
-                      "clatter-url-preview" fetch-buffer
-                      ;; Restrict schemes and redirects: a posted link must
-                      ;; not bounce the user's curl into file:// or onto
-                      ;; internal-network hosts (SSRF).
-                      "curl" "-sL" "-m" (number-to-string clatter-url-preview-timeout)
-                      "--proto" "=http,https" "--proto-redir" "=http,https"
-                      "--max-redirs" "5"
-                      "-o" "-" "-r" "0-16384"
-                      "-H" "User-Agent: Mozilla/5.0 (compatible; clatter.el)"
-                      "-H" "Accept: text/html"
-                      clean-url)))
-          (set-process-sentinel
-           process
-           (lambda (process _event)
-             (when (memq (process-status process) '(exit signal))
-               (let ((output-buffer (process-buffer process)))
-                 (remhash clean-url clatter-url-preview--pending)
-                 (unwind-protect
-                     (when (and (eq (process-exit-status process) 0)
-                                (buffer-live-p output-buffer))
-                       (let ((body (with-current-buffer output-buffer
-                                     (buffer-string))))
-                         (let ((title (clatter-url-preview--extract-title body)))
-                           (when (and title (buffer-live-p buffer))
-                             (when (> (hash-table-count clatter-url-preview--cache)
-                                      clatter-url-preview--cache-max)
-                               (clrhash clatter-url-preview--cache))
-                             (puthash clean-url title clatter-url-preview--cache)
-                             (clatter-url-preview--insert title buffer anchor)))))
-                   (when (buffer-live-p output-buffer)
-                     (kill-buffer output-buffer))
-                   (clatter-url-preview--release-anchor anchor)))))))
-      (error
-       (remhash clean-url clatter-url-preview--pending)
-       (when (buffer-live-p fetch-buffer)
-         (kill-buffer fetch-buffer))
-       (clatter-url-preview--release-anchor anchor)))))
+  "Fetch URL asynchronously within the concurrency and streamed byte limits.
+Skipped URLs release ANCHOR immediately; no queue or retry is retained."
+  (let ((clean-url (substring-no-properties url)))
+    (if (or (gethash clean-url clatter-url-preview--pending)
+            (>= (hash-table-count clatter-url-preview--pending)
+                clatter-url-preview-max-concurrent-fetches))
+        (clatter-url-preview--release-anchor anchor)
+      (let* ((output (generate-new-buffer " *clatter-url-fetch*"))
+             (request (make-clatter-url-preview--request
+                       :url clean-url :destination buffer :anchor anchor
+                       :output output)))
+        (with-current-buffer output
+          (set-buffer-multibyte nil))
+        (puthash clean-url request clatter-url-preview--pending)
+        (condition-case nil
+            (setf (clatter-url-preview--request-process request)
+                  (make-process
+                   :name "clatter-url-preview" :buffer output :noquery t
+                   :coding 'binary :connection-type 'pipe
+                   :filter (lambda (process chunk)
+                             (clatter-url-preview--filter request process chunk))
+                   :sentinel (lambda (process event)
+                               (clatter-url-preview--sentinel request process event))
+                   :command
+                   (list
+                    ;; Keep schemes, redirects and timeout restricted.
+                    "curl" "-sL" "-m" (number-to-string clatter-url-preview-timeout)
+                    "--proto" "=http,https" "--proto-redir" "=http,https"
+                    "--max-redirs" "5" "-o" "-" "-r" "0-16384"
+                    "-H" "User-Agent: Mozilla/5.0 (compatible; clatter.el)"
+                    "-H" "Accept: text/html" clean-url)))
+          (error (clatter-url-preview--dispose-request request)))))))
 
 ;; --- Hook Handler ---
 
@@ -250,8 +335,8 @@ behind by buffer truncation."
       (set-marker-insertion-type end nil)
       (set-marker-insertion-type tail nil)
       (clatter-url-preview--make-anchor-record
-       :buffer buffer :start (copy-marker start) :end end :tail tail
-       :text source-text :remaining request-count))))
+       :buffer buffer :start (copy-marker start t) :end end :tail tail
+       :text source-text :length (- end-pos start) :remaining request-count))))
 
 (defun clatter-url-preview--on-privmsg (conn sender target text _server-time)
   "Check TEXT from SENDER for URLs and fetch titles for TARGET buffer on CONN."
@@ -273,7 +358,8 @@ behind by buffer truncation."
         (while (string-match "https?://[^ \t\n\r<>\"']+" text pos)
           (let ((url (match-string 0 text)))
             (setq pos (match-end 0))
-            (when (clatter-url-preview--should-fetch-p url)
+            (when (and (clatter-url-preview--should-fetch-p url)
+                       (not (member url requests)))
               (push url requests))))
         ;; Build exactly one tail per source message.  In particular, do not
         ;; make a fresh marker for each cache hit: nil-insertion markers at
@@ -300,8 +386,13 @@ behind by buffer truncation."
   (add-hook 'clatter-privmsg-hook #'clatter-url-preview--on-privmsg 90))
 
 (defun clatter-url-preview-teardown ()
-  "Remove URL preview hooks."
-  (remove-hook 'clatter-privmsg-hook #'clatter-url-preview--on-privmsg))
+  "Remove URL preview hooks and cancel every owned fetch."
+  (remove-hook 'clatter-privmsg-hook #'clatter-url-preview--on-privmsg)
+  (let (requests)
+    (maphash (lambda (_url request) (push request requests))
+             clatter-url-preview--pending)
+    (dolist (request requests)
+      (clatter-url-preview--dispose-request request))))
 
 ;; Enabled by `clatter-setup' when `clatter-url-preview-enable' is
 ;; non-nil, so that merely loading this file has no side effects.

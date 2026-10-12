@@ -1148,11 +1148,16 @@ see [[*Input formatting]].
 | =clatter-url-preview-max-length=       | =200=      | Max title length             |
 | =clatter-url-preview-timeout=          | =10=       | Fetch timeout (seconds)      |
 | =clatter-url-preview-exclude-patterns= | 15 regexps | Binary/media URLs to skip    |
+| =clatter-url-preview-max-concurrent-fetches= | =4= | Distinct fetches in flight; excess skipped |
+| =clatter-url-preview-max-response-bytes= | =65536= | Hard streamed response limit (bytes) |
 
-Titles are cached, so a repeated link is not re-fetched. Requires =curl=.
-Fetches are restricted to the =http= and =https= schemes with at most five
-redirects, so a posted link cannot redirect into =file://= or onto
-internal-network hosts.
+Titles are cached, so a repeated link is not re-fetched; duplicate URLs within
+one message produce one preview. Requires =curl=. Excess concurrent requests,
+failed downloads and responses over the byte limit are skipped without queuing
+or retrying. The byte limit also applies when a server ignores Range or streams
+without a known length. Teardown cancels active title downloads.
+Fetches are restricted to =http= and =https= with at most five redirects;
+redirects to other schemes (such as =file://=) are rejected.
 
 ** Inline Images
 
@@ -1163,10 +1168,14 @@ internal-network hosts.
 | =clatter-image-max-height= | =300=            | Max image height (pixels)    |
 | =clatter-image-max-size=   | =5242880= (5 MB) | Max download size            |
 | =clatter-image-extensions= | =(png jpg ...)=  | Recognized image extensions  |
+| =clatter-image-max-concurrent-fetches= | =4= | Concurrent downloads; excess skipped |
 
 GUI frames only; a no-op in a terminal. Fetching is an async =curl= subprocess
 with the same scheme and redirect restrictions as URL preview, plus a magic-byte
 check on the downloaded data.
+Title and image insertions immediately obey the history line limit, preserve
+draft undo and pending spelling checks, and do not add history undo. A delayed
+preview is discarded if its source message was cleared or truncated.
 
 ** Raw Protocol Log
 

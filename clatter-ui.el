@@ -1026,6 +1026,20 @@ below the top input line with older ones scrolling down."
         (clatter--flyspell-prune-changes)
         (clatter--refresh-input-spacers buffer)))))
 
+(defvar flyspell-changes)
+
+(defun clatter--flyspell-update-changes (shift)
+  "Rebase retained input spelling change records by SHIFT."
+  (when (and (bound-and-true-p flyspell-mode)
+             (boundp 'flyspell-changes))
+    (dolist (change flyspell-changes)
+      (when (and (consp change)
+                 (integerp (car change))
+                 (integerp (cdr change)))
+        (setcar change (+ (car change) shift))
+        (setcdr change (+ (cdr change) shift))))
+    (clatter--flyspell-prune-changes)))
+
 (defun clatter--flyspell-prune-changes ()
   "Drop flyspell change records that lie outside the editable input area.
 Flyspell's after-change hook records a cons for every buffer
