@@ -2568,6 +2568,8 @@ last ran a query command."
   (should (memq #'clatter-nicklist--on-quit (default-value 'clatter-quit-hook)))
   (should (memq #'clatter-nicklist--on-nick (default-value 'clatter-nick-hook)))
   (should (memq #'clatter-nicklist--on-names (default-value 'clatter-names-hook)))
+  (should (memq #'clatter-nicklist--on-disconnect
+              (default-value 'clatter-disconnect-hook)))
   (should (memq #'clatter-nicklist--follow
               (default-value 'window-buffer-change-functions)))
   (should (memq #'clatter-nicklist--follow
@@ -2671,6 +2673,182 @@ last ran a query command."
                 (goto-char (point-min))
                 (should-not (search-forward "bob" nil t)))))
         (when (buffer-live-p nl) (kill-buffer nl))))))
+
+(defmacro clatter-test-with-nicklist-timers (timers &rest body)
+  "Run BODY with real sidebar windows and manually fired TIMERS."
+  (declare (indent 1))
+  `(let ((,timers nil)
+         (run-timer (symbol-function 'run-at-time)))
+     (unwind-protect
+         (save-window-excursion
+           (clatter-nicklist-close)
+           (delete-other-windows)
+           (cl-letf (((symbol-function 'run-at-time)
+                      (lambda (_time repeat function &rest args)
+                        (let ((timer (apply run-timer 3600 repeat function args)))
+                          (push timer ,timers)
+                          timer))))
+             ,@body))
+       (clatter-nicklist-close)
+       (mapc #'cancel-timer ,timers))))
+
+(defun clatter-test-fire-nicklist-timer (timer)
+  "Fire TIMER deterministically without leaving it on the timer queue."
+  (cancel-timer timer)
+  (apply (timer--function timer) (timer--args timer)))
+
+(ert-deftest clatter-test-nicklist-closed-burst-schedules-nothing ()
+  "Closed and hidden sidebars allocate no refresh timers."
+  (clatter-test-with-ui-connection conn
+    (clatter-test-with-nicklist-timers timers
+      (let ((a (clatter-get-or-create-buffer "testnet" "#a" 'channel)))
+        (clatter-ui-setup-buffer-if-needed a)
+        (dolist (hidden '(nil t))
+          (when hidden
+            (set-window-buffer (selected-window) a)
+            (with-current-buffer a (clatter-nicklist-toggle))
+            (delete-window
+             (get-buffer-window clatter-nicklist--buffer-name)))
+          (dotimes (_ 200)
+            (clatter-nicklist--on-join conn "alice" "#a" nil nil)
+            (clatter-nicklist--on-part conn "alice" "#a" "bye")
+            (clatter-nicklist--on-names conn "#a" "alice")
+            (clatter-nicklist--on-quit conn "alice" "bye")
+            (clatter-nicklist--on-nick conn "alice" "bob"))
+          (should-not timers))))))
+
+(ert-deftest clatter-test-nicklist-visible-burst-renders-latest-members ()
+  "One pending callback renders the final membership, then releases ownership."
+  (let ((clatter-smart-enabled nil))
+    (clatter-test-with-ui-connection conn
+      (clatter-test-with-nicklist-timers timers
+        (let ((a (clatter-get-or-create-buffer "testnet" "#a" 'channel)))
+          (clatter-ui-setup-buffer-if-needed a)
+          (set-window-buffer (selected-window) a)
+          (with-current-buffer a (clatter-nicklist-toggle))
+          (dotimes (i 30)
+            (let ((nick (format "user%d" i)))
+              (clatter-ui--on-join conn (list nick nil nil) "#a" nil nil)
+              (clatter-nicklist--on-join conn nick "#a" nil nil)))
+          (clatter-ui--on-part conn '("user0" nil nil) "#a" "bye")
+          (clatter-nicklist--on-part conn "user0" "#a" "bye")
+          (clatter-ui--on-quit conn '("user1" nil nil) "bye")
+          (clatter-nicklist--on-quit conn "user1" "bye")
+          (clatter-ui--on-nick conn '("user2" nil nil) "renamed")
+          (clatter-nicklist--on-nick conn "user2" "renamed")
+          (clatter-ui--on-names conn "#a" "@latest")
+          (clatter-nicklist--on-names conn "#a" "@latest")
+          (should (= 1 (length timers)))
+          (with-current-buffer clatter-nicklist--buffer-name
+            (should (eq clatter-nicklist--refresh-timer (car timers)))
+            (should (string-match-p "0 members" (buffer-string))))
+          (clatter-test-fire-nicklist-timer (car timers))
+          (with-current-buffer clatter-nicklist--buffer-name
+            (should-not clatter-nicklist--refresh-timer)
+            (should (string-match-p "29 members" (buffer-string)))
+            (should (string-match-p "@ latest\n" (buffer-string)))
+            (should (string-match-p " renamed\n" (buffer-string)))
+            (should-not (string-match-p " user[012]\n" (buffer-string))))
+          (clatter-nicklist--on-names conn "#a" "")
+          (should (= 2 (length timers))))))))
+
+(ert-deftest clatter-test-nicklist-ignores-other-channels-and-networks ()
+  "Unrelated channel events and network-wide events schedule nothing."
+  (clatter-test-with-ui-connection conn
+    (clatter-test-with-nicklist-timers timers
+      (let ((a (clatter-get-or-create-buffer "testnet" "#a" 'channel))
+            (other-conn (clatter-test-make-connection "othernet")))
+        (clatter-get-or-create-buffer "testnet" "#b" 'channel)
+        (clatter-get-or-create-buffer "othernet" "#a" 'channel)
+        (clatter-ui-setup-buffer-if-needed a)
+        (clatter-nick-add a "alice")
+        (set-window-buffer (selected-window) a)
+        (with-current-buffer a (clatter-nicklist-toggle))
+        (dolist (event (list (cons conn "#b") (cons other-conn "#a")))
+          (clatter-nicklist--on-join (car event) "bob" (cdr event) nil nil)
+          (clatter-nicklist--on-part (car event) "bob" (cdr event) "bye")
+          (clatter-nicklist--on-names (car event) (cdr event) "bob"))
+        (clatter-nicklist--on-quit other-conn "bob" "bye")
+        (clatter-nicklist--on-nick other-conn "bob" "carol")
+        (clatter-nicklist--on-disconnect "othernet" "closed")
+        (should-not timers)
+        (with-current-buffer clatter-nicklist--buffer-name
+          (should (eq clatter-nicklist--source-buffer a))
+          (should (string-match-p " alice\n" (buffer-string))))))))
+
+(ert-deftest clatter-test-nicklist-cancelled-callback-cannot-touch-new-source ()
+  "Close, kill and follow cancel ownership, including already queued callbacks."
+  (dolist (action '(close kill follow))
+    (clatter-test-with-ui-connection conn
+      (clatter-test-with-nicklist-timers timers
+        (let ((a (clatter-get-or-create-buffer "testnet" "#a" 'channel))
+              (b (clatter-get-or-create-buffer "testnet" "#b" 'channel))
+              (channel-window (selected-window)))
+          (dolist (buf (list a b)) (clatter-ui-setup-buffer-if-needed buf))
+          (clatter-nick-add a "alice")
+          (clatter-nick-add b "bob")
+          (set-window-buffer channel-window a)
+          (with-current-buffer a (clatter-nicklist-toggle))
+          (clatter-nicklist--on-join conn "alice" "#a" nil nil)
+          (let ((old-timer (car timers)))
+            (pcase action
+              ('close (clatter-nicklist-close))
+              ('kill (kill-buffer clatter-nicklist--buffer-name))
+              ('follow
+               (set-window-buffer channel-window b)
+               (clatter-nicklist--follow (selected-frame))))
+            (should-not (memq old-timer timer-list))
+            (unless (eq action 'follow)
+              (set-window-buffer channel-window b)
+              (with-current-buffer b (clatter-nicklist-toggle)))
+            (clatter-nick-add b "carol")
+            (clatter-nicklist--on-join conn "carol" "#b" nil nil)
+            (let ((new-timer (car timers))
+                  (before (with-current-buffer clatter-nicklist--buffer-name
+                            (buffer-string))))
+              (clatter-test-fire-nicklist-timer old-timer)
+              (with-current-buffer clatter-nicklist--buffer-name
+                (should (eq clatter-nicklist--source-buffer b))
+                (should (eq clatter-nicklist--refresh-timer new-timer))
+                (should (equal before (buffer-string))))
+              (clatter-test-fire-nicklist-timer new-timer)
+              (with-current-buffer clatter-nicklist--buffer-name
+                (should-not clatter-nicklist--refresh-timer)
+                (should (string-match-p "2 members" (buffer-string)))
+                (should (string-match-p " carol\n" (buffer-string)))
+                (should-not (string-match-p " alice\n" (buffer-string)))))))))))
+
+(ert-deftest clatter-test-nicklist-renders-rejoin-and-disconnect-resets ()
+  "The open sidebar reflects model resets without touching another network."
+  (let ((clatter-display-on-join nil)
+        (clatter-smart-enabled nil))
+    (clatter-test-with-ui-connection conn
+      (clatter-test-with-mock-send
+        (clatter-test-with-nicklist-timers timers
+          (let ((a (clatter-get-or-create-buffer "testnet" "#a" 'channel))
+                (other (clatter-get-or-create-buffer "othernet" "#a" 'channel)))
+            (dolist (buf (list a other))
+              (clatter-ui-setup-buffer-if-needed buf)
+              (clatter-nick-add buf "departed"))
+            (set-window-buffer (selected-window) a)
+            (with-current-buffer a (clatter-nicklist-toggle))
+            (run-hook-with-args 'clatter-join-hook conn
+                                '("testnick" nil nil) "#a" nil nil)
+            (clatter-test-fire-nicklist-timer (car timers))
+            (with-current-buffer clatter-nicklist--buffer-name
+              (should (string-match-p "1 members" (buffer-string)))
+              (should (string-match-p " testnick\n" (buffer-string)))
+              (should-not (string-match-p " departed\n" (buffer-string))))
+            (run-hook-with-args 'clatter-names-hook conn "#a" "@newmember")
+            (let ((pending (car timers)))
+              (run-hook-with-args 'clatter-disconnect-hook "testnet" "closed")
+              (should (eq pending (car timers)))
+              (clatter-test-fire-nicklist-timer pending))
+            (with-current-buffer clatter-nicklist--buffer-name
+              (should-not clatter-nicklist--refresh-timer)
+              (should (string-match-p "0 members" (buffer-string)))
+              (should-not (string-match-p "newmember\\|testnick" (buffer-string))))
+            (should (equal (clatter-nick-list other) '(("departed" . ""))))))))))
 
 ;; --- Numeric reply routing ---
 

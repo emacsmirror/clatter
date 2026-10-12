@@ -1073,6 +1073,8 @@ for nicks and a description for commands.
 | =clatter-nicklist-side=  | ='right= | Which side (left or right) |
 
 Toggle with =M-x clatter-nicklist-toggle=. An open list follows the selected channel.
+Membership bursts are batched into one refresh after 0.2 seconds, only while the
+matching sidebar is visible. Closing the sidebar cancels its pending refresh.
 
 ** Feed buffer
 
