@@ -487,13 +487,25 @@ Bare nicks are wildcarded to nick!*@*.  LABEL is used in usage messages."
                               "Usage: /monitor +nick / -nick / C / L / S"))))))
 
 (defun clatter-cmd-clear (_args)
-  "Handle /clear - clear current buffer."
-  (let ((inhibit-read-only t))
-    (when (and clatter--prompt-marker clatter--messages-marker)
-      (if (eq clatter-message-order 'oldest-first)
-          (delete-region (point-min) clatter--messages-marker)
-        (delete-region clatter--messages-marker (point-max))))
-    (clatter--end-compact-system-group)))
+  "Handle /clear - discard chat history, preserving the draft and its undo."
+  (when (and clatter--prompt-marker clatter--messages-marker)
+    (let* ((oldest-first-p (eq clatter-message-order 'oldest-first))
+           (pre-input (and clatter--input-marker
+                           (marker-position clatter--input-marker)))
+           (start (if oldest-first-p
+                      (or clatter--input-padding-end (point-min))
+                    clatter--messages-marker))
+           (end (if oldest-first-p clatter--messages-marker (point-max))))
+      (let ((inhibit-read-only t)
+            (buffer-undo-list t))
+        (dolist (overlay (overlays-in start end))
+          (when (overlay-get overlay 'clatter-timestamp)
+            (delete-overlay overlay)))
+        (delete-region start end))
+      (when pre-input
+        (clatter--update-undo-list
+         (- (marker-position clatter--input-marker) pre-input)))))
+  (clatter--end-compact-system-group))
 
 (defun clatter-cmd-buffers (_args)
   "Handle /buffers - list all buffers."

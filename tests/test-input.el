@@ -560,6 +560,68 @@ Within BODY, `buffer' and `window' name the temporary buffer and its window."
         (should (overlay-buffer overlay))
         (should (equal (buffer-string) "\n#test> "))))))
 
+(ert-deftest clatter-input-clear-discards-history-preserves-draft-undo ()
+  "/clear disposes timestamps and history without losing draft undo or padding."
+  (let ((clatter-typing-indicator-location 'input-separator)
+        (clatter-timestamp-side 'left)
+        (clatter-timestamp-only-if-changed nil)
+        (clatter-buffer-max-lines nil))
+    (dolist (order '(oldest-first newest-first))
+      (clatter-input-test--with order
+        (when (eq order 'oldest-first)
+          (clatter--ensure-input-padding 3))
+        (buffer-enable-undo)
+        (setq buffer-undo-list nil)
+        (goto-char (clatter--input-end))
+        (insert "draft")
+        (undo-boundary)
+        (delete-region (1- (point)) (point))
+        (clatter--insert-message (current-buffer) "discarded-history-one")
+        (clatter--insert-message (current-buffer) "discarded-history-two")
+        (let* ((prompt (clatter-input-test--prompt))
+               (padding (and clatter--input-padding-end
+                             (buffer-substring (point-min)
+                                               clatter--input-padding-end)))
+               (typing-overlay clatter--typing-indicator-overlay)
+               (timestamps (seq-filter
+                            (lambda (overlay)
+                              (overlay-get overlay 'clatter-timestamp))
+                            (overlays-in (point-min) (point-max))))
+               (draft-overlay (make-overlay clatter--input-marker
+                                            (1+ clatter--input-marker)))
+               (history-start (if (eq order 'oldest-first)
+                                  clatter--input-padding-end
+                                clatter--messages-marker))
+               (unrelated-overlay (make-overlay history-start
+                                                (1+ history-start))))
+          (should (= (length timestamps) 2))
+          (clatter-cmd-clear nil)
+          (should (equal (clatter--get-input) "draf"))
+          (should (equal (clatter-input-test--prompt) prompt))
+          (when padding
+            (should (equal (buffer-substring (point-min)
+                                            clatter--input-padding-end)
+                           padding)))
+          (should (= (if (eq order 'oldest-first)
+                         clatter--input-padding-end
+                       (point-max))
+                     clatter--messages-marker))
+          (should-not (string-match-p "discarded-history" (buffer-string)))
+          (dolist (overlay timestamps)
+            (should-not (overlay-buffer overlay)))
+          (dolist (overlay (list typing-overlay draft-overlay unrelated-overlay))
+            (should (eq (overlay-buffer overlay) (current-buffer))))
+          ;; Only the deleted draft character, never history, is retained.
+          (should (equal (cl-loop for entry in buffer-undo-list
+                                  when (and (consp entry) (stringp (car entry)))
+                                  collect (car entry))
+                         '("t")))
+          (let ((pending (primitive-undo 1 buffer-undo-list)))
+            (should (equal (clatter--get-input) "draft"))
+            (primitive-undo 1 pending)
+            (should (equal (clatter--get-input) "")))
+          (should (equal (clatter-input-test--prompt) prompt)))))))
+
 (ert-deftest clatter-input-truncation-preserves-typing-separator ()
   "History limits count messages only and never delete the typing row."
   (let ((clatter-typing-indicator-location 'input-separator)

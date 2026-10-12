@@ -514,6 +514,10 @@ config immediately.
 |---------+----------------------|
 | =/clear=  | Clear current buffer |
 
+=/clear= discards chat history and its timestamp overlays without keeping the
+deleted history in undo. It preserves the prompt, layout padding, typing
+separator, and current draft with its undo history in either message order.
+
 * Keybindings
 
 clatter binds no global keys. Everything is reachable through =M-x= and =/slash=
