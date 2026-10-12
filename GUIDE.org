@@ -344,9 +344,22 @@ input area:
 
 - Drag over a message with =M-<mouse-1>= (the standard Emacs secondary
   selection), or
-- Put point on a message and run =M-x clatter-select-message= (also reachable
-  from the message action menu, =C-c C-a=), which copies that message into the
-  secondary selection.
+- Put point on a message and run =M-x clatter-select-message=, which copies
+  that message into the secondary selection.
+
+=C-c C-e= selects a message and appends =/react = to the input;
+=C-c C-r= prepares a reply. These actions and the =C-c C-a= action menu use
+the message at point first. If point is outside a message (for example, in
+your draft), they fall back to the message under the live mouse pointer in
+a window showing the *same chat buffer*. Hovering another chat does not
+target it. Without mouse coordinates, put point on the message instead.
+The menu keeps its original target while you choose an action; if that
+message disappears, it will not silently select another one.
+
+React requires a server-provided message ID, even when hovering. A message
+at point without an ID takes priority over a hovered message with one.
+Reply can still insert a nick without an ID; a prefix argument requires
+a threaded reply.
 
 Clatter clears the secondary selection after =/reply= or =/react=. If nothing
 is selected, or the selected message has no server-provided message ID, select

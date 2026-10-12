@@ -31,6 +31,34 @@
     (when (or type sender url nick)
       (list :type type :sender sender :text text :url url :nick nick))))
 
+(defvar clatter-action--menu-active nil
+  "Non-nil while dispatching an action at the menu's captured position.")
+
+(defun clatter-action--target-position ()
+  "Return the message position at point, or under the mouse in this buffer.
+A message without a server ID still takes precedence over the mouse."
+  (or (and (or (get-text-property (point) 'clatter-message-generation)
+               (get-text-property (point) 'clatter-msg-type)
+               (get-text-property (point) 'clatter-msgid))
+           (point))
+      (unless clatter-action--menu-active
+        (let* ((mouse (mouse-pixel-position))
+               (frame (car mouse))
+               (x (cadr mouse))
+               (y (cddr mouse)))
+          (when (and (frame-live-p frame) (numberp x) (numberp y))
+            (let* ((hit (posn-at-x-y x y frame))
+                   (window (and hit (posn-window hit)))
+                   (position (and hit (posn-point hit))))
+              (when (and (window-live-p window)
+                         (eq (window-buffer window) (current-buffer))
+                         (integerp position)
+                         (<= (point-min) position) (< position (point-max))
+                         (or (get-text-property position 'clatter-message-generation)
+                             (get-text-property position 'clatter-msg-type)
+                             (get-text-property position 'clatter-msgid)))
+                position)))))))
+
 (defun clatter-action--line-text ()
   "Return the visible text of the current message line."
   (buffer-substring-no-properties
@@ -64,12 +92,13 @@
         (secondary-selection-from-region)))))
 
 (defun clatter-action-reply (&optional arg)
-  "Reply to the message at point.
+  "Reply to the message at point, falling back to the mouse in this chat.
 Uses a threaded reply when `message-tags' and a message ID are available.
 With a prefix argument ARG, requires a threaded reply."
   (interactive "P")
-  (let* ((props (clatter-action--msg-at-point))
-         (sender (plist-get props :sender))
+  (let* ((position (clatter-action--target-position))
+         (sender (and position
+                      (get-text-property position 'clatter-sender)))
          (conn (and clatter--network
                     (clatter-get-connection clatter--network)))
          (threaded-p
@@ -77,8 +106,13 @@ With a prefix argument ARG, requires a threaded reply."
               (and conn
                    (member "message-tags"
                            (clatter-connection-cap-enabled conn))
-                   (get-text-property (point) 'clatter-msgid)))))
-    (if (and sender (or (not threaded-p) (clatter-select-message)))
+                   position
+                   (get-text-property position 'clatter-msgid)))))
+    (if (and sender
+             (or (not threaded-p)
+                 (save-excursion
+                   (goto-char position)
+                   (clatter-select-message))))
         (progn
           (goto-char clatter--input-marker)
           (goto-char (save-excursion
@@ -91,17 +125,24 @@ With a prefix argument ARG, requires a threaded reply."
       (message "No message at point"))))
 
 (defun clatter-action-react ()
-  "React to the message at point."
+  "React to the message at point, falling back to the mouse in this chat.
+The message must have a server-provided message ID."
   (interactive)
-  (if (clatter-select-message)
-      (progn
-        (goto-char clatter--input-marker)
-        (goto-char (save-excursion
-                     (goto-char clatter--input-marker)
-                     (line-end-position)))
-        (let ((inhibit-read-only t))
-          (insert "/react ")))
-    (message "No message at point")))
+  (let ((position (clatter-action--target-position)))
+    (cond
+     ((not position)
+      (message "No message at point"))
+     ((not (get-text-property position 'clatter-msgid))
+      (message "Message has no server-provided message ID"))
+     ((save-excursion
+        (goto-char position)
+        (clatter-select-message))
+      (goto-char clatter--input-marker)
+      (goto-char (save-excursion
+                   (goto-char clatter--input-marker)
+                   (line-end-position)))
+      (let ((inhibit-read-only t))
+        (insert "/react "))))))
 
 (defun clatter-action-copy-message ()
   "Copy the message text at point to kill ring."
@@ -246,12 +287,24 @@ With a prefix argument ARG, requires a threaded reply."
 ;; --- Action menu ---
 
 (defun clatter-action-menu ()
-  "Show the message action menu for the message at point."
+  "Show actions for the message at point or under the mouse in this chat.
+Keep that target while waiting for a choice; do not retarget a removed row."
   (interactive)
-  (let* ((props (clatter-action--msg-at-point))
-         (sender (plist-get props :sender))
-         (url (get-text-property (point) 'clatter-url))
-         (choices (delq nil
+  (let* ((buffer (current-buffer))
+         (target (clatter-action--target-position))
+         (marker (copy-marker (or target (point)) t))
+         (generation (get-text-property marker 'clatter-message-generation))
+         (msgid (get-text-property marker 'clatter-msgid))
+         input-position)
+    (unwind-protect
+        (save-excursion
+          (let* ((props (save-excursion
+                          (goto-char marker)
+                          (clatter-action--msg-at-point)))
+                 (sender (plist-get props :sender))
+                 (url (plist-get props :url))
+                 (choices
+                  (delq nil
                         (list '(?r "reply" "Reply (insert nick at prompt)")
                               '(?e "react" "React (insert /react at prompt)")
                               '(?c "copy msg" "Copy message text")
@@ -262,20 +315,48 @@ With a prefix argument ARG, requires a threaded reply."
                               (when sender '(?q "query" "Open query/DM with sender"))
                               '(?i "inspect" "Inspect raw message")
                               (when sender '(?I "Ignore" "Toggle ignore on sender"))
-                              '(?l "list urls" "List all URLs in buffer")))))
-    (call-interactively
-     (pcase (car (read-multiple-choice "Pick: " choices))
-       (?r #'clatter-action-reply)
-       (?e #'clatter-action-react)
-       (?c #'clatter-action-copy-message)
-       (?n #'clatter-action-copy-nick)
-       (?u #'clatter-action-copy-url)
-       (?o #'clatter-action-open-url)
-       (?w #'clatter-action-whois)
-       (?q #'clatter-action-query)
-       (?i #'clatter-action-inspect)
-       (?I #'clatter-action-ignore)
-       (?l #'clatter-action-collect-urls)))))
+                              '(?l "list urls" "List all URLs in buffer"))))
+                 (choice (car (read-multiple-choice "Pick: " choices)))
+                 (action (pcase choice
+                           (?r #'clatter-action-reply)
+                           (?e #'clatter-action-react)
+                           (?c #'clatter-action-copy-message)
+                           (?n #'clatter-action-copy-nick)
+                           (?u #'clatter-action-copy-url)
+                           (?o #'clatter-action-open-url)
+                           (?w #'clatter-action-whois)
+                           (?q #'clatter-action-query)
+                           (?i #'clatter-action-inspect)
+                           (?I #'clatter-action-ignore)
+                           (?l #'clatter-action-collect-urls))))
+            (if (and (buffer-live-p buffer)
+                     (eq (marker-buffer marker) buffer)
+                     (with-current-buffer buffer
+                       (or (eq choice ?l)
+                           (and (<= (point-min) marker (point-max))
+                                (or (not target)
+                                    (and (< marker (point-max))
+                                         (equal generation
+                                                (get-text-property marker 'clatter-message-generation))
+                                         (equal msgid
+                                                (get-text-property marker 'clatter-msgid))))))))
+                (with-current-buffer buffer
+                  (unless (eq choice ?l)
+                    (goto-char marker))
+                  (let ((clatter-action--menu-active t))
+                    (call-interactively action))
+                  ;; Only staging a reply/reaction intentionally moves the
+                  ;; editing cursor. Other actions and failures preserve it.
+                  (when (and target
+                             (memq action '(clatter-action-reply clatter-action-react))
+                             clatter--input-marker
+                             (<= clatter--input-marker (point) (clatter--input-end)))
+                    (setq input-position (point))))
+              (message "Message is no longer available"))))
+      (set-marker marker nil))
+    (when (and input-position (buffer-live-p buffer))
+      (with-current-buffer buffer
+        (goto-char input-position)))))
 
 ;; --- Bind into clatter-mode ---
 

@@ -197,6 +197,642 @@
        (setq clatter--buffer-alist initial-buffers)
        (clatter-test-cleanup))))
 
+;; --- Point and native hover action targets ---
+
+(defmacro clatter-test--with-action-window (order side &rest body)
+  "Run BODY in a rendered chat with ORDER and timestamp SIDE.
+Expose conn, buffer and window, and isolate the real secondary overlay."
+  (declare (indent 2))
+  `(let ((clatter-message-order ,order)
+         (clatter-timestamp-side ,side)
+         (clatter-timestamp-format "%H:%M")
+         (clatter-timestamp-only-if-changed nil)
+         (clatter-nick-column-width 10)
+         (clatter-fill-column 40)
+         (clatter-buffer-max-lines nil)
+         (clatter-flyspell-enable nil)
+         (clatter-read-state-enabled nil)
+         (clatter-send-typing nil)
+         (clatter-typing-indicator-location 'input-separator)
+         (resize-mini-windows t)
+         (max-mini-window-height 1)
+         (message-truncate-lines t)
+         (echo-keystrokes 0))
+     (clatter-test-with-ui-connection conn
+       (save-window-excursion
+         (delete-other-windows)
+         (let* ((buffer (clatter-get-or-create-buffer "testnet" "#hover"))
+                (window (selected-window))
+                (owned-secondary-overlay (make-overlay 1 1 buffer))
+                (mouse-secondary-overlay owned-secondary-overlay)
+                (mouse-secondary-start nil))
+           (unwind-protect
+               (progn
+                 (overlay-put owned-secondary-overlay 'face 'secondary-selection)
+                 (switch-to-buffer buffer)
+                 (message nil)
+                 (redisplay t)
+                 (clatter-ui-setup-buffer buffer)
+                 (clatter-insert-privmsg
+                  buffer "alice"
+                  (propertize
+                   "TARGET-A original parent with enough words to wrap onto several continuation lines"
+                   'clatter-msgid "A")
+                  conn (encode-time 0 0 12 1 1 2026))
+                 (clatter-insert-privmsg
+                  buffer "bob"
+                  (propertize "TARGET-B see https://example.invalid/path"
+                              'clatter-msgid "B" 'clatter-reply-to "A")
+                  conn (encode-time 0 1 12 1 1 2026))
+                 (clatter-insert-privmsg buffer "untagged" "UNTAGGED" conn)
+                 (clatter-insert-system buffer "SYSTEM")
+                 (clatter-ui--on-react conn '("carol" nil nil) "#hover" "BADGE" "B")
+                 (clatter--set-input "draft")
+                 ,@body)
+             (delete-overlay owned-secondary-overlay)))))))
+
+(defmacro clatter-test--with-action-mouse (coordinates &rest body)
+  "Run BODY with a deterministic mouse getter returning only COORDINATES."
+  (declare (indent 1))
+  `(progn
+     (set-window-point (selected-window) (point))
+     (cl-letf (((symbol-function 'mouse-pixel-position)
+                (lambda () (cons (selected-frame) ,coordinates))))
+       ,@body)))
+
+(defun clatter-test--action-pixel (predicate &optional window)
+  "Find real frame coordinates in WINDOW whose position satisfies PREDICATE.
+WINDOW defaults to the selected window. Batch Emacs has no glyph matrix:
+native geometry tests run in a terminal or graphical Emacs instead.
+No position, selection or routing is mocked."
+  (set-window-point (selected-window) (point))
+  (clatter--sync-window-margins)
+  (message nil)
+  (redisplay t)
+  (let ((window (or window (selected-window))))
+    (unless (posn-at-point (window-start window) window)
+      (if noninteractive
+          (ert-skip "Native glyph matrix unavailable in batch Emacs")
+        (ert-fail "Native glyph matrix unavailable in interactive Emacs")))
+    (let* ((frame (selected-frame))
+           (dx (max 1 (/ (frame-char-width frame) 2)))
+           (dy (max 1 (/ (frame-char-height frame) 2)))
+           (width (frame-pixel-width frame))
+           (height (frame-pixel-height frame)))
+      (or (catch 'found
+            (cl-loop for y from 0 below height by dy do
+                     (cl-loop for x from 0 below width by dx do
+                              (let ((hit (posn-at-x-y x y frame)))
+                                (when (and hit (eq (posn-window hit) window))
+                                  (with-current-buffer (window-buffer window)
+                                    (when (funcall predicate hit)
+                                      (throw 'found (cons x y)))))))))
+          (ert-fail "No native display hit for the requested message surface")))))
+
+(defun clatter-test--action-position-pixel (position &optional window)
+  "Return native frame coordinates over text at POSITION in WINDOW."
+  (let ((position (copy-marker position)))
+    (unwind-protect
+        (clatter-test--action-pixel
+         (lambda (hit)
+           (and (null (posn-string hit))
+                (equal (marker-position position) (posn-point hit))))
+         window)
+      (set-marker position nil))))
+
+(defun clatter-test--action-word (msgid word)
+  "Return the start of WORD inside retained MSGID."
+  (save-excursion
+    (goto-char (clatter--find-message-position-by-msgid (current-buffer) msgid))
+    (search-forward word)
+    (- (point) (length word))))
+
+(defun clatter-test--action-old-selection (msgid)
+  "Select retained MSGID using the real primitive, then return to the draft."
+  (goto-char (clatter--find-message-position-by-msgid (current-buffer) msgid))
+  (should (equal msgid (clatter-select-message)))
+  (goto-char (clatter--input-end))
+  (set-window-point (selected-window) (point)))
+
+(defun clatter-test--action-selected (msgid draft)
+  "Assert owned MSGID selection, input DRAFT, and point at the end of the draft."
+  (should (overlayp mouse-secondary-overlay))
+  (should (eq (overlay-buffer mouse-secondary-overlay) (current-buffer)))
+  (should (equal msgid (get-text-property
+                       (overlay-start mouse-secondary-overlay) 'clatter-msgid)))
+  (should (equal msgid (get-text-property
+                       (1- (overlay-end mouse-secondary-overlay)) 'clatter-msgid)))
+  (should (equal draft (clatter--get-input)))
+  (should (= (point) (clatter--input-end))))
+
+(defun clatter-test--action-fails (keys)
+  "Invoke actual KEYS and assert failure leaves draft and editing state unchanged."
+  (set-window-point (selected-window) (point))
+  (let ((draft (clatter--get-input))
+        (position (copy-marker (point)))
+        (selection mouse-secondary-overlay)
+        (owner (and (overlayp mouse-secondary-overlay)
+                    (overlay-buffer mouse-secondary-overlay)))
+        (start (and (overlayp mouse-secondary-overlay)
+                    (copy-marker (overlay-start mouse-secondary-overlay))))
+        (end (and (overlayp mouse-secondary-overlay)
+                  (copy-marker (overlay-end mouse-secondary-overlay))))
+        (spelling (and (boundp 'flyspell-changes) (copy-tree flyspell-changes))))
+    (unwind-protect
+        (progn
+          (execute-kbd-macro (kbd keys))
+          (should (equal draft (clatter--get-input)))
+          (should (= (marker-position position) (point)))
+          (should (equal spelling (and (boundp 'flyspell-changes) flyspell-changes)))
+          (should (eq selection mouse-secondary-overlay))
+          (when (overlayp selection)
+            (should (eq owner (overlay-buffer selection)))
+            (should (= (marker-position start) (overlay-start selection)))
+            (should (= (marker-position end) (overlay-end selection)))))
+      (set-marker position nil)
+      (when start (set-marker start nil))
+      (when end (set-marker end nil)))))
+
+(defun clatter-test--action-menu-choice (choose)
+  "Invoke the actual menu binding; CHOOSE runs during its choice wait.
+Assert its real short-lived marker is disposed, including on quit/error."
+  (set-window-point (selected-window) (point))
+  (let ((copy (symbol-function 'copy-marker))
+        marker)
+    (unwind-protect
+        (cl-letf (((symbol-function 'copy-marker)
+                   (lambda (&rest args)
+                     (let ((result (apply copy args)))
+                       (when (and (not marker) (eq (cadr args) t))
+                         (setq marker result))
+                       result)))
+                  ((symbol-function 'read-multiple-choice)
+                   (lambda (_prompt choices)
+                     (funcall choose choices))))
+          (execute-kbd-macro (kbd "C-c C-a")))
+      (when marker
+        (should-not (marker-buffer marker))))))
+
+(ert-deftest clatter-test-action-native-hover-react-surfaces ()
+  "Both real React bindings own body, prefix, wrap, URL, preview, stamp and badge."
+  (dolist (order '(oldest-first newest-first))
+    (dolist (side '(left right inline))
+      (clatter-test--with-action-window order side
+        (dolist (sample '(("A" . prefix) ("A" . body) ("A" . wrap)
+                          ("B" . body) ("B" . url) ("B" . preview)
+                          ("B" . badge) ("A" . stamp)))
+          (dolist (keys '("C-c C-e" "C-c C-a e"))
+            (clatter--set-input "draft")
+            (clatter-test--action-old-selection
+             (if (equal (car sample) "A") "B" "A"))
+            (let ((pixels
+                   (progn
+                     (should (clatter-in-input-p))
+                     ;; Finish native redisplay before entering the command,
+                     ;; after draft replacement and any viewport reflow.
+                     (pcase (cdr sample)
+                       ('prefix
+                        (clatter-test--action-position-pixel
+                         (clatter--find-message-position-by-msgid buffer "A")))
+                       ('body
+                        (clatter-test--action-position-pixel
+                         (clatter-test--action-word
+                          (car sample) (concat "TARGET-" (car sample)))))
+                       ('wrap
+                        (let ((position
+                               (save-excursion
+                                 (goto-char (clatter--find-message-position-by-msgid buffer "A"))
+                                 (forward-line 1)
+                                 (point))))
+                          (should (equal "A" (get-text-property position 'clatter-msgid)))
+                          (clatter-test--action-position-pixel position)))
+                       ('url
+                        (clatter-test--action-position-pixel
+                         (clatter-test--action-word "B" "https://")))
+                       ('preview
+                        (let ((position (clatter--find-message-position-by-msgid buffer "B")))
+                          (should (equal "A" (button-get (button-at position) 'reply-to)))
+                          (clatter-test--action-position-pixel position)))
+                       ('badge
+                        (let ((badge (overlay-get (clatter-test--reaction-overlay buffer "B")
+                                                  'after-string)))
+                          (clatter-test--action-pixel
+                           (lambda (hit)
+                             (and (eq badge (car-safe (posn-string hit)))
+                                  (equal "B" (get-text-property (posn-point hit)
+                                                                'clatter-msgid)))))))
+                       ('stamp
+                        (clatter-test--action-pixel
+                         (lambda (hit)
+                           (let ((position (posn-point hit))
+                                 (string (car-safe (posn-string hit))))
+                             (and (integerp position)
+                                  (equal "A" (get-text-property position 'clatter-msgid))
+                                  (stringp string)
+                                  (string-match-p "12:00" string)
+                                  (eq (posn-area hit)
+                                      (pcase side
+                                        ('left 'left-margin)
+                                        ('right 'right-margin)
+                                        ('inline nil))))))))))))
+              (clatter-test--with-action-mouse
+                  (progn
+                    (let* ((hit (posn-at-x-y (car pixels) (cdr pixels) (selected-frame)))
+                           (position (and hit (posn-point hit))))
+                      (should (eq window (and hit (posn-window hit))))
+                      (should (integerp position))
+                      (should (equal (car sample)
+                                     (get-text-property position 'clatter-msgid)))
+                      (when (eq (cdr sample) 'stamp)
+                        (should (eq (posn-area hit)
+                                    (pcase side
+                                      ('left 'left-margin)
+                                      ('right 'right-margin)
+                                      ('inline nil))))))
+                    pixels)
+                (execute-kbd-macro (kbd keys))))
+            (clatter-test--action-selected (car sample) "draft/react ")))))))
+
+(ert-deftest clatter-test-action-point-priority-and-reply-contracts ()
+  "A real message at point wins without even reading the mouse, including no ID."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'left
+      (cl-letf (((symbol-function 'mouse-pixel-position)
+                 (lambda () (ert-fail "Message at point must take priority"))))
+        (dolist (keys '("C-c C-e" "C-c C-a e" "C-c C-r" "C-c C-a r"))
+          (clatter--set-input "draft")
+          (clatter-test--action-old-selection "B")
+          (goto-char (clatter-test--action-word "A" "TARGET-A"))
+          (set-window-point window (point))
+          (execute-kbd-macro (kbd keys))
+          (clatter-test--action-selected
+           "A" (if (string-suffix-p "e" keys) "draft/react " "draft/reply alice: ")))
+        (clatter--set-input "draft")
+        (let ((untagged (save-excursion
+                          (goto-char (point-min))
+                          (search-forward "UNTAGGED")
+                          (match-beginning 0))))
+          (dolist (keys '("C-c C-e" "C-c C-a e"))
+            (clatter--set-input "draft")
+            (clatter-test--action-old-selection "B")
+            (goto-char untagged)
+            (clatter-test--action-fails keys))
+          (clatter--set-input "draft")
+          (goto-char untagged)
+          (set-window-point window (point))
+          (execute-kbd-macro (kbd "C-c C-r"))
+          (clatter-test--action-selected "B" "draftuntagged: ")
+          (clatter--set-input "draft")
+          (goto-char untagged)
+          (clatter-test--action-fails "C-u C-c C-r")
+          (setf (clatter-connection-cap-enabled conn) nil)
+          (clatter--set-input "draft")
+          (goto-char (clatter-test--action-word "A" "TARGET-A"))
+          (set-window-point window (point))
+          (execute-kbd-macro (kbd "C-c C-r"))
+          (clatter-test--action-selected "B" "draftalice: ")
+          (clatter--set-input "draft")
+          (goto-char (clatter-test--action-word "A" "TARGET-A"))
+          (set-window-point window (point))
+          (execute-kbd-macro (kbd "C-u C-c C-r"))
+          (clatter-test--action-selected "A" "draft/reply alice: "))))))
+
+(ert-deftest clatter-test-action-missing-coordinates-preserve-draft ()
+  "Mouseless draft commands leave text, undo, spelling and old selection alone."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'left
+      (let ((buffer-undo-list t))
+        (clatter--clear-input))
+      (buffer-enable-undo)
+      (setq buffer-undo-list nil)
+      (let ((history (buffer-substring-no-properties (point-min) (point-max))))
+        (goto-char clatter--input-marker)
+        (insert "draft")
+        (undo-boundary)
+        (setq-local flyspell-changes
+                    (list (cons (marker-position clatter--input-marker)
+                                (clatter--input-end))))
+        (clatter-test--action-old-selection "B")
+        (clatter-test--with-action-mouse nil
+          (dolist (keys '("C-c C-e" "C-c C-a e"))
+            (clatter-test--action-fails keys)))
+        (undo-only 1)
+        (should (equal "" (clatter--get-input)))
+        (should (equal history
+                       (buffer-substring-no-properties (point-min) (point-max))))))))
+
+(ert-deftest clatter-test-action-native-hover-invalid-and-other-chat ()
+  "Untagged, system, divider, input and other-buffer hits cannot steal a selection."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'divider
+      (dolist (surface '(untagged system divider input))
+        (dolist (keys '("C-c C-e" "C-c C-a e"))
+          (clatter--set-input "draft")
+          (clatter-test--action-old-selection "B")
+          (clatter-test--with-action-mouse
+              (clatter-test--action-position-pixel
+               (pcase surface
+                 ('input clatter--input-marker)
+                 ('divider
+                  (text-property-any (point-min) (point-max)
+                                     'clatter-timestamp-divider t))
+                 (_ (save-excursion
+                      (goto-char (point-min))
+                      (search-forward (if (eq surface 'system) "SYSTEM" "UNTAGGED"))
+                      (match-beginning 0)))))
+            (clatter-test--action-fails keys))))
+      (dolist (keys '("C-c C-e" "C-c C-a e" "C-c C-r" "C-c C-a r"
+                     "C-u C-c C-r" "C-u C-c C-a r"))
+        (clatter--set-input "draft")
+        (clatter-test--action-old-selection "B")
+        (goto-char (point-min))
+        (search-forward "SYSTEM")
+        (goto-char (match-beginning 0))
+        (clatter-test--with-action-mouse
+            (clatter-test--action-position-pixel
+             (clatter-test--action-word "A" "TARGET-A"))
+          (clatter-test--action-fails keys)))
+      (let* ((other (generate-new-buffer " *clatter-other-chat*"))
+             (other-window (split-window-right)))
+        (unwind-protect
+            (progn
+              (with-current-buffer other
+                (clatter-mode)
+                (clatter-ui-setup-buffer other)
+                (clatter-insert-privmsg
+                 other "elsewhere" (propertize "OTHER" 'clatter-msgid "other") conn))
+              (set-window-buffer other-window other)
+              (dolist (keys '("C-c C-e" "C-c C-a e"))
+                (clatter--set-input "draft")
+                (clatter-test--action-old-selection "B")
+                (clatter-test--with-action-mouse
+                    (clatter-test--action-pixel
+                     (lambda (hit)
+                       (let ((position (posn-point hit)))
+                         (and (integerp position)
+                              (equal "other" (get-text-property position 'clatter-msgid)))))
+                     other-window)
+                  (clatter-test--action-fails keys))))
+          (when (window-live-p other-window) (delete-window other-window))
+          (kill-buffer other))))))
+
+(ert-deftest clatter-test-action-menu-keeps-hover-through-move-and-insertion ()
+  "Menu entry freezes sender/ID across pointer movement, point movement and insertion."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'inline
+      (let (pixels)
+        (clatter-test--with-action-mouse pixels
+          (dolist (choice '(?e ?r ?u))
+            (clatter--set-input "draft")
+            (clatter-test--action-old-selection "A")
+            (setq pixels (clatter-test--action-position-pixel
+                          (clatter-test--action-word "B" "https://")))
+            (clatter-test--action-menu-choice
+             (lambda (choices)
+               (should (assq ?u choices))
+               (goto-char (clatter-test--action-word "A" "TARGET-A"))
+               (clatter-insert-privmsg
+                buffer "new" (propertize "ARRIVED" 'clatter-msgid "new") conn)
+               (setq pixels (clatter-test--action-position-pixel
+                             (clatter-test--action-word "A" "TARGET-A")))
+               (list choice)))
+            (pcase choice
+              (?e (clatter-test--action-selected "B" "draft/react "))
+              (?r (clatter-test--action-selected "B" "draft/reply bob: "))
+              (?u (should (equal (current-kill 0 t) "https://example.invalid/path"))
+                  (clatter-test--action-selected "A" "draft")))))))))
+
+(ert-deftest clatter-test-action-menu-rejects-truncation-and-generation-change ()
+  "Removed or replaced menu parents are rejected, even if an ID is reused."
+  (dolist (order '(oldest-first newest-first))
+    (dolist (change '(truncate generation))
+      (clatter-test--with-action-window order 'left
+        (clatter-test--action-old-selection "B")
+        (goto-char (clatter--find-message-position-by-msgid buffer "A"))
+        (let ((expected-point (copy-marker (point)))
+              expected-selection expected-start expected-end
+              expected-spelling)
+          (unwind-protect
+              (progn
+                (clatter-test--action-menu-choice
+                 (lambda (_choices)
+                   (pcase change
+                     ('truncate
+                      (let ((clatter-buffer-max-lines 1))
+                        (clatter-insert-privmsg
+                         buffer "replacement"
+                         (propertize "REPLACED" 'clatter-msgid "A") conn))
+                      (clatter-test--action-old-selection "A"))
+                     ('generation
+                      (with-silent-modifications
+                        (put-text-property
+                         (point) (1+ (point)) 'clatter-message-generation
+                         (1+ (get-text-property (point) 'clatter-message-generation))))
+                      (goto-char (clatter--input-end))))
+                   (setq expected-selection mouse-secondary-overlay
+                         expected-start (copy-marker (overlay-start mouse-secondary-overlay))
+                         expected-end (copy-marker (overlay-end mouse-secondary-overlay))
+                         expected-spelling (and (boundp 'flyspell-changes)
+                                                (copy-tree flyspell-changes)))
+                   '(?e)))
+                (should (equal (clatter--get-input) "draft"))
+                (should (= (marker-position expected-point) (point)))
+                (should (equal expected-spelling
+                               (and (boundp 'flyspell-changes) flyspell-changes)))
+                (should (eq mouse-secondary-overlay expected-selection))
+                (should (eq buffer (overlay-buffer mouse-secondary-overlay)))
+                (should (= (marker-position expected-start)
+                           (overlay-start mouse-secondary-overlay)))
+                (should (= (marker-position expected-end)
+                           (overlay-end mouse-secondary-overlay))))
+            (set-marker expected-point nil)
+            (when expected-start (set-marker expected-start nil))
+            (when expected-end (set-marker expected-end nil))))))))
+
+(ert-deftest clatter-test-action-menu-disposes-marker-on-quit-and-dead-buffer ()
+  "Every menu exit disposes its marker, including errors and a killed buffer."
+  (dolist (exit '(quit error killed))
+    (clatter-test--with-action-window 'oldest-first 'left
+      (goto-char (clatter--find-message-position-by-msgid buffer "A"))
+      (pcase exit
+        ('quit
+         (should
+          (eq 'quit
+              (condition-case nil
+                  (clatter-test--action-menu-choice
+                   (lambda (_choices) (signal 'quit nil)))
+                (quit 'quit)))))
+        ('error
+         (should-error
+          (clatter-test--action-menu-choice
+           (lambda (_choices) (error "Choice failed")))))
+        ('killed
+         (clatter-test--action-menu-choice
+          (lambda (_choices) (kill-buffer buffer) '(?e)))
+         (should-not (buffer-live-p buffer))
+         (should-not (overlay-buffer mouse-secondary-overlay)))))))
+
+(ert-deftest clatter-test-action-native-hover-same-buffer-and-stale-window ()
+  "Another live window of this chat works; a native hit whose window died does not."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'left
+      (dolist (stale '(nil t))
+        (dolist (keys '("C-c C-e" "C-c C-a e"))
+          (clatter--set-input "draft")
+          (clatter-test--action-old-selection "B")
+          (let ((other-window (split-window-right))
+                (native-position (symbol-function 'posn-at-x-y)))
+            (unwind-protect
+                (progn
+                  (set-window-buffer other-window buffer)
+                  (set-window-point other-window (point))
+                  (let ((pixels
+                         (clatter-test--action-position-pixel
+                          (clatter-test--action-word "A" "TARGET-A") other-window)))
+                    (clatter-test--with-action-mouse pixels
+                      ;; Invalidate a REAL native result at the live-window check.
+                      (cl-letf (((symbol-function 'posn-at-x-y)
+                                 (lambda (&rest args)
+                                   (let ((hit (apply native-position args)))
+                                     (when (and stale hit
+                                                (eq (posn-window hit) other-window))
+                                       (delete-window other-window))
+                                     hit))))
+                        (if stale
+                            (clatter-test--action-fails keys)
+                          (execute-kbd-macro (kbd keys))
+                          (clatter-test--action-selected "A" "draft/react "))))))
+              (when (window-live-p other-window)
+                (delete-window other-window)))))))))
+
+(ert-deftest clatter-test-action-native-hover-outside-frame-and-restriction ()
+  "Off-frame coordinates and native hits outside narrowing preserve the draft."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'left
+      (dolist (keys '("C-c C-e" "C-c C-a e"))
+        (clatter--set-input "draft")
+        (clatter-test--action-old-selection "B")
+        (clatter-test--with-action-mouse '(-1 . -1)
+          (clatter-test--action-fails keys))
+        (let ((pixels (clatter-test--action-position-pixel
+                       (clatter-test--action-word "A" "TARGET-A")))
+              ;; Artificial point-min must not trigger new history padding.
+              (clatter--input-padding-end nil)
+              (inhibit-redisplay t))
+          (save-restriction
+            ;; Freeze the freshly rendered native matrix while narrowing.
+            (narrow-to-region clatter--input-marker (clatter--input-end))
+            (clatter-test--with-action-mouse
+                (progn
+                  (let ((position (posn-point
+                                   (posn-at-x-y (car pixels) (cdr pixels)
+                                                (selected-frame)))))
+                    (should (integerp position))
+                    (should-not (<= (point-min) position (1- (point-max)))))
+                  pixels)
+              (clatter-test--action-fails keys))))))))
+
+(ert-deftest clatter-test-action-menu-rejects-target-outside-new-restriction ()
+  "Narrowing during menu choice rejects the captured parent without moving point."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'left
+      (clatter-test--action-old-selection "B")
+      (let ((position (copy-marker (point)))
+            (spelling (and (boundp 'flyspell-changes) (copy-tree flyspell-changes)))
+            ;; Narrowing below is not a history layout or padding rebuild.
+            (clatter--input-padding-end nil))
+        (unwind-protect
+            (progn
+              (clatter-test--with-action-mouse
+                  (clatter-test--action-position-pixel
+                   (clatter-test--action-word "A" "TARGET-A"))
+                (save-restriction
+                  (clatter-test--action-menu-choice
+                   (lambda (_choices)
+                     (narrow-to-region clatter--input-marker (clatter--input-end))
+                     '(?e)))
+                  (should (= (marker-position position) (point)))
+                  (should (equal "draft" (clatter--get-input)))
+                  (should (equal spelling
+                                 (and (boundp 'flyspell-changes) flyspell-changes)))))
+              (clatter-test--action-selected "B" "draft"))
+          (set-marker position nil))))))
+
+(ert-deftest clatter-test-action-native-hover-reply-uses-owning-parent ()
+  "Hover replies use the owning sender and ID, not the reply-preview reference."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'inline
+      (dolist (keys '("C-c C-r" "C-c C-a r" "C-u C-c C-r"))
+        (clatter--set-input "draft")
+        (clatter-test--action-old-selection "A")
+        (clatter-test--with-action-mouse
+            (clatter-test--action-position-pixel
+             (clatter--find-message-position-by-msgid buffer "B"))
+          (execute-kbd-macro (kbd keys)))
+        (clatter-test--action-selected "B" "draft/reply bob: "))
+      (dolist (keys '("C-c C-r" "C-c C-a r" "C-u C-c C-r" "C-u C-c C-a r"))
+        (clatter--set-input "draft")
+        (clatter-test--action-old-selection "A")
+        (clatter-test--with-action-mouse
+            (clatter-test--action-position-pixel
+             (save-excursion
+               (goto-char (point-min))
+               (search-forward "UNTAGGED")
+               (match-beginning 0)))
+          (if (string-prefix-p "C-u " keys)
+              (clatter-test--action-fails keys)
+            (execute-kbd-macro (kbd keys))
+            (clatter-test--action-selected "A" "draftuntagged: ")))))))
+
+(ert-deftest clatter-test-action-menu-nonmessage-and-global-conventions ()
+  "No-target menus do not acquire a later hover, and global URL listing survives removal."
+  (dolist (order '(oldest-first newest-first))
+    (clatter-test--with-action-window order 'left
+      (let (pixels)
+        (clatter-test--action-old-selection "B")
+        (clatter-test--with-action-mouse pixels
+          (let ((position (copy-marker (point)))
+                (spelling (and (boundp 'flyspell-changes) (copy-tree flyspell-changes))))
+            (unwind-protect
+                (progn
+                  (clatter-test--action-menu-choice
+                   (lambda (_choices)
+                     (setq pixels (clatter-test--action-position-pixel
+                                   (clatter-test--action-word "A" "TARGET-A")))
+                     '(?e)))
+                  (should (= (marker-position position) (point)))
+                  (should (equal spelling
+                                 (and (boundp 'flyspell-changes) flyspell-changes))))
+              (set-marker position nil)))
+          (clatter-test--action-selected "B" "draft")
+          (setq pixels nil)
+          (let ((line (clatter-action--line-text)))
+            (clatter-test--action-menu-choice (lambda (_choices) '(?c)))
+            (should (equal (current-kill 0 t) line))))
+        (clatter-test--action-old-selection "B")
+        (let (expected-point)
+          (unwind-protect
+              (clatter-test--with-action-mouse
+                  (clatter-test--action-position-pixel
+                   (clatter-test--action-word "A" "TARGET-A"))
+                (clatter-test--action-menu-choice
+                 (lambda (_choices)
+                   (let ((clatter-buffer-max-lines 1))
+                     (clatter-insert-privmsg
+                      buffer "new"
+                      (propertize "https://retained.invalid/" 'clatter-msgid "new")
+                      conn))
+                   (setq expected-point (copy-marker (point)))
+                   '(?l)))
+                (with-current-buffer buffer
+                  (should (= (marker-position expected-point) (point)))
+                  (should (equal "draft" (clatter--get-input))))
+                (with-current-buffer "*clatter-urls*"
+                  (should (string-match-p "https://retained.invalid/" (buffer-string)))))
+            (when expected-point (set-marker expected-point nil))
+            (when (get-buffer "*clatter-urls*")
+              (kill-buffer "*clatter-urls*"))))))))
+
 (ert-deftest clatter-test-nick-account-membership-lifecycle ()
   "Removal and renaming leave no stale account aliases."
   (with-temp-buffer
