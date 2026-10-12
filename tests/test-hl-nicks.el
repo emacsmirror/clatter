@@ -120,6 +120,125 @@ active theme gives the base face, instead of a hardcoded hex."
     (clatter-hl-rebuild-nick-faces t)
     (should (eq (face-attribute face :inherit nil t) base))))
 
+(ert-deftest clatter-hl-nicks-no-match-keeps-original-string ()
+  "Nonmatching messages are not copied, including nick word boundaries."
+  (with-temp-buffer
+    (setq-local clatter--nick-list (make-hash-table :test 'equal))
+    (puthash "alice" '("" . "alice") clatter--nick-list)
+    (let ((clatter-hl-nicks-enabled t)
+          (clatter-hl-nicks-minimum-length 3)
+          (clatter-hl-nicks-skip-nicks nil))
+      (dolist (message '("" "hello everyone" "malice alice_other alice-away"))
+        (let ((text (propertize message 'help-echo "original")))
+          (should (eq text (clatter-hl-nicks-in-string
+                            text (current-buffer)))))))))
+
+(ert-deftest clatter-hl-nicks-excluded-faces-keep-original-string ()
+  "A skipped face, either alone or in a face list, prevents copying."
+  (with-temp-buffer
+    (setq-local clatter--nick-list (make-hash-table :test 'equal))
+    (puthash "alice" '("" . "alice") clatter--nick-list)
+    (let ((clatter-hl-nicks-enabled t)
+          (clatter-hl-nicks-minimum-length 3)
+          (clatter-hl-nicks-skip-nicks nil)
+          (clatter-hl-nicks-skip-faces '(clatter-system)))
+      (dolist (face '(clatter-system (bold clatter-system)))
+        (let* ((text (propertize "alice alice" 'face face
+                                 'help-echo "original"))
+               (before (copy-sequence text)))
+          (should (eq text (clatter-hl-nicks-in-string text (current-buffer))))
+          (should (equal-including-properties text before)))))))
+
+(ert-deftest clatter-hl-nicks-preserve-input-and-unrelated-properties ()
+  "Repeated matches and multiple nicks keep properties without mutating input."
+  (with-temp-buffer
+    (setq-local clatter--nick-list (make-hash-table :test 'equal))
+    (dolist (nick '("alice" "bob" "carol"))
+      (puthash nick (cons "" nick) clatter--nick-list))
+    (let* ((clatter-hl-nicks-enabled t)
+           (clatter-hl-nicks-minimum-length 3)
+           (clatter-hl-nicks-skip-nicks nil)
+           (clatter-hl-nicks-skip-faces '(clatter-system))
+           (text (propertize "alice alice bob alice" 'face 'italic
+                             'help-echo "original")))
+      (put-text-property 0 5 'clatter-url "https://example.com/alice" text)
+      (let ((before (copy-sequence text))
+            (result (clatter-hl-nicks-in-string text (current-buffer))))
+        (should-not (eq result text))
+        (should (equal result text))
+        (should (equal-including-properties text before))
+        (dolist (match '((0 5 "alice") (6 11 "alice")
+                         (12 15 "bob") (16 21 "alice")))
+          (cl-destructuring-bind (start end nick) match
+            (dotimes (offset (- end start))
+              (let ((pos (+ start offset)))
+                (should (eq (get-text-property pos 'face result)
+                            (clatter-hl-nick-face-symbol nick)))
+                (should (equal (get-text-property pos 'clatter-nick result)
+                               nick))))))
+        (dotimes (pos (length result))
+          (should (equal (get-text-property pos 'help-echo result) "original")))
+        (should (equal (get-text-property 0 'clatter-url result)
+                       "https://example.com/alice"))
+        (should (eq (get-text-property 5 'face result) 'italic))
+        (should-not (get-text-property 5 'clatter-nick result))))))
+
+(ert-deftest clatter-hl-nicks-mixed-excluded-and-eligible-matches ()
+  "Skipped occurrences stay intact even when another occurrence is highlighted."
+  (with-temp-buffer
+    (setq-local clatter--nick-list (make-hash-table :test 'equal))
+    (puthash "alice" '("" . "alice") clatter--nick-list)
+    (let* ((clatter-hl-nicks-enabled t)
+           (clatter-hl-nicks-minimum-length 3)
+           (clatter-hl-nicks-skip-nicks nil)
+           (clatter-hl-nicks-skip-faces '(clatter-system))
+           (text (copy-sequence "alice alice alice")))
+      (put-text-property 0 5 'face 'clatter-system text)
+      (put-text-property 6 11 'face '(bold clatter-system) text)
+      (let ((before (copy-sequence text))
+            (result (clatter-hl-nicks-in-string text (current-buffer))))
+        (should (equal-including-properties text before))
+        (should (equal-including-properties (substring result 0 12)
+                                            (substring text 0 12)))
+        (should (equal (get-text-property 12 'clatter-nick result) "alice"))
+        (should (eq (get-text-property 12 'face result)
+                    (clatter-hl-nick-face-symbol "alice")))))))
+
+(ert-deftest clatter-hl-nicks-skip-names-case-insensitively ()
+  "Skip nicknames ignore case while unlisted channel members still highlight."
+  (with-temp-buffer
+    (setq-local clatter--nick-list (make-hash-table :test 'equal))
+    (dolist (nick '("alice" "bob" "carol"))
+      (puthash nick (cons "" nick) clatter--nick-list))
+    (let ((clatter-hl-nicks-enabled t)
+          (clatter-hl-nicks-minimum-length 3)
+          (clatter-hl-nicks-skip-nicks '("ALIce" "CaRoL"))
+          (case-fold-search t))
+      (let ((text (copy-sequence "ALICE carol")))
+        (should (eq text (clatter-hl-nicks-in-string text (current-buffer)))))
+      (let ((result (clatter-hl-nicks-in-string "ALICE bob carol"
+                                               (current-buffer))))
+        (should-not (get-text-property 0 'clatter-nick result))
+        (should (equal (get-text-property 6 'clatter-nick result) "bob"))
+        (should-not (get-text-property 10 'clatter-nick result))))))
+
+(ert-deftest clatter-hl-nicks-honor-irc-nick-syntax ()
+  "IRC punctuation belongs to the nickname, not an adjacent partial match."
+  (with-temp-buffer
+    (setq-local clatter--nick-list (make-hash-table :test 'equal))
+    (puthash "[alice]" '("" . "[alice]") clatter--nick-list)
+    (let ((clatter-hl-nicks-enabled t)
+          (clatter-hl-nicks-minimum-length 3)
+          (clatter-hl-nicks-skip-nicks nil)
+          (case-fold-search t))
+      (let ((text (copy-sequence "x[alice] [alice]_")))
+        (should (eq text (clatter-hl-nicks-in-string text (current-buffer)))))
+      (let ((result (clatter-hl-nicks-in-string "[ALICE], [alice]"
+                                               (current-buffer))))
+        (should (equal (get-text-property 0 'clatter-nick result) "[alice]"))
+        (should-not (get-text-property 7 'clatter-nick result))
+        (should (equal (get-text-property 9 'clatter-nick result) "[alice]"))))))
+
 (provide 'test-hl-nicks)
 
 ;;; test-hl-nicks.el ends here

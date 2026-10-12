@@ -185,7 +185,8 @@ deterministic, hash-based `clatter-nick-color-N' palette face."
 
 (defun clatter-hl-nicks-in-string (text buffer)
   "Return TEXT with nicks from BUFFER's nick list highlighted.
-Only highlights nicks that are currently in the channel."
+Only highlights nicks that are currently in the channel.
+Return TEXT itself if no eligible match needs highlighting."
   (if (or (not clatter-hl-nicks-enabled)
           (not (buffer-live-p buffer)))
       text
@@ -195,50 +196,45 @@ Only highlights nicks that are currently in the channel."
           (with-syntax-table clatter-nick-syntax-table
             (dolist (nick nicks)
               (let ((re (rx bow (literal nick) eow)))
-                (setq text (clatter-hl--propertize-matches
-                            text re
-                            (list 'face (clatter-hl-nick-face-symbol nick)
-                                  'clatter-nick nick))))))))
+                (setq text (clatter-hl--propertize-matches text re nick)))))))
       text)))
 
 (defun clatter-hl--collect-nicks (buffer)
   "Collect eligible nicks from BUFFER's nick list."
   (with-current-buffer buffer
-    (let (nicks)
+    (let ((skip-nicks (mapcar #'downcase clatter-hl-nicks-skip-nicks))
+          nicks)
       (when clatter--nick-list
         (maphash (lambda (nick _prefix)
                    (when (and (>= (length nick) clatter-hl-nicks-minimum-length)
-                              (not (member (downcase nick)
-                                           (mapcar #'downcase
-                                                   clatter-hl-nicks-skip-nicks))))
+                              (not (member (downcase nick) skip-nicks)))
                      (push nick nicks)))
                  clatter--nick-list))
       nicks)))
 
-(defun clatter-hl--propertize-matches (text regexp props)
-  "Add PROPS to all matches of REGEXP in TEXT.
-Skips regions that already have a face from `clatter-hl-nicks-skip-faces'."
+(defun clatter-hl--propertize-matches (text regexp nick)
+  "Highlight matches of REGEXP in TEXT as NICK.
+Skip regions that already have a face from `clatter-hl-nicks-skip-faces'.
+Copy TEXT only on the first eligible match, leaving the input unchanged."
   (let ((pos 0)
-        (result ""))
+        (result text)
+        props)
     (while (string-match regexp text pos)
       (let* ((start (match-beginning 0))
              (end (match-end 0))
              (existing-face (get-text-property start 'face text)))
-        (setq result (concat result (substring text pos start)))
-        (if (and existing-face
-                 (or (memq existing-face clatter-hl-nicks-skip-faces)
-                     (and (listp existing-face)
-                          (cl-intersection existing-face
-                                           clatter-hl-nicks-skip-faces))))
-            ;; Skip - face is in the exclusion list
-            (setq result (concat result (substring text start end)))
-          ;; Apply nick highlight
-          (setq result (concat result
-                               (apply #'propertize
-                                      (substring text start end)
-                                      props))))
+        (unless (and existing-face
+                     (or (memq existing-face clatter-hl-nicks-skip-faces)
+                         (and (listp existing-face)
+                              (cl-intersection existing-face
+                                               clatter-hl-nicks-skip-faces))))
+          (when (eq result text)
+            (setq result (copy-sequence text)
+                  props (list 'face (clatter-hl-nick-face-symbol nick)
+                              'clatter-nick nick)))
+          (add-text-properties start end props result))
         (setq pos end)))
-    (concat result (substring text pos))))
+    result))
 
 ;; --- Highlight nicks in the <nick> prefix too ---
 

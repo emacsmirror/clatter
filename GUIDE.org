@@ -876,6 +876,11 @@ and the palette follows whatever theme you load. Customize that list to change
 the palette, then run =M-x clatter-hl-rebuild-nick-faces= (with a prefix
 argument to refresh faces already in use).
 
+In-text nick highlighting leaves the original message unchanged and avoids
+unnecessary message copies: messages with no eligible nick matches (including
+excluded faces or nicknames) reuse their original string. Repeated occurrences
+of a matching nick share one copy rather than rebuilding the message each time.
+
 ** Activity Tracking
 
 | Variable                                | Default            | Description                                                              |
