@@ -205,15 +205,462 @@
                 (clatter-dispatch-message
                  conn (clatter-test-parse ":server BATCH -history"))
                 (should-not batch-complete)
-                (should (clatter-connection-deferred-batches conn))
                 (clatter-cap--finish-negotiation conn)
                 (should-not (clatter-connection-cap-negotiating conn))
                 (should registration-sent)
                 (should (equal (nreverse sent) '("CAP END")))
                 (should (equal (nth 1 batch-complete) "chathistory"))
-                (should-not (clatter-connection-deferred-batches conn)))
+                (should (= (length batch-complete) 4))
+                (should (eq (car batch-complete) conn))
+                (should (equal (plist-get (car (nth 3 batch-complete)) :text)
+                               "old message"))
+                (setq batch-complete nil)
+                (clatter--flush-deferred-batches conn)
+                (should-not batch-complete))
             (remove-hook 'clatter-batch-complete-hook batch-handler)))
       (clatter-test-cleanup))))
+
+;; --- Retained session resources ---
+
+(defmacro clatter-test--with-batch-session (conn proc &rest body)
+  "Run BODY with an owned production session CONN and pipe PROC."
+  (declare (indent 2))
+  `(let* ((clatter-connections (make-hash-table :test 'equal))
+          (,conn (clatter-test-make-connection))
+          (,proc (make-pipe-process :name "clatter-test-batch" :noquery t))
+          (clatter-disconnect-hook nil)
+          (clatter-privmsg-hook nil)
+          (clatter-batch-complete-hook nil))
+     (setf (clatter-connection-process ,conn) ,proc
+           (clatter-connection-reconnect-enabled ,conn) nil)
+     (process-put ,proc :clatter-network-id "testnet")
+     (set-process-sentinel ,proc #'clatter--process-sentinel)
+     (unwind-protect
+         (cl-letf (((symbol-function 'clatter--watchdog) #'ignore)
+                   ((symbol-function 'clatter--debug) #'ignore)
+                   ((symbol-function 'clatter-send) #'ignore)
+                   ((symbol-function 'clatter-cap--send-registration) #'ignore))
+           ,@body)
+       (when (process-live-p ,proc)
+         (delete-process ,proc)))))
+
+(defun clatter-test--batch-input (conn &rest lines)
+  "Dispatch IRC LINES to CONN through the real parser and handlers."
+  (dolist (line lines)
+    (clatter-dispatch-message conn (clatter-test-parse line))))
+
+(defun clatter-test--batch-resources-empty (conn)
+  "Assert that CONN owns no retained batches or batch accounting."
+  (should (zerop (clatter-connection-batch-bytes conn)))
+  (should (zerop (clatter-connection-batch-message-count conn)))
+  (should (zerop (clatter-connection-batch-count conn)))
+  (should (zerop (hash-table-count (clatter-connection-active-batches conn))))
+  (should-not (clatter-connection-deferred-batches conn)))
+
+(ert-deftest clatter-test-batch-aggregate-byte-boundary ()
+  "Active and CAP-deferred string bytes share one byte-exact ceiling."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      ;; Each batch retains a one-byte ID/type and two-byte target.
+      ;; Each message retains a one-byte sender and two-byte Unicode text.
+      (let ((clatter-max-batch-bytes 14)
+            calls reason
+            (live-calls 0))
+        (let ((clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why))))
+              (clatter-privmsg-hook
+               (list (lambda (&rest _) (cl-incf live-calls))))
+              (clatter-batch-complete-hook
+               (list (lambda (&rest args) (push args calls)))))
+          (setf (clatter-connection-cap-negotiating conn) t)
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #x"
+           "@batch=a :s!u@host PRIVMSG #x :é"
+           ":server BATCH -a"
+           ":server BATCH +b h #x")
+          (should (= (clatter-connection-batch-bytes conn) 11))
+          (clatter-test--batch-input
+           conn (concat "@batch=b :s!u@host PRIVMSG #x :"
+                        (if overflow-p "éx" "é")))
+          (should-not calls)
+          (should (zerop live-calls))
+          (if overflow-p
+              (progn
+                (should (string-match-p "retained batch string bytes.*limit 14"
+                                        reason))
+                (should-not (process-live-p proc))
+                (should-not (clatter-connection-process conn))
+                (clatter-test--batch-resources-empty conn)
+                (clatter--flush-deferred-batches conn)
+                (should-not calls))
+            (should (process-live-p proc))
+            (should-not reason)
+            (should (= (clatter-connection-batch-bytes conn) 14))
+            (should (= (clatter-connection-batch-message-count conn) 2))
+            (should (= (clatter-connection-batch-count conn) 2))
+            (clatter-test--batch-input conn ":server BATCH -b")
+            (should-not calls)
+            (clatter-cap--finish-negotiation conn)
+            (should (= (length calls) 2))
+            (dolist (args calls)
+              (should (= (length args) 4))
+              (should (eq (car args) conn))
+              (should (equal (nth 1 args) "h"))
+              (should (equal (nth 2 args) "#x"))
+              (should (equal (nth 3 args)
+                             '((:type privmsg :sender "s" :text "é" :time nil)))))
+            (clatter-test--batch-resources-empty conn)))))))
+
+(ert-deftest clatter-test-batch-retained-message-properties-byte-boundary ()
+  "Retained message IDs and reply references also consume string bytes."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let ((clatter-max-batch-bytes 12)
+            calls reason)
+        (let ((clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why))))
+              (clatter-batch-complete-hook
+               (list (lambda (&rest args) (push args calls)))))
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #x"
+           (format "@batch=a;msgid=%s;+draft/reply=rr :s!u@host PRIVMSG #x :é"
+                   (if overflow-p "idx!" "idx")))
+          (if overflow-p
+              (progn
+                (should (string-match-p "retained batch string bytes.*limit 12"
+                                        reason))
+                (should-not (process-live-p proc))
+                (should-not calls)
+                (clatter-test--batch-resources-empty conn))
+            (should (= (clatter-connection-batch-bytes conn) 12))
+            (clatter-test--batch-input conn ":server BATCH -a")
+            (let ((text (plist-get (car (nth 3 (car calls))) :text)))
+              (should (equal text "é"))
+              (should (equal (get-text-property 0 'clatter-msgid text) "idx"))
+              (should (equal (get-text-property 0 'clatter-reply-to text) "rr")))
+            (clatter-test--batch-resources-empty conn)))))))
+
+(ert-deftest clatter-test-batch-aggregate-message-boundary ()
+  "CAP-deferred messages count toward the active batch's message ceiling."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let ((clatter-max-batch-messages 2)
+            calls reason)
+        (let ((clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why))))
+              (clatter-batch-complete-hook
+               (list (lambda (_conn _type _target messages)
+                       (push (mapcar (lambda (message) (plist-get message :text))
+                                     messages)
+                             calls)))))
+          (setf (clatter-connection-cap-negotiating conn) t)
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #x"
+           "@batch=a :s!u@host PRIVMSG #x :first"
+           ":server BATCH -a"
+           ":server BATCH +b h #x"
+           "@batch=b :s!u@host PRIVMSG #x :second")
+          (should (process-live-p proc))
+          (should (= (clatter-connection-batch-message-count conn) 2))
+          (should-not calls)
+          (if overflow-p
+              (progn
+                (clatter-test--batch-input
+                 conn "@batch=b :s!u@host PRIVMSG #x :third")
+                (should (string-match-p "retained batch messages.*limit 2" reason))
+                (should-not (process-live-p proc))
+                (clatter-test--batch-resources-empty conn)
+                (clatter--flush-deferred-batches conn)
+                (should-not calls))
+            (clatter-test--batch-input conn ":server BATCH -b")
+            (clatter-cap--finish-negotiation conn)
+            (should (equal (reverse calls) '(("first") ("second"))))
+            (clatter-test--batch-resources-empty conn)))))))
+
+(ert-deftest clatter-test-batch-aggregate-empty-count-boundary ()
+  "Empty active and CAP-deferred batches still consume batch slots."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let ((clatter-max-batches 2)
+            calls reason)
+        (let ((clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why))))
+              (clatter-batch-complete-hook
+               (list (lambda (_conn _type target messages)
+                       (should-not messages)
+                       (push target calls)))))
+          (setf (clatter-connection-cap-negotiating conn) t)
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #first" ":server BATCH -a"
+           ":server BATCH +b h #second")
+          (should (process-live-p proc))
+          (should (= (clatter-connection-batch-count conn) 2))
+          (should (zerop (clatter-connection-batch-message-count conn)))
+          (should-not calls)
+          (if overflow-p
+              (progn
+                (clatter-test--batch-input conn ":server BATCH +c h #third")
+                (should (string-match-p "retained batches.*limit 2" reason))
+                (should-not (process-live-p proc))
+                (clatter-test--batch-resources-empty conn)
+                (clatter--flush-deferred-batches conn)
+                (should-not calls))
+            (clatter-test--batch-input conn ":server BATCH -b")
+            (clatter-cap--finish-negotiation conn)
+            (should (equal (reverse calls) '("#first" "#second")))
+            (clatter-test--batch-resources-empty conn)))))))
+
+(ert-deftest clatter-test-batch-empty-metadata-byte-boundary ()
+  "Empty batches retain metadata bytes, not just message payload bytes."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let ((clatter-max-batch-bytes 8)
+            calls reason)
+        (let ((clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why))))
+              (clatter-batch-complete-hook
+               (list (lambda (&rest args) (push args calls)))))
+          (setf (clatter-connection-cap-negotiating conn) t)
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #x" ":server BATCH -a"
+           (if overflow-p ":server BATCH +b h #xx" ":server BATCH +b h #x"))
+          (if overflow-p
+              (progn
+                (should (string-match-p "retained batch string bytes.*limit 8"
+                                        reason))
+                (should-not (process-live-p proc))
+                (clatter-test--batch-resources-empty conn)
+                (clatter--flush-deferred-batches conn)
+                (should-not calls))
+            (should (process-live-p proc))
+            (should (= (clatter-connection-batch-bytes conn) 8))
+            (clatter-test--batch-input conn ":server BATCH -b")
+            (clatter-cap--finish-negotiation conn)
+            (should (= (length calls) 2))
+            (should-not (nth 3 (car calls)))
+            (clatter-test--batch-resources-empty conn)))))))
+
+(ert-deftest clatter-test-batch-targets-aggregate-boundaries ()
+  "TARGETS entries share the same byte and message ceilings as history."
+  (dolist (resource '(bytes messages))
+    (dolist (overflow-p '(nil t))
+      (clatter-test--with-batch-session conn proc
+        (let ((clatter-max-batch-bytes (if (eq resource 'bytes) 14 100))
+              (clatter-max-batch-messages 2)
+              calls reason)
+          (let ((clatter-disconnect-hook
+                 (list (lambda (_network why) (setq reason why))))
+                (clatter-batch-complete-hook
+                 (list (lambda (_conn _type _target messages)
+                         (push messages calls)))))
+            (setf (clatter-connection-cap-negotiating conn) t)
+            (clatter-test--batch-input
+             conn ":server BATCH +a h #x"
+             "@batch=a :server CHATHISTORY TARGETS #é 2026-10-03T14:00:00Z"
+             ":server BATCH -a"
+             ":server BATCH +b h #x")
+            (if (and overflow-p (eq resource 'bytes))
+                ;; Eight metadata bytes plus targets of three and four bytes.
+                (clatter-test--batch-input
+                 conn "@batch=b :server CHATHISTORY TARGETS #éx")
+              (clatter-test--batch-input
+               conn "@batch=b :server CHATHISTORY TARGETS #é"))
+            (when (and overflow-p (eq resource 'messages))
+              (should (= (clatter-connection-batch-message-count conn) 2))
+              (clatter-test--batch-input
+               conn "@batch=b :server CHATHISTORY TARGETS #third"))
+            (should-not calls)
+            (if overflow-p
+                (progn
+                  (should (string-match-p
+                           (if (eq resource 'bytes)
+                               "retained batch string bytes.*limit 14"
+                             "retained batch messages.*limit 2")
+                           reason))
+                  (should-not (process-live-p proc))
+                  (clatter-test--batch-resources-empty conn)
+                  (clatter--flush-deferred-batches conn)
+                  (should-not calls))
+              (should (process-live-p proc))
+              (should (= (clatter-connection-batch-bytes conn) 14))
+              (should (= (clatter-connection-batch-message-count conn) 2))
+              (clatter-test--batch-input conn ":server BATCH -b")
+              (clatter-cap--finish-negotiation conn)
+              (setq calls (nreverse calls))
+              (should (= (length calls) 2))
+              (should (equal (car calls)
+                             (list (list :type 'chathistory-targets :target "#é"
+                                         :time (clatter-parse-iso8601
+                                                "2026-10-03T14:00:00Z")))))
+              (should (equal (cadr calls)
+                             '((:type chathistory-targets :target "#é" :time nil))))
+              (clatter-test--batch-resources-empty conn))))))))
+
+(ert-deftest clatter-test-batch-completion-releases-before-error-and-reentry ()
+  "Completion consumes ownership before an error or reuse of the same ID."
+  (dolist (reenter-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let ((clatter-max-batch-bytes 7)
+            (clatter-max-batch-messages 1)
+            (clatter-max-batches 1)
+            (calls 0))
+        (let ((clatter-batch-complete-hook
+               (list (lambda (received-conn type target messages)
+                       (should (eq received-conn conn))
+                       (should (equal type "h"))
+                       (should (equal target "#x"))
+                       (should (equal (plist-get (car messages) :text) "é"))
+                       (clatter-test--batch-resources-empty conn)
+                       (cl-incf calls)
+                       (when (= calls 1)
+                         (when reenter-p
+                           (clatter-test--batch-input
+                            conn ":server BATCH +a h #x"
+                            "@batch=a :s!u@host PRIVMSG #x :é"))
+                         (error "Completion hook failed"))))))
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #x"
+           "@batch=a :s!u@host PRIVMSG #x :é")
+          (should-error (clatter-test--batch-input conn ":server BATCH -a"))
+          (should (process-live-p proc))
+          (should (= calls 1))
+          (if reenter-p
+              (progn
+                (should (= (clatter-connection-batch-bytes conn) 7))
+                (should (= (clatter-connection-batch-message-count conn) 1))
+                (should (= (clatter-connection-batch-count conn) 1)))
+            (clatter-test--batch-resources-empty conn)
+            (clatter-test--batch-input conn ":server BATCH -a")
+            (should (= calls 1))
+            (clatter-test--batch-input
+             conn ":server BATCH +a h #x"
+             "@batch=a :s!u@host PRIVMSG #x :é"))
+          (clatter-test--batch-input conn ":server BATCH -a")
+          (should (= calls 2))
+          (clatter-test--batch-resources-empty conn))))))
+
+(ert-deftest clatter-test-batch-cap-flush-error-keeps-undelivered-order ()
+  "A failing CAP hook consumes its batch, preserving older queued batches."
+  (clatter-test--with-batch-session conn proc
+    (let ((clatter-max-batch-bytes 21)
+          (clatter-max-batch-messages 3)
+          (clatter-max-batches 3)
+          calls)
+      (setf (clatter-connection-cap-negotiating conn) t)
+      (dolist (id '("a" "b" "c"))
+        (clatter-test--batch-input
+         conn (format ":server BATCH +%s h #x" id)
+         (format "@batch=%s :s!u@host PRIVMSG #x :%s%s" id id id)
+         (format ":server BATCH -%s" id)))
+      (let ((clatter-batch-complete-hook
+             (list (lambda (_conn _type _target messages)
+                     (let ((text (plist-get (car messages) :text)))
+                       (push text calls)
+                       (when (equal text "aa")
+                         (should (= (clatter-connection-batch-bytes conn) 14))
+                         (should (= (clatter-connection-batch-message-count conn) 2))
+                         (should (= (clatter-connection-batch-count conn) 2))
+                         (setf (clatter-connection-cap-negotiating conn) t)
+                         (clatter-test--batch-input
+                          conn ":server BATCH +d h #x"
+                          "@batch=d :s!u@host PRIVMSG #x :dd"
+                          ":server BATCH -d")
+                         (setf (clatter-connection-cap-negotiating conn) nil)
+                         (error "CAP delivery hook failed")))))))
+        (should-error (clatter-cap--finish-negotiation conn))
+        (should (process-live-p proc))
+        (should (equal calls '("aa")))
+        (should (= (clatter-connection-batch-bytes conn) 21))
+        (should (= (clatter-connection-batch-message-count conn) 3))
+        (should (= (clatter-connection-batch-count conn) 3))
+        (clatter--flush-deferred-batches conn)
+        (should (equal (reverse calls) '("aa" "bb" "cc" "dd")))
+        (clatter-test--batch-resources-empty conn)
+        (clatter--flush-deferred-batches conn)
+        (should (= (length calls) 4))))))
+
+(ert-deftest clatter-test-batch-disconnect-during-cap-flush ()
+  "A disconnect inside delivery discards active and undelivered resources."
+  (dolist (fail-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let (calls)
+        (setf (clatter-connection-cap-negotiating conn) t)
+        (clatter-test--batch-input
+         conn ":server BATCH +a h #x"
+         "@batch=a :s!u@host PRIVMSG #x :first"
+         ":server BATCH -a"
+         ":server BATCH +b h #x"
+         "@batch=b :s!u@host PRIVMSG #x :second"
+         ":server BATCH -b"
+         ":server BATCH +c h #x"
+         "@batch=c :s!u@host PRIVMSG #x :pending")
+        (puthash "pending" #'ignore (clatter-connection-pending-labels conn))
+        (let ((clatter-batch-complete-hook
+               (list (lambda (_conn _type _target messages)
+                       (push (plist-get (car messages) :text) calls)
+                       (delete-process proc)
+                       (when fail-p (error "Disconnected delivery failed"))))))
+          (if fail-p
+              (should-error (clatter-cap--finish-negotiation conn))
+            (clatter-cap--finish-negotiation conn))
+          (should (equal calls '("first")))
+          (should-not (clatter-connection-process conn))
+          (should (eq (clatter-connection-state conn) :disconnected))
+          (clatter-test--batch-resources-empty conn)
+          (should (zerop (hash-table-count
+                          (clatter-connection-pending-labels conn))))
+          (clatter--flush-deferred-batches conn)
+          (should (equal calls '("first"))))))))
+
+(ert-deftest clatter-test-label-error-consumes-callback ()
+  "A failing labeled response callback is not retained or invoked twice."
+  (clatter-test--with-batch-session conn proc
+    (let ((calls 0)
+          (message (clatter-test-parse "@label=reply :server NOTICE testnick :ok")))
+      (puthash "reply"
+               (lambda (received)
+                 (should (eq received message))
+                 (should-not (gethash "reply"
+                                      (clatter-connection-pending-labels conn)))
+                 (cl-incf calls)
+                 (error "Label callback failed"))
+               (clatter-connection-pending-labels conn))
+      (should-error (clatter-dispatch-message conn message))
+      (should (zerop (hash-table-count
+                      (clatter-connection-pending-labels conn))))
+      (clatter-dispatch-message conn message)
+      (should (= calls 1))
+      (should (process-live-p proc)))))
+
+(ert-deftest clatter-test-label-reentrant-registration-survives-callback ()
+  "Re-registering the same label in a callback survives return and error."
+  (dolist (fail-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      (let ((old-calls 0)
+            (new-calls 0)
+            (message (clatter-test-parse "@label=reply :server NOTICE testnick :ok")))
+        (let ((replacement (lambda (received)
+                             (should (eq received message))
+                             (cl-incf new-calls))))
+          (puthash "reply"
+                   (lambda (_received)
+                     (cl-incf old-calls)
+                     (puthash "reply" replacement
+                              (clatter-connection-pending-labels conn))
+                     (when fail-p (error "Old label callback failed")))
+                   (clatter-connection-pending-labels conn))
+          (if fail-p
+              (should-error (clatter-dispatch-message conn message))
+            (clatter-dispatch-message conn message))
+          (should (eq (gethash "reply" (clatter-connection-pending-labels conn))
+                      replacement))
+          (clatter-dispatch-message conn message)
+          (clatter-dispatch-message conn message)
+          (should (= old-calls 1))
+          (should (= new-calls 1))
+          (should (zerop (hash-table-count
+                          (clatter-connection-pending-labels conn))))
+          (should (process-live-p proc)))))))
 
 (ert-deftest clatter-test-dispatch-privmsg-dm ()
   "PRIVMSG to our nick dispatches with our nick as target."

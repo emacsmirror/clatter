@@ -676,6 +676,10 @@ leader does not conflict with typing messages.
 | =clatter-quit-on-exit=            | =t=                   | QUIT all networks when Emacs exits        |
 | =clatter-quit-message=            | ="clatter.el"=        | Default QUIT message                      |
 | =clatter-max-line-length=         | =400=                 | Max outgoing payload before splitting     |
+| =clatter-max-receive-line-bytes=   | =65536=               | Incoming line storage bytes before LF     |
+| =clatter-max-batch-bytes=          | =16777216=            | Aggregate retained batch string bytes     |
+| =clatter-max-batch-messages=       | =10000=               | Aggregate retained batch messages         |
+| =clatter-max-batches=              | =128=                 | Aggregate retained batches, including empty |
 
 =clatter-tls-method= defaults to =builtin=, which is simplest but can block the
 single-threaded Emacs event loop if a socket goes silently half-open. =external=
@@ -687,6 +691,22 @@ hostname to match the server. =builtin= negotiates with
 =:verify-hostname-strict t= (stricter than the GnuTLS/NSM defaults); =external=
 passes =-verify_hostname= (openssl) or relies on =gnutls-cli='s default
 abort-on-failure.
+
+Receive limits apply per line (including any CR before LF), including unfinished
+tails, not per process chunk.  The 64 KiB default permits the IRCv3 maximum
+8191-byte tag section plus a 512-byte message and common =LINELEN= extensions;
+it is independent of the outgoing =clatter-max-line-length=.
+
+Batch limits apply per connection across both unfinished and CAP-deferred
+batches.  String accounting includes batch IDs/types/targets, message string
+fields (sender, text, TARGETS target), and retained =msgid=/reply-to properties;
+shared strings count per entry.  Non-string fields are bounded by the message
+count.  Delivery releases accounting before hooks run.  Exceeding any ceiling
+aborts the connection with a visible reason and discards its unfinished/deferred
+batches, never delivering truncated history.  Normal reconnect policy still
+applies.  Raise these limits when intentionally requesting larger history.
+Terminal disconnects release receive/reply accumulation, not network settings,
+chat buffers, drafts, or displayed history.
 
 ** Identity and Nick Recovery
 

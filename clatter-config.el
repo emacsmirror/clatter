@@ -291,6 +291,34 @@ alignment is preserved at the cost of an incomplete nick."
   :type 'integer
   :group 'clatter)
 
+(defcustom clatter-max-receive-line-bytes (* 64 1024)
+  "Maximum storage bytes for an incoming line before LF, including CR.
+Applies to complete lines and unfinished tails, not whole receive chunks.
+The default accommodates IRCv3 tags and common LINELEN extensions.
+Exceeding this limit aborts the connection with a visible reason."
+  :type 'natnum
+  :group 'clatter)
+
+(defcustom clatter-max-batch-bytes (* 16 1024 1024)
+  "Maximum aggregate string bytes retained in batches per connection.
+Includes active and CAP-deferred batch IDs, types, targets, message string
+fields, and their msgid/reply-to properties.  Shared strings count per entry.
+Exceeding this limit aborts the connection without delivering partial batches."
+  :type 'natnum
+  :group 'clatter)
+
+(defcustom clatter-max-batch-messages 10000
+  "Maximum aggregate messages in active and CAP-deferred batches.
+Exceeding this per-connection limit aborts the connection."
+  :type 'natnum
+  :group 'clatter)
+
+(defcustom clatter-max-batches 128
+  "Maximum aggregate active and CAP-deferred batches per connection.
+Empty batches count too.  Exceeding this limit aborts the connection."
+  :type 'natnum
+  :group 'clatter)
+
 (defcustom clatter-reconnect-max-delay 300
   "Maximum delay in seconds between reconnection attempts."
   :type 'integer

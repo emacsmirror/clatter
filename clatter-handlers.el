@@ -610,16 +610,16 @@ Return the trimmed character."
               (subcommand (nth 0 params)))
          (when (and batch-id subcommand
                     (string-equal-ignore-case subcommand "TARGETS"))
-           (let ((batch (gethash batch-id (clatter-connection-active-batches conn)))
-                 (target (nth 1 params))
+           (let ((target (nth 1 params))
                  (time-str (nth 2 params)))
-             (when (and batch target)
-               (push (list :type 'chathistory-targets
-                           :target target
-                           :time (or (and time-str
-                                          (clatter-parse-iso8601 time-str))
-                                     (clatter-get-parsed-server-time parsed-tags)))
-                     (plist-get batch :messages)))))))
+             (when target
+               (clatter--retain-batch-message
+                conn batch-id
+                (list :type 'chathistory-targets
+                      :target target
+                      :time (or (and time-str
+                                     (clatter-parse-iso8601 time-str))
+                                (clatter-get-parsed-server-time parsed-tags)))))))))
 
       ;; --- MARKREAD (IRCv3 read-marker) ---
       ("MARKREAD"
@@ -862,54 +862,124 @@ MSGID, SERVER-TIME, IS-BOT, REPLY-TO, IS-REPLY-TO-ME, and BATCH-ID."
 
 ;; --- Batch Handling ---
 
+(defun clatter--batch-message-bytes (message)
+  "Count retained string bytes in MESSAGE, including message ID properties.
+Shared strings count once per field; non-string payloads are bounded by the
+message count instead."
+  (let ((bytes 0))
+    (while message
+      (let ((value (cadr message)))
+        (when (stringp value)
+          (cl-incf bytes (string-bytes value))
+          (when (> (length value) 0)
+            (dolist (property '(clatter-msgid clatter-reply-to))
+              (let ((id (get-text-property 0 property value)))
+                (when (stringp id)
+                  (cl-incf bytes (string-bytes id))))))))
+      (setq message (cddr message)))
+    bytes))
+
+(defun clatter--release-batch (conn batch)
+  "Discharge BATCH's retained resources from CONN before delivery."
+  (cl-decf (clatter-connection-batch-bytes conn) (plist-get batch :bytes))
+  (cl-decf (clatter-connection-batch-message-count conn)
+           (plist-get batch :message-count))
+  (cl-decf (clatter-connection-batch-count conn)))
+
 (defun clatter--flush-deferred-batches (conn)
   "Deliver completed batches deferred while CONN negotiated capabilities."
-  (let ((batches (nreverse (clatter-connection-deferred-batches conn))))
+  (let ((batches (nreverse (clatter-connection-deferred-batches conn)))
+        (proc (clatter-connection-process conn)))
     (setf (clatter-connection-deferred-batches conn) nil)
-    (dolist (batch batches)
-      (let ((batch-type (nth 0 batch))
-            (target (nth 1 batch))
-            (messages (nth 2 batch)))
-        (run-hook-with-args 'clatter-batch-complete-hook conn
-                            batch-type target messages)))))
+    (unwind-protect
+        (while (and batches (eq proc (clatter-connection-process conn)))
+          (let ((batch (pop batches)))
+            (clatter--release-batch conn batch)
+            (run-hook-with-args 'clatter-batch-complete-hook conn
+                                (plist-get batch :type)
+                                (plist-get batch :target)
+                                (plist-get batch :messages))))
+      ;; An error consumes only the batch whose hook ran.  Keep undelivered
+      ;; batches accounted for and ordered ahead of any reentrant additions.
+      ;; Never restore a disconnected or replaced session's payload.
+      (when (eq proc (clatter-connection-process conn))
+        (setf (clatter-connection-deferred-batches conn)
+              (nconc (clatter-connection-deferred-batches conn)
+                     (nreverse batches)))))))
+
+(defun clatter--retain-batch-message (conn batch-id message)
+  "Retain MESSAGE in BATCH-ID on CONN, or abort if a ceiling is exceeded."
+  (let ((batch (gethash batch-id (clatter-connection-active-batches conn))))
+    (when batch
+      (let ((bytes (clatter--batch-message-bytes message)))
+        (cond
+         ((>= (clatter-connection-batch-message-count conn)
+              clatter-max-batch-messages)
+          (clatter--resource-limit-exceeded
+           conn "retained batch messages" clatter-max-batch-messages))
+         ((> (+ (clatter-connection-batch-bytes conn) bytes)
+             clatter-max-batch-bytes)
+          (clatter--resource-limit-exceeded
+           conn "retained batch string bytes" clatter-max-batch-bytes))
+         (t
+          (cl-incf (clatter-connection-batch-bytes conn) bytes)
+          (cl-incf (clatter-connection-batch-message-count conn))
+          (cl-incf (plist-get batch :bytes) bytes)
+          (cl-incf (plist-get batch :message-count))
+          (push message (plist-get batch :messages))))))))
 
 (defun clatter--accumulate-batch
     (conn batch-id sender text server-time &optional msg-type)
   "Accumulate a MSG-TYPE message into active batch BATCH-ID on CONN.
 
 MSG-TYPE defaults to privmsg."
-  (let ((batch (gethash batch-id (clatter-connection-active-batches conn))))
-    (when batch
-      (push (list :type (or msg-type 'privmsg)
-                  :sender sender
-                  :text text
-                  :time server-time)
-            (plist-get batch :messages)))))
+  (clatter--retain-batch-message
+   conn batch-id
+   (list :type (or msg-type 'privmsg)
+         :sender sender :text text :time server-time)))
 
 (defun clatter--handle-batch (conn _tags params)
   "Handle BATCH command on CONN with PARAMS."
   (let* ((ref (nth 0 params))
          (starting (and (> (length ref) 0) (= (aref ref 0) ?+)))
-         (batch-id (substring ref 1)))
+         (batch-id (substring ref 1))
+         (active (clatter-connection-active-batches conn))
+         (batch (gethash batch-id active)))
     (if starting
-        ;; Start batch
-        (puthash batch-id
-                 (list :type (nth 1 params) :target (nth 2 params) :messages nil)
-                 (clatter-connection-active-batches conn))
-      ;; End batch
-      (let ((batch (gethash batch-id (clatter-connection-active-batches conn))))
-        (when batch
-          (let ((messages (nreverse (plist-get batch :messages))))
-            (if (clatter-connection-cap-negotiating conn)
-                (push (list (plist-get batch :type)
-                            (plist-get batch :target)
-                            messages)
-                      (clatter-connection-deferred-batches conn))
-              (run-hook-with-args 'clatter-batch-complete-hook conn
-                                  (plist-get batch :type)
-                                  (plist-get batch :target)
-                                  messages)))
-          (remhash batch-id (clatter-connection-active-batches conn)))))))
+        (progn
+          ;; Replacing an ID must discharge its old payload, too.
+          (when batch
+            (remhash batch-id active)
+            (clatter--release-batch conn batch))
+          (setq batch (list :id batch-id :type (nth 1 params)
+                            :target (nth 2 params) :messages nil
+                            :bytes 0 :message-count 0))
+          (let ((bytes (clatter--batch-message-bytes batch)))
+            (cond
+             ((>= (clatter-connection-batch-count conn) clatter-max-batches)
+              (clatter--resource-limit-exceeded
+               conn "retained batches" clatter-max-batches))
+             ((> (+ (clatter-connection-batch-bytes conn) bytes)
+                 clatter-max-batch-bytes)
+              (clatter--resource-limit-exceeded
+               conn "retained batch string bytes" clatter-max-batch-bytes))
+             (t
+              (setf (plist-get batch :bytes) bytes)
+              (cl-incf (clatter-connection-batch-bytes conn) bytes)
+              (cl-incf (clatter-connection-batch-count conn))
+              (puthash batch-id batch active)))))
+      (when batch
+        ;; Remove ownership before any hook can error or reuse this ID.
+        (remhash batch-id active)
+        (setf (plist-get batch :messages)
+              (nreverse (plist-get batch :messages)))
+        (if (clatter-connection-cap-negotiating conn)
+            (push batch (clatter-connection-deferred-batches conn))
+          (clatter--release-batch conn batch)
+          (run-hook-with-args 'clatter-batch-complete-hook conn
+                              (plist-get batch :type)
+                              (plist-get batch :target)
+                              (plist-get batch :messages)))))))
 
 (add-hook 'clatter-cap-complete-hook #'clatter--flush-deferred-batches)
 
@@ -919,8 +989,8 @@ MSG-TYPE defaults to privmsg."
   "Handle labeled response MSG on CONN for LABEL."
   (let ((callback (gethash label (clatter-connection-pending-labels conn))))
     (when callback
-      (funcall callback msg)
-      (remhash label (clatter-connection-pending-labels conn)))))
+      (remhash label (clatter-connection-pending-labels conn))
+      (funcall callback msg))))
 
 ;; --- Nick Reclaim ---
 

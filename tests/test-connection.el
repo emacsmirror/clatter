@@ -166,4 +166,257 @@
           (delete-process proc)
           (delete-process replacement))))))
 
+(defmacro clatter-test--with-filter-session (conn proc &rest body)
+  "Run BODY with an owned filter process PROC and connection CONN."
+  (declare (indent 2))
+  `(let* ((clatter-connections (make-hash-table :test 'equal))
+          (,conn (clatter-test-make-connection))
+          (,proc (make-pipe-process :name "clatter-test-resource" :noquery t))
+          (clatter-rawlog-incoming-hook nil)
+          (clatter-disconnect-hook nil))
+     (setf (clatter-connection-process ,conn) ,proc
+           (clatter-connection-reconnect-enabled ,conn) nil)
+     (process-put ,proc :clatter-network-id "testnet")
+     (set-process-sentinel ,proc #'clatter--process-sentinel)
+     (unwind-protect
+         (cl-letf (((symbol-function 'clatter--watchdog) (lambda (&rest _)))
+                   ((symbol-function 'clatter--debug) (lambda (&rest _))))
+           ,@body)
+       (when (process-live-p ,proc)
+         (setf (clatter-connection-reconnect-enabled ,conn) nil)
+         (delete-process ,proc)))))
+
+(ert-deftest clatter-test-receive-line-boundary-and-large-chunk ()
+  "Byte-exact lines and tails fit; many short lines are not a large line."
+  (clatter-test--with-filter-session conn proc
+    (let ((clatter-max-receive-line-bytes 8)
+          lines)
+      (cl-letf (((symbol-function 'clatter--handle-line)
+                 (lambda (_conn line) (push line lines))))
+        (clatter--process-filter proc "12345678\n")
+        (clatter--process-filter proc (apply #'concat (make-list 1000 "x\n")))
+        (clatter--process-filter proc "éééé\n")
+        (clatter--process-filter proc "1234")
+        (clatter--process-filter proc "5678")
+        (should (= (clatter-connection-recv-tail-bytes conn) 8))
+        (should (equal (clatter-connection-recv-buffer conn) "12345678"))
+        (clatter--process-filter proc "\nabcdefg\r")
+        (should (= (clatter-connection-recv-tail-bytes conn) 8))
+        (clatter--process-filter proc "\n")
+        (should (process-live-p proc))
+        (should (= (length lines) 1004))
+        (should (equal (cl-subseq lines 0 3)
+                       '("abcdefg" "12345678" "éééé")))
+        (should (zerop (clatter-connection-recv-tail-bytes conn)))))))
+
+(ert-deftest clatter-test-receive-line-overflow-complete-and-partial ()
+  "Max+1 complete, unfinished, split, and multibyte lines abort visibly."
+  (dolist (chunks '(("123456789\n") ("123456789")
+                    ("12345678" "9") ("1234" "56789\n")
+                    ("ééééé\n") ("12345678" "\r\n")))
+    (clatter-test--with-filter-session conn proc
+      (let ((clatter-max-receive-line-bytes 8)
+            lines reason)
+        (let ((clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why)))))
+          (cl-letf (((symbol-function 'clatter--handle-line)
+                     (lambda (_conn line) (push line lines))))
+            (dolist (chunk chunks)
+              (clatter--process-filter proc chunk))
+            (should-not lines)
+            (should (string-match-p "incoming line bytes.*limit 8" reason))
+            (should-not (clatter-connection-process conn))
+            (should-not (clatter-connection-recv-buffer conn))
+            (should (zerop (clatter-connection-recv-tail-bytes conn)))
+            (should-not (process-get proc :clatter-filter-busy))))))))
+
+(ert-deftest clatter-test-receive-reentrant-line-bound ()
+  "Reentrant input includes the captured tail and cannot restore overflow."
+  (dolist (overflow-p '(nil t))
+    (dolist (fail-p '(nil t))
+      (clatter-test--with-filter-session conn proc
+        (let ((clatter-max-receive-line-bytes 8)
+              lines)
+          (cl-letf (((symbol-function 'clatter--handle-line)
+                     (lambda (_conn line)
+                       (push line lines)
+                       (when (equal line "go")
+                         (clatter--process-filter
+                          proc (if overflow-p "56789\n" "5678\n"))
+                         (when fail-p (error "Hook failure"))))))
+            (if fail-p
+                (should-error (clatter--process-filter proc "go\n1234"))
+              (clatter--process-filter proc "go\n1234"))
+            (should-not (process-get proc :clatter-filter-busy))
+            (if overflow-p
+                (progn
+                  (should (equal lines '("go")))
+                  (should-not (clatter-connection-process conn))
+                  (should-not (clatter-connection-recv-buffer conn))
+                  (should (zerop (clatter-connection-recv-tail-bytes conn))))
+              (when fail-p
+                (should (equal (clatter-connection-recv-buffer conn)
+                               "12345678\n"))
+                (clatter--process-filter proc ""))
+              (should (equal (reverse lines) '("go" "12345678")))
+              (should (zerop (clatter-connection-recv-tail-bytes conn))))))))))
+
+(ert-deftest clatter-test-receive-error-preserves-tail-bound ()
+  "An error leaves the final byte count valid for the next continuation."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-filter-session conn proc
+      (let ((clatter-max-receive-line-bytes 8)
+            lines)
+        (cl-letf (((symbol-function 'clatter--handle-line)
+                   (lambda (_conn line)
+                     (push line lines)
+                     (when (equal line "go")
+                       (clatter--process-filter proc "5678")
+                       (error "Hook failure")))))
+          (should-error (clatter--process-filter proc "go\n1234"))
+          (should (equal (clatter-connection-recv-buffer conn) "12345678"))
+          (should (= (clatter-connection-recv-tail-bytes conn) 8))
+          (clatter--process-filter proc (if overflow-p "9" "\n"))
+          (if overflow-p
+              (progn
+                (should (equal lines '("go")))
+                (should-not (clatter-connection-recv-buffer conn)))
+            (should (equal (reverse lines) '("go" "12345678")))
+            (should (process-live-p proc))))))))
+
+(ert-deftest clatter-test-receive-maximum-standard-tagged-line ()
+  "The default receive ceiling accepts 8191 tag bytes plus a full message."
+  (clatter-test--with-filter-session conn proc
+    (let* ((message-prefix ":server NOTICE testnick :")
+           (line (concat "@x=" (make-string 8188 ?a) " "
+                         message-prefix
+                         (make-string (- 510 (length message-prefix)) ?x)))
+           received)
+      (cl-letf (((symbol-function 'clatter--handle-line)
+                 (lambda (_conn value) (setq received value))))
+        (clatter--process-filter proc (concat line "\r\n"))
+        (should (equal received line))
+        (should (process-live-p proc))))))
+
+(ert-deftest clatter-test-terminal-sentinel-releases-session-data ()
+  "Terminal cleanup runs with or without reconnect and preserves user data."
+  (dolist (reconnect-p '(nil t))
+    (clatter-test--with-filter-session conn proc
+      (let ((buffer (generate-new-buffer " clatter-test-history"))
+            (config '(:server "irc.example" :nick "me"))
+            scheduled)
+        (unwind-protect
+            (progn
+              (with-current-buffer buffer (insert "history\ndraft"))
+              (setf (clatter-connection-config conn) config
+                    (clatter-connection-connect-overrides conn) '(:nick "me")
+                    (clatter-connection-reconnect-enabled conn) reconnect-p
+                    (clatter-connection-cap-negotiating conn) t
+                    (clatter-connection-recv-buffer conn) "unfinished"
+                    (clatter-connection-recv-tail-bytes conn) 10
+                    (clatter-connection--motd-lines conn) '("motd")
+                    (clatter-connection--whois-data conn) '(:nick "alice")
+                    (clatter-connection-pending-whox conn) '("#chan")
+                    (clatter-connection-last-query-buffer conn) buffer)
+              (puthash "label" (lambda (_message) buffer)
+                       (clatter-connection-pending-labels conn))
+              (clatter--handle-batch conn nil '("+done" "chathistory" "#chan"))
+              (clatter--accumulate-batch conn "done" "alice" "history" nil)
+              (clatter--handle-batch conn nil '("-done"))
+              (clatter--handle-batch conn nil '("+active" "chathistory" "#chan"))
+              (clatter--accumulate-batch conn "active" "alice" "pending" nil)
+              (cl-letf (((symbol-function 'clatter--schedule-reconnect)
+                         (lambda (_conn) (setq scheduled t))))
+                (clatter--process-sentinel proc "connection broken by peer\n"))
+              (should (eq scheduled reconnect-p))
+              (should (eq (clatter-get-connection "testnet") conn))
+              (should (eq (clatter-connection-config conn) config))
+              (should (equal (clatter-connection-connect-overrides conn)
+                             '(:nick "me")))
+              (should-not (clatter-connection-recv-buffer conn))
+              (should (zerop (clatter-connection-recv-tail-bytes conn)))
+              (should (zerop (hash-table-count
+                             (clatter-connection-active-batches conn))))
+              (should-not (clatter-connection-deferred-batches conn))
+              (should (zerop (hash-table-count
+                             (clatter-connection-pending-labels conn))))
+              (should (zerop (clatter-connection-batch-bytes conn)))
+              (should (zerop (clatter-connection-batch-message-count conn)))
+              (should (zerop (clatter-connection-batch-count conn)))
+              (should-not (clatter-connection--motd-lines conn))
+              (should-not (clatter-connection--whois-data conn))
+              (should-not (clatter-connection-pending-whox conn))
+              (should-not (clatter-connection-last-query-buffer conn))
+              (should (buffer-live-p buffer))
+              (should (equal (with-current-buffer buffer (buffer-string))
+                             "history\ndraft")))
+          (kill-buffer buffer))))))
+
+(ert-deftest clatter-test-stale-sentinel-preserves-session-data ()
+  "A superseded process cannot release the replacement session's payload."
+  (clatter-test--with-filter-session conn proc
+    (let ((old (make-pipe-process :name "clatter-test-old" :noquery t)))
+      (unwind-protect
+          (progn
+            (process-put old :clatter-network-id "testnet")
+            (setf (clatter-connection-recv-buffer conn) "new-tail"
+                  (clatter-connection-recv-tail-bytes conn) 8
+                  (clatter-connection--motd-lines conn) '("new-motd")
+                  (clatter-connection--whois-data conn) '(:nick "new")
+                  (clatter-connection-pending-whox conn) '("#new")
+                  (clatter-connection-cap-negotiating conn) t)
+            (puthash "new" #'ignore (clatter-connection-pending-labels conn))
+            (clatter--handle-batch conn nil '("+new" "chathistory" "#new"))
+            (clatter--accumulate-batch conn "new" "sender" "text" nil)
+            (clatter--handle-batch conn nil '("-new"))
+            (clatter--handle-batch conn nil '("+active" "chathistory" "#new"))
+            (let ((bytes (clatter-connection-batch-bytes conn)))
+              (clatter--process-sentinel old "deleted process\n")
+              (should (eq (clatter-connection-process conn) proc))
+              (should (equal (clatter-connection-recv-buffer conn) "new-tail"))
+              (should (= (clatter-connection-recv-tail-bytes conn) 8))
+              (should (= (clatter-connection-batch-bytes conn) bytes))
+              (should (= (clatter-connection-batch-message-count conn) 1))
+              (should (= (clatter-connection-batch-count conn) 2))
+              (should (clatter-connection-deferred-batches conn))
+              (should (gethash "active" (clatter-connection-active-batches conn)))
+              (should (gethash "new" (clatter-connection-pending-labels conn)))
+              (should (equal (clatter-connection--motd-lines conn) '("new-motd")))
+              (should (equal (clatter-connection--whois-data conn) '(:nick "new")))
+              (should (equal (clatter-connection-pending-whox conn) '("#new")))))
+        (delete-process old)))))
+
+(ert-deftest clatter-test-reconnect-releases-session-data ()
+  "Replacing a live session clears all retained resources before new input."
+  (clatter-test--with-filter-session conn proc
+    (let ((replacement (make-pipe-process :name "clatter-test-new" :noquery t)))
+      (unwind-protect
+          (progn
+            (setf (clatter-connection-cap-negotiating conn) t
+                  (clatter-connection--motd-lines conn) '("old")
+                  (clatter-connection--whois-data conn) '(:nick "old")
+                  (clatter-connection-pending-whox conn) '("#old"))
+            (clatter--process-filter proc "partial")
+            (clatter--handle-batch conn nil '("+old" "chathistory" "#old"))
+            (clatter--accumulate-batch conn "old" "sender" "text" nil)
+            (clatter--handle-batch conn nil '("-old"))
+            (puthash "old" #'ignore (clatter-connection-pending-labels conn))
+            (cl-letf (((symbol-function 'make-network-process)
+                       (lambda (&rest _) replacement))
+                      ((symbol-function 'run-at-time) (lambda (&rest _) nil)))
+              (clatter-connect "testnet" :server "irc.example" :tls nil))
+            (should (eq (clatter-connection-process conn) replacement))
+            (should-not (clatter-connection-recv-buffer conn))
+            (should (zerop (clatter-connection-recv-tail-bytes conn)))
+            (should-not (clatter-connection-deferred-batches conn))
+            (should (zerop (clatter-connection-batch-bytes conn)))
+            (should (zerop (clatter-connection-batch-message-count conn)))
+            (should (zerop (clatter-connection-batch-count conn)))
+            (should (zerop (hash-table-count
+                           (clatter-connection-pending-labels conn))))
+            (should-not (clatter-connection--motd-lines conn))
+            (should-not (clatter-connection--whois-data conn))
+            (should-not (clatter-connection-pending-whox conn)))
+        (delete-process replacement)))))
+
 ;;; test-connection.el ends here
