@@ -1,9 +1,9 @@
 EMACS ?= emacs
-BATCH = $(EMACS) --batch -L . -L tests
+BATCH = $(EMACS) -Q --batch -L . -L tests
 
 TEST_FILES = $(wildcard tests/test-*.el)
 
-.PHONY: test test-protocol test-handlers test-scram test-sts test-dcc test-socks clean
+.PHONY: test test-protocol test-handlers test-scram test-sts test-dcc test-socks lint clean
 
 test: ## Run all tests
 	$(BATCH) -l test-helper $(foreach f,$(TEST_FILES),-l $(f)) -f ert-run-tests-batch-and-exit
@@ -26,7 +26,7 @@ test-dcc: ## Run DCC tests
 test-socks: ## Run SOCKS5 proxy tests
 	$(BATCH) -l test-helper -l tests/test-socks.el -f ert-run-tests-batch-and-exit
 
-lint: ## Byte-compile all files (warnings as errors)
+lint: clean ## Byte-compile all files (warnings as errors)
 	$(BATCH) --eval '(setq byte-compile-error-on-warn t)' -f batch-byte-compile *.el
 
 clean: ## Remove compiled files

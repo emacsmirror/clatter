@@ -1359,12 +1359,14 @@ tracking flags it in the mode line.
 
 ** Stale Byte-Compiled Files
 
-If you see void-function errors after updating, delete the =.elc= files in your
-clatter checkout:
+After updating, run =make lint= in your clatter checkout for a full clean
+rebuild. This removes old root and test =.elc= files before compiling, so stale
+compiled code cannot supply obsolete connection accessors or compiler macros.
 
-#+begin_example
-rm -f /path/to/clatter.el/*.elc
-#+end_example
+If the connection record layout changed, restart Emacs after rebuilding.
+Reloading one module or reconnecting is insufficient: other loaded modules
+may contain inlined record offsets, and the connection registry may still
+retain records with the old layout.
 
 ** Too Much Noise
 
