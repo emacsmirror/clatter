@@ -251,11 +251,12 @@ The defaults are already what you want with a bouncer:
 =clatter-chathistory-enabled=, =clatter-chathistory-on-join= and
 =clatter-chathistory-on-reconnect= are all on. Clatter requests the latest
 100 messages on first join and for newly discovered DMs. On rejoin or
-reconnect, =CHATHISTORY LATEST= is bounded by the last known message
-timestamp, keeping only the most recent 100 unseen messages without
-repeating messages already in the buffer. Longer gaps are not fetched
-automatically. =M-x clatter-chathistory-more= fetches messages older than
-the earliest message already in the buffer.
+reconnect, =CHATHISTORY LATEST= is bounded by the latest observed server
+time for that channel or query, including live messages and actions, keeping
+only the most recent 100 unseen messages without repeating messages already
+in the buffer. Longer gaps are not fetched automatically.
+=M-x clatter-chathistory-more= fetches messages older than the earliest
+message already in the buffer.
 Clatter does not negotiate =draft/event-playback= or =event-playback=,
 so CHATHISTORY playback focuses on conversation rather than JOIN/PART
 and other channel events.

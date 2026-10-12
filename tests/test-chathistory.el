@@ -5,6 +5,174 @@
 (require 'test-helper)
 (require 'clatter-chathistory)
 
+(ert-deftest clatter-chathistory-live-routing-and-reconnect-cursors ()
+  "Live messages/actions update only their target, even outside its buffer."
+  (let* ((conn (clatter-test-make-connection-with-caps
+                '("server-time" "batch" "message-tags" "chathistory")
+                "testnet" "[Self]"))
+         (clatter-read-state-enabled nil)
+         (clatter-chathistory-enabled t)
+         (clatter-chathistory-on-join t)
+         (clatter-chathistory-on-reconnect t)
+         (clatter-chathistory-limit 100)
+         (clatter-privmsg-hook nil)
+         (clatter-action-hook nil)
+         (clatter-join-hook nil)
+         (clatter-welcome-hook nil)
+         (clatter-batch-complete-hook nil)
+         (old (clatter-parse-iso8601 "2026-01-01T12:00:00.000Z"))
+         (latest (clatter-parse-iso8601 "2026-01-01T12:02:00.000Z"))
+         (untouched (clatter-parse-iso8601 "2025-01-01T00:00:00.000Z"))
+         other-buffers)
+    (unwind-protect
+        (progn
+          (puthash "CASEMAPPING" "rfc1459" (clatter-connection-isupport conn))
+          (clatter-chathistory-enable)
+          (dolist (entry '(("othernet" "#emacs") ("othernet" "bob")
+                           ("testnet" "[Self]")))
+            (let ((buf (clatter-get-or-create-buffer (car entry) (cadr entry))))
+              (with-current-buffer buf
+                (setq-local clatter-chathistory--last-timestamp untouched)
+                (setq-local clatter-chathistory--earliest-timestamp untouched))
+              (push buf other-buffers)))
+          (with-temp-buffer
+            (setq-local clatter-chathistory--last-timestamp untouched)
+            (setq-local clatter-chathistory--earliest-timestamp untouched)
+            ;; Incoming DMs use the sender; self-echoes use the peer target.
+            (dolist (route '(("#emacs" "alice" "#emacs")
+                             ("bob" "bob" "{sELF}")
+                             ("bob" "{sELF}" "bob")))
+              (dolist (action '(nil t))
+                (let* ((target (car route))
+                       (buf (clatter-get-or-create-buffer "testnet" target))
+                       (text (if action "\1ACTION waves\1" "hello")))
+                  (with-current-buffer buf
+                    ;; Exercise both an unseeded and a stale reconnect cursor.
+                    (setq-local clatter-chathistory--last-timestamp (and action old))
+                    (setq-local clatter-chathistory--earliest-timestamp nil))
+                  (dolist (event (list (list "2026-01-01T12:02:00.000Z" latest)
+                                       (list "2026-01-01T12:00:00.000Z" old)
+                                       (list "2026-01-01T12:01:00.000Z" old)
+                                       (list nil old)))
+                    (clatter-dispatch-message
+                     conn (clatter-test-parse
+                           (clatter-test-make-privmsg
+                            (nth 1 route) (nth 2 route) text
+                            (when (car event) (concat "time=" (car event))))))
+                    (should (equal (buffer-local-value
+                                    'clatter-chathistory--last-timestamp buf)
+                                   latest))
+                    (should (equal (buffer-local-value
+                                    'clatter-chathistory--earliest-timestamp buf)
+                                   (cadr event)))
+                    (should (equal clatter-chathistory--last-timestamp untouched))
+                    (should (equal clatter-chathistory--earliest-timestamp untouched)))
+                  (clatter-test-with-mock-send
+                    (if (clatter-channel-name-p target)
+                        (clatter-chathistory--on-join
+                         conn '("[Self]" "user" "host") target nil nil)
+                      (clatter-chathistory--on-targets-batch
+                       conn "chathistory-targets" nil
+                       (list (list :target target :time latest))))
+                    (should (equal clatter-test--sent-lines
+                                   (list (format
+                                          "CHATHISTORY LATEST %s timestamp=2026-01-01T12:02:00.000Z 100"
+                                          target)))))))))
+          (dolist (buf other-buffers)
+            (should (equal (buffer-local-value
+                            'clatter-chathistory--last-timestamp buf)
+                           untouched))
+            (should (equal (buffer-local-value
+                            'clatter-chathistory--earliest-timestamp buf)
+                           untouched))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-chathistory-first-live-query-tracks-after-ui ()
+  "First DMs and actions seed newly created queries without touching the caller."
+  (let* ((conn (clatter-test-make-connection "testnet" "[Self]"))
+         (clatter-read-state-enabled nil)
+         (clatter-receive-query-display 'bury)
+         (clatter-privmsg-hook (list #'clatter-ui--on-privmsg))
+         (clatter-action-hook (list #'clatter-ui--on-action))
+         (clatter-join-hook nil)
+         (clatter-welcome-hook nil)
+         (clatter-batch-complete-hook nil)
+         (timestamp (clatter-parse-iso8601 "2026-01-01T12:00:00.000Z")))
+    (unwind-protect
+        (progn
+          (puthash "CASEMAPPING" "rfc1459" (clatter-connection-isupport conn))
+          (clatter-chathistory-enable)
+          (with-temp-buffer
+            (dolist (message '(("alice" "hello") ("bob" "\1ACTION waves\1")))
+              (should-not (clatter-get-buffer "testnet" (car message)))
+              (clatter-dispatch-message
+               conn (clatter-test-parse
+                     (clatter-test-make-privmsg
+                      (car message) "{sELF}" (cadr message)
+                      "time=2026-01-01T12:00:00.000Z")))
+              (let ((buf (clatter-get-buffer "testnet" (car message))))
+                (should (buffer-live-p buf))
+                (should (equal (buffer-local-value
+                                'clatter-chathistory--last-timestamp buf)
+                               timestamp))
+                (should (equal (buffer-local-value
+                                'clatter-chathistory--earliest-timestamp buf)
+                               timestamp)))
+              (should-not (local-variable-p 'clatter-chathistory--last-timestamp))
+              (should-not (local-variable-p 'clatter-chathistory--earliest-timestamp)))))
+      (clatter-test-cleanup))))
+
+(ert-deftest clatter-chathistory-live-no-time-or-buffer-is-no-op ()
+  "Tracking never creates a buffer, and an absent server time changes nothing."
+  (let ((conn (clatter-test-make-connection))
+        (clatter-read-state-enabled nil)
+        (clatter-privmsg-hook nil)
+        (clatter-action-hook nil)
+        (clatter-join-hook nil)
+        (clatter-welcome-hook nil)
+        (clatter-batch-complete-hook nil))
+    (unwind-protect
+        (progn
+          (clatter-chathistory-enable)
+          (let ((buf (clatter-get-or-create-buffer "testnet" "#emacs")))
+            (with-temp-buffer
+              (dolist (route '(("alice" "#missing") ("alice" "testnick")
+                               ("testnick" "outgoing")))
+                (dolist (text '("hello" "\1ACTION waves\1"))
+                  (clatter-dispatch-message
+                   conn (clatter-test-parse
+                         (clatter-test-make-privmsg
+                          (car route) (cadr route) text
+                          "time=2026-01-01T12:00:00.000Z")))))
+              (dolist (text '("hello" "\1ACTION waves\1"))
+                (clatter-dispatch-message
+                 conn (clatter-test-parse
+                       (clatter-test-make-privmsg "alice" "#emacs" text))))
+              (should-not (local-variable-p 'clatter-chathistory--last-timestamp))
+              (should-not (local-variable-p 'clatter-chathistory--earliest-timestamp)))
+            (should-not (buffer-local-value 'clatter-chathistory--last-timestamp buf))
+            (should-not (buffer-local-value 'clatter-chathistory--earliest-timestamp buf))
+            (should (= (length clatter--buffer-alist) 1))
+            (with-temp-buffer
+              (clatter-dispatch-message
+               conn (clatter-test-parse
+                     (clatter-test-make-privmsg
+                      "alice" "#emacs" "seed" "time=2026-01-01T12:00:00.000Z")))
+              (clatter-chathistory-disable)
+              (dolist (text '("newer" "\1ACTION waves\1"))
+                (clatter-dispatch-message
+                 conn (clatter-test-parse
+                       (clatter-test-make-privmsg
+                        "alice" "#emacs" text "time=2026-01-01T12:02:00.000Z")))))
+            (let ((seed (clatter-parse-iso8601 "2026-01-01T12:00:00.000Z")))
+              (should (equal (buffer-local-value
+                              'clatter-chathistory--last-timestamp buf)
+                             seed))
+              (should (equal (buffer-local-value
+                              'clatter-chathistory--earliest-timestamp buf)
+                             seed)))))
+      (clatter-test-cleanup))))
+
 (ert-deftest clatter-chathistory-batch-tracks-latest-timestamp ()
   "Completed playback advances the history cursor to its newest message."
   (let ((conn (clatter-test-make-connection "testnet" "testnick"))

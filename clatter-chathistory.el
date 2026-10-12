@@ -375,15 +375,28 @@ SENDER is who joined; we only fetch if it's our own nick."
         ;; First join: fetch latest
         (clatter-chathistory-fetch-latest conn target)))))
 
-(defun clatter-chathistory--track-timestamp (_conn _sender _target _text server-time)
-  "Track the latest message timestamp for chathistory gaps.
-SERVER-TIME is the IRCv3 server-time value.  Also seed the earliest
-timestamp when unset, so `clatter-chathistory-more' has a cursor."
+(defun clatter-chathistory--track-timestamp (conn sender target _text server-time)
+  "Track SERVER-TIME in the existing channel/query buffer on CONN.
+Route DMs addressed to us to SENDER's query, and self-echoes to TARGET.
+Keep the latest and earliest cursors monotonic for gaps and older pages."
   (when server-time
-    (setq-local clatter-chathistory--last-timestamp server-time)
-    (when (or (null clatter-chathistory--earliest-timestamp)
-              (time-less-p server-time clatter-chathistory--earliest-timestamp))
-      (setq-local clatter-chathistory--earliest-timestamp server-time))))
+    (let* ((isupport (clatter-connection-isupport conn))
+           (case-mapping (and isupport (gethash "CASEMAPPING" isupport)))
+           (buf-target (if (clatter-channel-name-p target)
+                           target
+                         (if (clatter-nick-equal-p
+                              target (clatter-connection-nick conn) case-mapping)
+                             (clatter-prefix-nick sender) target)))
+           (buf (clatter-get-buffer
+                 (clatter-connection-network-id conn) buf-target)))
+      (when buf
+        (with-current-buffer buf
+          (when (or (null clatter-chathistory--last-timestamp)
+                    (time-less-p clatter-chathistory--last-timestamp server-time))
+            (setq-local clatter-chathistory--last-timestamp server-time))
+          (when (or (null clatter-chathistory--earliest-timestamp)
+                    (time-less-p server-time clatter-chathistory--earliest-timestamp))
+            (setq-local clatter-chathistory--earliest-timestamp server-time)))))))
 
 (defun clatter-chathistory--track-batch-timestamp (conn _batch-type target messages)
   "Track the newest timestamp in completed history MESSAGES for TARGET.
@@ -455,7 +468,9 @@ COUNT defaults to `clatter-chathistory-limit'."
   "Enable chathistory hooks."
   (interactive)
   (add-hook 'clatter-join-hook #'clatter-chathistory--on-join)
-  (add-hook 'clatter-privmsg-hook #'clatter-chathistory--track-timestamp)
+  ;; Let the UI create a first-message query before looking up its cursor.
+  (add-hook 'clatter-privmsg-hook #'clatter-chathistory--track-timestamp 90)
+  (add-hook 'clatter-action-hook #'clatter-chathistory--track-timestamp 90)
   (add-hook 'clatter-batch-complete-hook
             #'clatter-chathistory--track-batch-timestamp)
   (add-hook 'clatter-welcome-hook #'clatter-chathistory--on-welcome)
@@ -469,6 +484,7 @@ COUNT defaults to `clatter-chathistory-limit'."
   (interactive)
   (remove-hook 'clatter-join-hook #'clatter-chathistory--on-join)
   (remove-hook 'clatter-privmsg-hook #'clatter-chathistory--track-timestamp)
+  (remove-hook 'clatter-action-hook #'clatter-chathistory--track-timestamp)
   (remove-hook 'clatter-batch-complete-hook
                #'clatter-chathistory--track-batch-timestamp)
   (remove-hook 'clatter-welcome-hook #'clatter-chathistory--on-welcome)
