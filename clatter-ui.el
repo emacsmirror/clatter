@@ -25,6 +25,14 @@
 (require 'clatter-smart)
 (require 'clatter-pals)
 
+(declare-function clatter-feed--on-react "clatter-feed"
+                  (conn sender target emoji msgid))
+
+(defvar flyspell-changes)
+
+(defvar clatter--replaying-reactions nil
+  "Connection whose completed history reactions use the canonical batch target.")
+
 ;; --- Faces ---
 
 (defvar-local clatter--last-timestamp-key nil
@@ -895,6 +903,8 @@ shows with the line that opened it, like a margin stamp would."
                         'help-echo tooltip)
             "\n")
     (add-text-properties start (point) line-props)
+    ;; Divider rows are not parents in the rendered-message range walk.
+    (put-text-property start (point) 'clatter-message-generation nil)
     (put-text-property start (point) 'invisible invisible)))
 
 (defun clatter--timestamp-divider-seed (buffer)
@@ -917,7 +927,7 @@ the same bucket does not open a second, adjacent row."
           (clatter--timestamp-divider-insert-row
            formatted tooltip
            (list 'read-only t
-                 'front-sticky t
+                 'front-sticky '(read-only)
                  'wrap-prefix (make-string (1+ clatter-nick-column-width) ?\s)
                  'line-prefix "")))
         (setq clatter--last-timestamp-key
@@ -935,10 +945,12 @@ below the top input line with older ones scrolling down."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (cl-incf clatter--message-generation)
+      (clatter--flyspell-prune-changes)
       (let ((pre-input (and clatter--input-marker
                             (marker-position clatter--input-marker))))
         (let ((inhibit-read-only t)
-              (buffer-undo-list t))
+              (buffer-undo-list t)
+              (flyspell-changes nil))
           (save-excursion
             ;; Messages always insert at the messages marker.  Its position
             ;; and insertion type (set in `clatter--setup-prompt') determine
@@ -963,10 +975,17 @@ below the top input line with older ones scrolling down."
                          (format-time-string clatter-timestamp-tooltip-format time)))
                    (wrap-col (1+ clatter-nick-column-width))
                    (wrap-prefix (make-string wrap-col ?\s))
+                   ;; Protection is sticky; message identity belongs only to
+                   ;; this row.  Leave raw button/face properties untouched.
                    (line-props (list 'read-only t
-                                     'front-sticky t
+                                     'front-sticky '(read-only)
+                                     'clatter-msgid nil
+                                     'clatter-reactions nil
+                                     'clatter-feed-network nil
+                                     'clatter-feed-target nil
                                      'wrap-prefix wrap-prefix
-                                     'line-prefix ""))
+                                     'line-prefix ""
+                                     'clatter-message-generation clatter--message-generation))
                    start)
               (when ts-key
                 (setq clatter--last-timestamp-key ts-key))
@@ -1014,19 +1033,19 @@ below the top input line with older ones scrolling down."
               (when (clatter--fool-invisibility-p invisible)
                 (add-face-text-property start (point) 'clatter-fool))
               (put-text-property start (point) 'invisible invisible)))
-          (clatter--maybe-truncate buffer))
+          (clatter--maybe-truncate buffer)
+          (clatter--refresh-input-spacers buffer))
         ;; Messages inserted above the input (bottom/oldest-first prompt)
         ;; push the input down.  Without this, the user's pending undo
         ;; entries would still point at the old positions and an undo
         ;; would corrupt the freshly inserted message instead of their
         ;; input.  Shift those entries by the input's drift.
         (when (and pre-input clatter--input-marker)
-          (clatter--update-undo-list
-           (- (marker-position clatter--input-marker) pre-input)))
-        (clatter--flyspell-prune-changes)
-        (clatter--refresh-input-spacers buffer)))))
+          (let ((shift (- (marker-position clatter--input-marker) pre-input)))
+            (clatter--update-undo-list shift)
+            (clatter--flyspell-update-changes shift)))
+        (clatter--flyspell-prune-changes)))))
 
-(defvar flyspell-changes)
 
 (defun clatter--flyspell-update-changes (shift)
   "Rebase retained input spelling change records by SHIFT."
@@ -1265,8 +1284,9 @@ network/target for jump-back)."
                     (eol (save-excursion (goto-char bol)
                                          (line-end-position))))
           (when (eq (char-after eol) ?\n)
-            (put-text-property eol (1+ eol)
-                               'line-spacing clatter-group-messages-gap)))))
+            (with-silent-modifications
+              (put-text-property eol (1+ eol)
+                                 'line-spacing clatter-group-messages-gap))))))
     (clatter--insert-message
      buffer formatted nil props server-time invisible
      (and group-gap-p insert-before-previous-p clatter-group-messages-gap))
@@ -3087,73 +3107,120 @@ otherwise (the process filter may run in any buffer, so don't rely on
                            (format "Reconnecting in %ds (attempt %d)..."
                                    delay attempt))))
 
+(defun clatter-ui--update-reaction (buffer position conn sender emoji)
+  "Add SENDER's EMOJI to the retained message at POSITION in BUFFER on CONN.
+Return non-nil only when a new sender/emoji pair changes the display."
+  (with-current-buffer buffer
+    (let* ((nick (clatter-prefix-nick sender))
+           (isupport (clatter-connection-isupport conn))
+           (case-mapping (and isupport (gethash "CASEMAPPING" isupport)))
+           ;; Keep metadata on the final text character, away from the
+           ;; insertion boundary where a newer message could inherit it.
+           (position (save-excursion
+                       (goto-char (1- (next-single-property-change
+                                      position 'clatter-message-generation nil (point-max))))
+                       (when (eq (char-after) ?\n) (backward-char))
+                       (point)))
+           (reactions (get-text-property position 'clatter-reactions)))
+      (unless (seq-some
+               (lambda (reaction)
+                 (and (equal emoji (substring (car reaction) 1))
+                      (seq-some (lambda (who)
+                                  (clatter-nick-equal-p nick who case-mapping))
+                                (cdr reaction))))
+               reactions)
+        (clatter--flyspell-prune-changes)
+        (let ((pre-input (and clatter--input-marker
+                              (marker-position clatter--input-marker))))
+          (let* ((inhibit-read-only t)
+                 (buffer-undo-list t)
+                 (flyspell-changes nil)
+                 (key (concat (if (clatter-muted-p
+                                  sender (clatter-connection-network-id conn))
+                                 "-" "+")
+                              emoji))
+                 (entry (assoc key reactions))
+                 (invisible (get-text-property position 'invisible)))
+            (if entry
+                (setcdr entry (cons nick (cdr entry)))
+              (setq reactions (append reactions (list (list key nick)))))
+            (save-excursion
+              (goto-char position)
+              (let* ((eol (line-end-position))
+                     (display
+                      (mapconcat
+                       (lambda (reaction)
+                         (let ((label (format "%s %d" (substring (car reaction) 1)
+                                              (length (cdr reaction)))))
+                           (when (eq (aref (car reaction) 0) ?-)
+                             (add-face-text-property
+                              0 (length label) 'clatter-muted-reaction nil label))
+                           label))
+                       reactions " ")))
+                (dolist (overlay (overlays-at (point)))
+                  (when (overlay-get overlay 'clatter-reaction)
+                    (delete-overlay overlay)))
+                (let ((overlay (make-overlay (max position (1- eol)) eol nil t)))
+                  (overlay-put overlay 'clatter-reaction t)
+                  (overlay-put overlay 'invisible invisible)
+                  (add-face-text-property 0 (length display)
+                                          'clatter-reaction nil display)
+                  (overlay-put
+                   overlay 'after-string
+                   (propertize (concat "\n"
+                                       (make-string (1+ clatter-nick-column-width) ?\s)
+                                       display)
+                               'invisible invisible)))))
+            (with-silent-modifications
+              (put-text-property position (1+ position)
+                                 'clatter-reactions reactions))
+            (clatter--refresh-input-spacers buffer))
+          (when (and pre-input clatter--input-marker)
+            (let ((shift (- (marker-position clatter--input-marker) pre-input)))
+              (clatter--update-undo-list shift)
+              (clatter--flyspell-update-changes shift))))
+        t))))
+
 (defun clatter-ui--on-react (conn sender target emoji msgid)
-  "Handle reaction on CONN: display EMOJI from NICK on message MSGID in TARGET."
+  "Display SENDER's EMOJI on retained MSGID in TARGET on CONN."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
+         (isupport (clatter-connection-isupport conn))
+         (case-mapping (and isupport (gethash "CASEMAPPING" isupport)))
          (sender-nick (clatter-prefix-nick sender))
-         (buf (clatter-get-buffer network target))
-         (is-muted (clatter-muted-p sender network)))
-    (when (and buf (buffer-live-p buf))
-      (when (and (not is-muted)
-                 (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
-                 (not (string-equal-ignore-case my-nick sender-nick))
-                 (listp (buffer-local-value 'buffer-invisibility-spec buf))
-                 (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
-        (clatter-smart-put buf sender-nick 'react))
-      (with-current-buffer buf
-        (save-excursion
-          (goto-char (point-min))
-          (when-let* ((found (clatter--find-message-position-by-msgid buf msgid))
-                      (change (or (next-single-property-change found 'clatter-msgid)
-                                  (point-max))))
-            (setq found (- change 2))
-            (goto-char found)
-            (let ((inhibit-read-only t)
-                  (existing (get-text-property found 'clatter-reactions)))
-              (unless existing (setq existing nil))
-              ;; Add this reaction, with an indicator prefix.
-              ;; Prefix with - for reactions from muted senders.
-              ;; Prefix with + for reactions from non-muted senders.
-              (let* ((key (if is-muted (format "-%s" emoji)
-                            (format "+%s" emoji)))
-                     (entry (assoc key existing))
-                     (new-reactions
-                      (if entry
-                          (progn (setcdr entry (cons sender-nick (cdr entry)))
-                                 existing)
-                        (append existing (list (list key sender-nick)))))
-                     (display (mapconcat
-                               (lambda (r)
-                                 (let* ((label (car r))
-                                        (entries (cdr r))
-                                        (count (length entries))
-                                        (indicator (aref label 0))
-                                        (muted (eq ?- indicator)))
-                                   (setq label (substring label 1))
-                                   (let ((formatted (format "%s %d" label count)))
-                                     (when muted
-                                       (add-face-text-property 0 (length formatted)
-                                                               'clatter-muted-reaction nil
-                                                               formatted))
-                                     formatted)))
-                               new-reactions " ")))
-                ;; Remove old reaction overlay if any
-                (dolist (ov (overlays-at found))
-                  (when (overlay-get ov 'clatter-reaction)
-                    (delete-overlay ov)))
-                ;; Add new overlay showing reactions
-                (let ((ov (make-overlay (line-beginning-position)
-                                        (line-end-position))))
-                  (overlay-put ov 'clatter-reaction t)
-                  (add-face-text-property 0 (length display) 'clatter-reaction nil display)
-                  (overlay-put ov 'after-string
-                               (concat "\n"
-                                       (make-string clatter-nick-column-width ?\s)
-                                       " " display)))
-                ;; Store reactions as property
-                (add-text-properties found (1+ found)
-                                     (list 'clatter-reactions new-reactions))))))))))
+         (buf-target (if (or (eq clatter--replaying-reactions conn)
+                             (clatter-channel-name-p target))
+                         target
+                       (if (clatter-nick-equal-p target my-nick case-mapping)
+                           sender-nick target)))
+         (buf (or (clatter-get-buffer network buf-target)
+                  (cdr (seq-find
+                        (lambda (entry)
+                          (and (equal network (caar entry))
+                               (clatter-nick-equal-p
+                                buf-target (cdar entry) case-mapping)))
+                        clatter--buffer-alist)))))
+    (when (and (buffer-live-p buf) msgid)
+      (let (changed)
+        (with-current-buffer buf
+          (save-excursion
+            (goto-char (point-min))
+            (while (not (eobp))
+              (when (and (equal msgid (get-text-property (point) 'clatter-msgid))
+                         (clatter-ui--update-reaction buf (point) conn sender emoji))
+                (setq changed t))
+              (goto-char (next-single-property-change
+                          (point) 'clatter-message-generation nil (point-max))))))
+        (when (and changed
+                   (not (eq clatter--replaying-reactions conn))
+                   (not (clatter-muted-p sender network))
+                   (eq 'channel (buffer-local-value 'clatter--buffer-type buf))
+                   (not (clatter-nick-equal-p my-nick sender-nick case-mapping))
+                   (listp (buffer-local-value 'buffer-invisibility-spec buf))
+                   (memq 'noise (buffer-local-value 'buffer-invisibility-spec buf)))
+          (clatter-smart-put buf sender-nick 'react))))
+    (when (fboundp 'clatter-feed--on-react)
+      (clatter-feed--on-react conn sender buf-target emoji msgid))))
 
 (defun clatter--divider (label)
   "Return a window-wide divider line with LABEL centered.
@@ -3178,21 +3245,19 @@ on screen, so it renders at the buffer's oldest end, in the direction
   (let* ((network (clatter-connection-network-id conn))
          (buf (clatter-get-buffer network target)))
     (when (and buf (buffer-live-p buf) messages)
-      ;; Insert separator before history.  Read-state handling belongs to the
-      ;; insertion path so seen messages remain visible without adding activity.
+      ;; Keep the caller context: unread conversation history still counts.
       (let* ((backlog (with-current-buffer buf
                         (prog1 clatter--backlog-page-pending
                           (setq-local clatter--backlog-page-pending nil))))
              (clatter--insert-at-backlog-end backlog)
-             (count (length messages))
-             ;; Rendering at the oldest end walks the block backwards: the
-             ;; end separator, then messages newest-first, then the start
-             ;; separator.
-             (messages (if backlog (reverse messages) messages))
+             (count (cl-count-if
+                     (lambda (msg) (memq (plist-get msg :type) '(privmsg action)))
+                     messages))
              (sep-text (clatter--divider "history"))
              (end-sep-text (clatter--divider
                             (format "end of history (%d messages)" count))))
-        (clatter--insert-message buf (if backlog end-sep-text sep-text) t)
+        (when (> count 0)
+          (clatter--insert-message buf (if backlog end-sep-text sep-text) t))
         ;; Insert each message with dimmed style.  Suppress inline image
         ;; scanning/fetching for history playback: a large backlog would
         ;; otherwise scan every old message and stampede curl subprocesses.
@@ -3202,23 +3267,28 @@ on screen, so it renders at the buffer's oldest end, in the direction
               ;; visual burst and re-show the nick on every line.  Group by
               ;; adjacency instead.
               (clatter--group-messages-adjacency-only t))
-          (dolist (msg messages)
-            (let* ((msg-type (plist-get msg :type))
-                   (sender (plist-get msg :sender))
-                   (text (plist-get msg :text))
-                   (time (plist-get msg :time))
-                   ;; Batch messages carry only the nick, not a full
-                   ;; nick!user@host prefix, so wrap it for
-                   ;; `clatter-sender-invisibility'.  This makes fools
-                   ;; (and ignored senders) in playback toggleable just
-                   ;; like live buffer messages.
-                   (invisible (clatter-sender-invisibility
-                               (list sender nil nil) network)))
-              (pcase msg-type
-                ('action (clatter-insert-action buf sender text conn time invisible))
-                (_ (clatter-insert-privmsg buf sender text conn time invisible))))))
+          (dolist (msg (if backlog (reverse messages) messages))
+            (when (memq (plist-get msg :type) '(privmsg action))
+              (let* ((msg-type (plist-get msg :type))
+                     (sender (plist-get msg :sender))
+                     (text (plist-get msg :text))
+                     (time (plist-get msg :time))
+                     ;; History retains a nick, not a raw nick!user@host prefix.
+                     (invisible (clatter-sender-invisibility
+                                 (list sender nil nil) network)))
+                (pcase msg-type
+                  ('action (clatter-insert-action buf sender text conn time invisible))
+                  ('privmsg (clatter-insert-privmsg buf sender text conn time invisible)))))))
         ;; Insert end separator
-        (clatter--insert-message buf (if backlog sep-text end-sep-text) t)))))
+        (when (> count 0)
+          (clatter--insert-message buf (if backlog sep-text end-sep-text) t))))
+    (when (and (stringp target) messages)
+      (let ((clatter--replaying-reactions conn))
+        (dolist (msg messages)
+          (when (eq (plist-get msg :type) 'react)
+            (run-hook-with-args
+             'clatter-react-hook conn (list (plist-get msg :sender) nil nil) target
+             (plist-get msg :emoji) (plist-get msg :parent-msgid))))))))
 
 ;; --- CTCP replies ---
 

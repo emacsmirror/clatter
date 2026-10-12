@@ -3325,6 +3325,384 @@ below the input line."
                   (should (> msg (marker-position clatter--input-marker))))))))
       (remhash "testnet" clatter-connections))))
 
+(defun clatter-test--reaction-overlay (buffer msgid)
+  "Return the single reaction overlay on retained MSGID in BUFFER."
+  (with-current-buffer buffer
+    (let* ((position (clatter--find-message-position-by-msgid buffer msgid))
+           (end (and position (next-single-property-change
+                               position 'clatter-msgid nil (point-max))))
+           (overlays (and position
+                          (seq-filter (lambda (overlay)
+                                        (overlay-get overlay 'clatter-reaction))
+                                      (overlays-in position end)))))
+      (should position)
+      (should (= 1 (length overlays)))
+      (car overlays))))
+
+(ert-deftest clatter-test-reaction-live-overlay-metadata-and-casefold ()
+  "Visible badges dedup IRC senders without changing history, draft undo or spelling."
+  (dolist (order '(oldest-first newest-first))
+    (dolist (mapping '("rfc1459" "strict-rfc1459" "ascii"))
+      (let ((clatter-message-order order)
+            (clatter-nick-column-width 14)
+            (clatter-timestamp-side 'left)
+            (clatter-timestamp-only-if-changed t)
+            (clatter-typing-indicator-location 'input-separator)
+            (clatter-fill-column 36)
+            (clatter-fools '("quiet"))
+            (clatter-react-hook (list #'clatter-ui--on-react)))
+        (clatter-test-with-ui-connection conn
+          (puthash "CASEMAPPING" mapping (clatter-connection-isupport conn))
+          (let ((buffer (clatter-get-or-create-buffer "testnet" "#react")))
+            (save-window-excursion
+              (set-window-buffer (selected-window) buffer)
+              (clatter-ui-setup-buffer buffer)
+              (clatter-insert-privmsg
+               buffer "parent"
+               (propertize "a wrapped parent message with enough words to span several lines"
+                           'clatter-msgid "parent")
+               conn nil 'clatter-fool)
+              (with-current-buffer buffer
+                (buffer-enable-undo)
+                (setq buffer-undo-list nil)
+                (goto-char clatter--input-marker)
+                (insert "draft")
+                (undo-boundary)
+                (setq-local flyspell-mode t)
+                (let* ((record (cons (marker-position clatter--input-marker) (point)))
+                       (history (buffer-string))
+                       (undo (copy-tree buffer-undo-list))
+                       (timestamps (seq-filter
+                                    (lambda (ov) (overlay-get ov 'clatter-timestamp))
+                                    (overlays-in (point-min) (point-max)))))
+                  (setq-local flyspell-changes (list record))
+                  (add-hook 'after-change-functions
+                            (lambda (beg end _old)
+                              (push (cons beg end) flyspell-changes)) nil t)
+                  (dolist (nick '("[Alice" "{alice" "[ALICE"))
+                    (clatter-dispatch-message
+                     conn (clatter-test-parse
+                           (format "@+draft/react=👍;+reply=parent :%s!u@h TAGMSG #react" nick))))
+                  (clatter-ui--on-react conn '("quiet" nil nil) "#react" "❤" "parent")
+                  (let* ((overlay (clatter-test--reaction-overlay buffer "parent"))
+                         (badge (overlay-get overlay 'after-string))
+                         (heart (string-match "❤" badge)))
+                    (should (eq (window-buffer (selected-window)) buffer))
+                    (should (string-match-p
+                             (format "👍 %d" (if (equal mapping "ascii") 2 1)) badge))
+                    (should (string-match-p "❤ 1" badge))
+                    (should (memq 'clatter-muted-reaction
+                                  (ensure-list (get-text-property heart 'face badge))))
+                    (should (eq 'clatter-fool (overlay-get overlay 'invisible)))
+                    (should (eq 'clatter-fool (get-text-property 0 'invisible badge)))
+                    (should (= (overlay-end overlay)
+                               (save-excursion
+                                 (goto-char (overlay-start overlay))
+                                 (line-end-position))))
+                    (should (equal history (buffer-string)))
+                    (should (equal undo buffer-undo-list))
+                    (should (equal flyspell-changes (list record)))
+                    (should (clatter--find-message-position-by-msgid buffer "parent"))
+                    (should (cl-every #'overlay-buffer timestamps))
+                    (setq buffer-undo-list
+                          (primitive-undo (length buffer-undo-list) buffer-undo-list))
+                    (should (equal "" (clatter--get-input)))
+                    (should (overlay-buffer overlay))))))))))))
+
+(ert-deftest clatter-test-reaction-query-routing-and-orphans ()
+  "Incoming queries use CASEMAPPING; own echoes stay with the peer, orphans create nothing."
+  (dolist (mapping '("rfc1459" "strict-rfc1459" "ascii"))
+    (let ((clatter-receive-query-display 'bury)
+          (clatter-react-hook (list #'clatter-ui--on-react)))
+      (clatter-test-with-ui-connection conn
+        (setf (clatter-connection-nick conn) "[Self")
+        (puthash "CASEMAPPING" mapping (clatter-connection-isupport conn))
+        (let ((query (clatter-get-or-create-buffer "testnet" "alice"))
+              (target (if (equal mapping "ascii") "[SELF" "{self")))
+          (save-window-excursion
+            (set-window-buffer (selected-window) query)
+            (clatter-ui-setup-buffer query)
+            (clatter-insert-privmsg query "alice"
+                                    (propertize "private parent" 'clatter-msgid "p") conn)
+            (clatter-dispatch-message
+             conn (clatter-test-parse
+                   (format "@+draft/react=👍;+reply=p :alice!u@h TAGMSG %s" target)))
+            (clatter-dispatch-message
+             conn (clatter-test-parse
+                   "@+draft/react=👍;+reply=p :[SELF!u@h TAGMSG alice"))
+            (should (string-match-p
+                     "👍 2" (overlay-get (clatter-test--reaction-overlay query "p")
+                                         'after-string)))
+            (let ((registry (copy-sequence clatter--buffer-alist)))
+              (dolist (line
+                       (list (format "@+draft/react=👍;+reply=missing :ghost!u@h TAGMSG %s" target)
+                             "@+draft/react=👍;+reply=missing :alice!u@h TAGMSG #absent"
+                             "@+draft/react=👍 :alice!u@h TAGMSG #absent"))
+                (clatter-dispatch-message conn (clatter-test-parse line)))
+              (clatter-ui--on-react conn '("alice" nil nil) "alice" "👍" nil)
+              (should (equal registry clatter--buffer-alist))
+              (should-not (clatter-get-buffer "testnet" "[Self")))))))))
+
+(ert-deftest clatter-test-reaction-statusmsg-and-privmsg-body ()
+  "STATUSMSG and reaction-bearing PRIVMSG update a parent without hiding the body."
+  (clatter-test-with-ui-connection conn
+    (puthash "STATUSMSG" "@+" (clatter-connection-isupport conn))
+    (let ((buffer (clatter-get-or-create-buffer "testnet" "#react"))
+          (clatter-react-hook (list #'clatter-ui--on-react))
+          (clatter-privmsg-hook (list #'clatter-ui--on-privmsg)))
+      (save-window-excursion
+        (set-window-buffer (selected-window) buffer)
+        (clatter-ui-setup-buffer buffer)
+        (clatter-insert-privmsg buffer "alice"
+                                (propertize "parent" 'clatter-msgid "p") conn)
+        (clatter-dispatch-message
+         conn (clatter-test-parse
+               "@+draft/react=👍;+reply=p :bob!u@h TAGMSG @#react"))
+        (clatter-dispatch-message
+         conn (clatter-test-parse
+               "@msgid=body;+draft/react=❤;+draft/reply=p :carol!u@h PRIVMSG +#react :nice"))
+        (should (string-match-p
+                 "👍 1 ❤ 1" (overlay-get (clatter-test--reaction-overlay buffer "p")
+                                          'after-string)))
+        (with-current-buffer buffer
+          (let ((position (clatter--find-message-position-by-msgid buffer "body"))
+                (generation clatter--message-generation))
+            (should position)
+            (should (equal "[voiced] nice" (get-text-property position 'clatter-text)))
+            (clatter-dispatch-message
+             conn (clatter-test-parse
+                   "@+draft/react=❤;+reply=p :carol!u@h PRIVMSG #react :"))
+            (should (= generation clatter--message-generation))))))))
+
+(ert-deftest clatter-test-reaction-history-parents-before-badges ()
+  "CAP-deferred older pages insert parents first, then reactions in original order."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-message-order order)
+          (clatter-group-messages-by-nick t)
+          (clatter-group-messages-gap 0.25)
+          (clatter-react-hook (list #'clatter-ui--on-react))
+          (clatter-read-state-enabled t)
+          (clatter-read-state--loaded t)
+          (clatter-read-state--table (make-hash-table :test 'equal)))
+      (clatter-test-with-ui-connection conn
+        (let ((buffer (clatter-get-or-create-buffer "testnet" "alice")))
+          (save-window-excursion
+            (set-window-buffer (selected-window) buffer)
+            (clatter-ui-setup-buffer buffer)
+            (clatter-insert-privmsg buffer "alice"
+                                    (propertize "current" 'clatter-msgid "current") conn)
+            (with-current-buffer buffer
+              (buffer-enable-undo)
+              (setq buffer-undo-list nil)
+              (goto-char clatter--input-marker)
+              (insert "draft")
+              (undo-boundary)
+              (setq-local flyspell-mode t)
+              (setq-local flyspell-changes
+                          (list (cons (marker-position clatter--input-marker) (point))))
+              (add-hook 'after-change-functions
+                        (lambda (beg end _old)
+                          (push (cons beg end) flyspell-changes)) nil t)
+              (setq-local clatter--backlog-page-pending t)
+              (setq-local clatter--last-read-time (encode-time 0 0 0 2 1 2026 t))
+              (setq clatter--unread-count 0))
+            (setf (clatter-connection-cap-negotiating conn) t
+                  (clatter-connection-nick conn) "newnick")
+            (let* (replayed
+                   (clatter-react-hook
+                    (list #'clatter-ui--on-react
+                          (lambda (_conn sender target emoji msgid)
+                            (should (equal target "alice"))
+                            (should (equal msgid "p"))
+                            (should (clatter--find-message-position-by-msgid buffer "p"))
+                            (should (clatter--find-message-position-by-msgid buffer "q"))
+                            (push (list (clatter-prefix-nick sender) emoji) replayed))))
+                   (clatter-batch-complete-hook (list #'clatter-ui--on-batch-complete)))
+              (dolist (line
+                       '(":server BATCH +history chathistory alice"
+                         "@batch=history;+draft/react=👍;+reply=p :alice!u@h TAGMSG oldnick"
+                         "@batch=history;msgid=p;time=2026-01-01T10:00:00Z :oldnick!u@h PRIVMSG alice :older parent"
+                         "@batch=history;+draft/react=❤;+reply=p :oldnick!u@h TAGMSG alice"
+                         "@batch=history;+draft/react=👍;+draft/reply=p :ALICE!u@h TAGMSG oldnick"
+                         "@batch=history;msgid=q;time=2026-01-01T10:01:00Z :alice!u@h PRIVMSG oldnick :newer history"
+                         ":server BATCH -history"))
+                (clatter-dispatch-message conn (clatter-test-parse line)))
+              (should-not (clatter--find-message-position-by-msgid buffer "p"))
+              (should (clatter-connection-deferred-batches conn))
+              (setf (clatter-connection-cap-negotiating conn) nil)
+              (clatter--flush-deferred-batches conn)
+              (should (equal (nreverse replayed)
+                             '(("alice" "👍") ("oldnick" "❤") ("ALICE" "👍")))))
+            (let ((overlay (clatter-test--reaction-overlay buffer "p")))
+              (should (string-match-p "👍 1 ❤ 1" (overlay-get overlay 'after-string)))
+              (with-current-buffer buffer
+                (let ((p (clatter--find-message-position-by-msgid buffer "p"))
+                      (q (clatter--find-message-position-by-msgid buffer "q"))
+                      (current (clatter--find-message-position-by-msgid buffer "current")))
+                  (if (eq order 'oldest-first)
+                      (should (< p q current))
+                    (should (> p q current)))
+                  (should (= 0 clatter--unread-count))
+                  (should (string-match-p "end of history (2 messages)" (buffer-string)))
+                  (should (= 1 (length (seq-filter
+                                       (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                       (overlays-in (point-min) (point-max))))))
+                  (save-excursion
+                    (goto-char (point-min))
+                    (search-forward "end of history (2 messages)")
+                    (let ((footer (match-beginning 0)))
+                      (dolist (property '(clatter-msgid clatter-reactions
+                                          clatter-feed-network clatter-feed-target))
+                        (should-not (get-text-property footer property)))
+                      (should-not (seq-some
+                                   (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                   (overlays-at footer)))))
+                  (should (equal "draft" (clatter--get-input)))
+                  (should (= 1 (length flyspell-changes)))
+                  (should (= (caar flyspell-changes) (marker-position clatter--input-marker)))
+                  (should (= (cdar flyspell-changes) (+ 5 (marker-position clatter--input-marker))))
+                  (setq buffer-undo-list
+                        (primitive-undo (length buffer-undo-list) buffer-undo-list))
+                  (should (equal "" (clatter--get-input)))
+                  (should (clatter--find-message-position-by-msgid buffer "p"))
+                  (should (overlay-buffer overlay))))
+              (let ((generation (buffer-local-value 'clatter--message-generation buffer)))
+                (clatter-ui--on-batch-complete
+                 conn "chathistory" "alice"
+                 '((:type react :sender "bob" :emoji "👍" :parent-msgid "p"
+                    :target "oldnick" :time nil)))
+                (should (= generation (buffer-local-value 'clatter--message-generation buffer)))
+                (should (string-match-p
+                         "👍 2 ❤ 1" (overlay-get (clatter-test--reaction-overlay buffer "p")
+                                                 'after-string)))))))))))
+
+(ert-deftest clatter-test-react-standard-reply-and-local-fallback ()
+  "Only viable sends get a no-echo badge; a late self echo never doubles its count."
+  (dolist (echo-p '(nil t))
+    (clatter-test-with-ui-connection conn
+      (let* ((buffer (clatter-get-or-create-buffer "testnet" "#react"))
+             (process (make-pipe-process :name "clatter-test-react-send" :noquery t))
+             (mouse-secondary-overlay (make-overlay 1 1 buffer))
+             (clatter-react-hook (list #'clatter-ui--on-react)))
+        (unwind-protect
+            (save-window-excursion
+              (setf (clatter-connection-process conn) process
+                    (clatter-connection-cap-enabled conn)
+                    (if echo-p '("message-tags" "echo-message") '("message-tags")))
+              (set-window-buffer (selected-window) buffer)
+              (clatter-ui-setup-buffer buffer)
+              (clatter-insert-privmsg buffer "alice"
+                                      (propertize "parent" 'clatter-msgid "p") conn)
+              (with-current-buffer buffer
+                (let ((position (clatter--find-message-position-by-msgid buffer "p")))
+                  (goto-char position)
+                  (clatter-select-message)
+                  (clatter-test-with-mock-send
+                    (clatter-cmd-react "👍")
+                    (should (equal "@+draft/react=👍;+reply=p TAGMSG #react"
+                                   (clatter-test-last-sent))))
+                  (if echo-p
+                      (should-not (seq-some
+                                   (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                   (overlays-in (point-min) (point-max))))
+                    (should (string-match-p
+                             "👍 1" (overlay-get (clatter-test--reaction-overlay buffer "p")
+                                                 'after-string))))
+                  (dotimes (_ 2)
+                    (clatter-dispatch-message
+                     conn (clatter-test-parse
+                           "@+draft/react=👍;+reply=p :TESTNICK!u@h TAGMSG #react")))
+                  (should (string-match-p
+                           "👍 1" (overlay-get (clatter-test--reaction-overlay buffer "p")
+                                               'after-string))))))
+          (when (overlayp mouse-secondary-overlay)
+            (delete-overlay mouse-secondary-overlay))
+          (when (process-live-p process) (delete-process process)))))))
+
+(ert-deftest clatter-test-react-failed-send-has-no-local-success ()
+  "Disconnected, missing, stale and synchronously failed processes get no badge."
+  (dolist (failure '(disconnected missing stale write-error))
+    (clatter-test-with-ui-connection conn
+      (let* ((buffer (clatter-get-or-create-buffer "testnet" "#react"))
+             (process (make-pipe-process :name "clatter-test-react-failure" :noquery t))
+             (mouse-secondary-overlay (make-overlay 1 1 buffer)))
+        (unwind-protect
+            (save-window-excursion
+              (setf (clatter-connection-process conn) process
+                    (clatter-connection-cap-enabled conn) '("message-tags")
+                    (clatter-connection-reconnect-enabled conn) nil)
+              (pcase failure
+                ('disconnected (setf (clatter-connection-state conn) :disconnected))
+                ('missing (setf (clatter-connection-process conn) nil))
+                ('stale (setf (clatter-connection-last-activity conn)
+                              (- (float-time) clatter-ping-timeout 1))))
+              (set-window-buffer (selected-window) buffer)
+              (clatter-ui-setup-buffer buffer)
+              (clatter-insert-privmsg buffer "alice"
+                                      (propertize "parent" 'clatter-msgid "p") conn)
+              (with-current-buffer buffer
+                (let ((position (clatter--find-message-position-by-msgid buffer "p")))
+                  (goto-char position)
+                  (clatter-select-message)
+                  (cl-letf (((symbol-function 'clatter--watchdog) #'ignore)
+                            ((symbol-function 'process-send-string)
+                             (lambda (&rest _) (error "synchronous write failure"))))
+                    (clatter-cmd-react "👍"))
+                  (should-not (get-text-property position 'clatter-reactions))
+                  (should-not (seq-some
+                               (lambda (ov) (overlay-get ov 'clatter-reaction))
+                               (overlays-in (point-min) (point-max)))))))
+          (when (overlayp mouse-secondary-overlay)
+            (delete-overlay mouse-secondary-overlay))
+          (when (process-live-p process) (delete-process process)))))))
+
+(ert-deftest clatter-test-message-boundaries-do-not-inherit-parent-identity ()
+  "Untagged messages, system rows and dividers own no parent identity or feed source."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-message-order order)
+          (clatter-react-hook (list #'clatter-ui--on-react)))
+      (clatter-test-with-ui-connection conn
+        (let ((buffer (clatter-get-or-create-buffer "testnet" "#identity")))
+          (save-window-excursion
+            (set-window-buffer (selected-window) buffer)
+            (clatter-ui-setup-buffer buffer)
+            (clatter-insert-generic
+             'privmsg buffer "alice" (propertize "parent" 'clatter-msgid "p") conn
+             nil nil '(clatter-feed-network "testnet" clatter-feed-target "#identity"))
+            (clatter-ui--on-react conn '("bob" nil nil) "#identity" "👍" "p")
+            (clatter-insert-privmsg buffer "carol" "untagged ordinary" conn)
+            (clatter-insert-system
+             buffer (propertize "styled system" 'face 'bold
+                                'button '(t) 'category 'default-button))
+            (clatter--insert-message buffer (clatter--divider "plain divider") t)
+            ;; A replay/echo must not treat any unrelated row as another copy.
+            (clatter-ui--on-react conn '("BOB" nil nil) "#identity" "👍" "p")
+            (with-current-buffer buffer
+              (dolist (text '("untagged ordinary" "styled system" "plain divider"))
+                (save-excursion
+                  (goto-char (point-min))
+                  (search-forward text)
+                  (let ((position (match-beginning 0)))
+                    (dolist (property '(clatter-msgid clatter-reactions
+                                        clatter-feed-network clatter-feed-target))
+                      (should-not (get-text-property position property)))
+                    (should (get-text-property position 'read-only))
+                    (goto-char position)
+                    (should-error (insert "stray") :type 'text-read-only)
+                    (when (equal text "styled system")
+                      (should (button-at position))
+                      (should (memq 'bold
+                                    (ensure-list (get-text-property position 'face))))))))
+              (let ((overlays (seq-filter
+                               (lambda (ov) (overlay-get ov 'clatter-reaction))
+                               (overlays-in (point-min) (point-max))))
+                    (parent (clatter--find-message-position-by-msgid buffer "p")))
+                (should parent)
+                (should (equal "testnet" (get-text-property parent 'clatter-feed-network)))
+                (should (equal "#identity" (get-text-property parent 'clatter-feed-target)))
+                (should (= 1 (length overlays)))
+                (should (string-match-p "👍 1" (overlay-get (car overlays) 'after-string)))))))))))
+
 (provide 'test-ui)
 
 ;;; test-ui.el ends here

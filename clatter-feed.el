@@ -305,6 +305,29 @@ SERVER-TIME is the IRCv3 server-time of the message, if any."
   "Capture SENDER's ACTION TEXT to TARGET on CONN at SERVER-TIME."
   (clatter-feed--capture 'action conn sender target text server-time))
 
+(defun clatter-feed--on-react (conn sender target emoji msgid)
+  "Update existing feed copies of SENDER's EMOJI on MSGID in TARGET on CONN.
+Never create a feed buffer or capture a historical parent for a reaction."
+  (when-let* ((buffer (get-buffer clatter-feed--buffer-name)))
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-min))
+        (let* ((network (clatter-connection-network-id conn))
+               (isupport (clatter-connection-isupport conn))
+               (case-mapping (and isupport (gethash "CASEMAPPING" isupport))))
+          (while (not (eobp))
+            (when (and msgid
+                       (equal msgid (get-text-property (point) 'clatter-msgid))
+                       (equal network (get-text-property (point) 'clatter-feed-network))
+                       (clatter-nick-equal-p
+                        target (get-text-property (point) 'clatter-feed-target)
+                        case-mapping))
+              (clatter-ui--update-reaction buffer (point) conn sender emoji))
+            ;; One generation covers a complete rendered message, including
+            ;; wrapped rows, even when adjacent copies have the same msgid.
+            (goto-char (next-single-property-change
+                        (point) 'clatter-message-generation nil (point-max)))))))))
+
 ;; --- Jump back to the source ---
 
 (defun clatter-feed--find-message (buffer sender text server-time)

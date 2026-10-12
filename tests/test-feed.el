@@ -761,6 +761,257 @@ Both message orders must find the newest duplicate, not just the last line."
                             (default-value 'window-buffer-change-functions))))
       (clatter-feed-disable))))
 
+(ert-deftest clatter-test-feed-reactions-update-only-scoped-existing-copies ()
+  "Real feed badges match network, source target and ID, and inherit source hiding."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-message-order order)
+          (clatter-feed-hide-channels '("#alpha"))
+          (clatter-react-hook (list #'clatter-ui--on-react)))
+      (clatter-test-feed--with-capture conn
+        (let ((other (clatter-test-make-connection "othernet"))
+              (parent (propertize "alpha parent" 'clatter-msgid "shared")))
+          (clatter-ui--on-privmsg conn '("alice" "u" "h") "#alpha" parent nil)
+          (clatter-feed--on-privmsg conn '("alice" "u" "h") "#alpha" parent nil)
+          (clatter-feed--on-privmsg
+           conn '("alice" "u" "h") "#beta"
+           (propertize "beta parent" 'clatter-msgid "shared") nil)
+          (clatter-feed--on-privmsg
+           other '("alice" "u" "h") "#alpha"
+           (propertize "other parent" 'clatter-msgid "shared") nil)
+          (let ((feed (clatter-test-feed--buffer))
+                (source (clatter-get-buffer "testnet" "#alpha")))
+            (save-window-excursion
+              (set-window-buffer (selected-window) feed)
+              (with-current-buffer feed
+                (buffer-enable-undo)
+                (setq buffer-undo-list nil)
+                (let ((text (buffer-string))
+                      (generation clatter--message-generation))
+                  (dotimes (_ 2)
+                    (clatter-dispatch-message
+                     conn (clatter-test-parse
+                           "@+draft/react=👍;+reply=shared :bob!u@h TAGMSG #ALPHA")))
+                  (let* ((overlays (seq-filter
+                                    (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                    (overlays-in (point-min) (point-max))))
+                         (overlay (car overlays))
+                         (badge (and overlay (overlay-get overlay 'after-string)))
+                         (parent-invisibility
+                          (and overlay (get-text-property
+                                        (overlay-start overlay) 'invisible))))
+                    (should (= 1 (length overlays)))
+                    (should (eq (window-buffer (selected-window)) feed))
+                    (should (equal "testnet" (get-text-property
+                                             (overlay-start overlay) 'clatter-feed-network)))
+                    (should (equal "#alpha" (get-text-property
+                                             (overlay-start overlay) 'clatter-feed-target)))
+                    (should (string-match-p "👍 1" badge))
+                    (should (equal parent-invisibility (overlay-get overlay 'invisible)))
+                    (should (equal parent-invisibility (get-text-property 0 'invisible badge)))
+                    (should (equal text (buffer-string)))
+                    (should (= generation clatter--message-generation))
+                    (should-not buffer-undo-list)
+                    (should (= 0 clatter--unread-count)))))
+              (with-current-buffer source
+                (let ((overlays (seq-filter
+                                 (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                 (overlays-in (point-min) (point-max)))))
+                  (should (= 1 (length overlays)))
+                  (should (string-match-p "👍 1" (overlay-get (car overlays) 'after-string))))))))))))
+
+(ert-deftest clatter-test-feed-history-reactions-never-capture-parents ()
+  "Replay updates retained feed copies only, without reaction rows or historical capture."
+  (let ((clatter-react-hook (list #'clatter-ui--on-react))
+        (clatter-batch-complete-hook (list #'clatter-ui--on-batch-complete)))
+    (clatter-test-feed--with-capture conn
+      (clatter-feed-enable)
+      (let ((source (clatter-get-or-create-buffer "testnet" "alice")))
+        (clatter-ui-setup-buffer source)
+        (setf (clatter-connection-nick conn) "newnick")
+        (dolist (line
+                 '(":server BATCH +first chathistory alice"
+                   "@batch=first;+draft/react=👍;+reply=historical :alice!u@h TAGMSG oldnick"
+                   "@batch=first;msgid=historical :oldnick!u@h PRIVMSG alice :history only"
+                   ":server BATCH -first"))
+          (clatter-dispatch-message conn (clatter-test-parse line)))
+        (should (clatter--find-message-position-by-msgid source "historical"))
+        (should-not (clatter-test-feed--buffer))
+        (let ((parent (propertize "live private parent" 'clatter-msgid "live")))
+          (clatter-insert-privmsg source "alice" parent conn)
+          (clatter-feed--on-privmsg conn '("alice" "u" "h") "newnick" parent nil))
+        (let ((feed (clatter-test-feed--buffer)))
+          (save-window-excursion
+            (set-window-buffer (selected-window) feed)
+            (let ((before (clatter-test-feed--string feed)))
+              (dolist (line
+                       '(":server BATCH +second chathistory alice"
+                         "@batch=second;+draft/react=❤;+reply=live :alice!u@h TAGMSG oldnick"
+                         "@batch=second;+draft/react=👍;+reply=missing :alice!u@h TAGMSG oldnick"
+                         ":server BATCH -second"))
+                (clatter-dispatch-message conn (clatter-test-parse line)))
+              (should (equal before (clatter-test-feed--string feed)))
+              (should-not (clatter--find-message-position-by-msgid feed "historical"))
+              (with-current-buffer feed
+                (let ((overlays (seq-filter
+                                 (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                 (overlays-in (point-min) (point-max)))))
+                  (should (= 1 (length overlays)))
+                  (should (string-match-p "❤ 1" (overlay-get (car overlays) 'after-string)))
+                  (should (= 0 clatter--unread-count)))))))))))
+
+(ert-deftest clatter-test-feed-adjacent-duplicate-parents-keep-wrapped-badges ()
+  "Each adjacent source/feed copy gets a badge at its own final wrapped row."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-message-order order)
+          (clatter-fill-column 34)
+          (clatter-nick-column-width 14)
+          (clatter-timestamp-side 'divider)
+          (clatter-react-hook (list #'clatter-ui--on-react)))
+      (clatter-test-feed--with-capture conn
+        (let ((text (propertize
+                     "a duplicate parent with enough words to wrap across several separate rows"
+                     'clatter-msgid "duplicate")))
+          (dotimes (_ 2)
+            (clatter-ui--on-privmsg conn '("alice" "u" "h") "#same" text nil)
+            (clatter-feed--on-privmsg conn '("alice" "u" "h") "#same" text nil)))
+        (let ((feed (clatter-test-feed--buffer))
+              (source (clatter-get-buffer "testnet" "#same")))
+          (save-window-excursion
+            (set-window-buffer (selected-window) feed)
+            (dotimes (_ 2)
+              (clatter-dispatch-message
+               conn (clatter-test-parse
+                     "@+draft/react=👍;+reply=duplicate :bob!u@h TAGMSG #same")))
+            (dolist (buffer (list source feed))
+              (set-window-buffer (selected-window) buffer)
+              (with-current-buffer buffer
+                (let ((overlays (seq-filter
+                                 (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                 (overlays-in (point-min) (point-max))))
+                      generations)
+                  (should (= 2 (length overlays)))
+                  (dolist (overlay overlays)
+                    (let* ((anchor (overlay-start overlay))
+                           (generation (get-text-property anchor 'clatter-message-generation))
+                           (start (or (previous-single-property-change
+                                       (1+ anchor) 'clatter-message-generation nil (point-min))
+                                      (point-min)))
+                           (end (next-single-property-change
+                                 anchor 'clatter-message-generation nil (point-max))))
+                      (push generation generations)
+                      (should (> (count-lines start end) 1))
+                      (should (equal "duplicate" (get-text-property anchor 'clatter-msgid)))
+                      (should (= (1+ (overlay-end overlay)) end))
+                      (should (string-match-p "👍 1" (overlay-get overlay 'after-string)))))
+                  (should (= 2 (length (delete-dups generations)))))))))))))
+
+(ert-deftest clatter-test-feed-replay-reentry-keeps-other-network-live-routing ()
+  "A nested live query reaction retains peer routing during another network's replay."
+  (clatter-test-feed--with-capture replay
+    (let* ((live (clatter-test-make-connection "live-network" "live-me"))
+           (history (clatter-get-or-create-buffer "testnet" "alice"))
+           (query (clatter-get-or-create-buffer "live-network" "bob"))
+           (decoy (clatter-get-or-create-buffer "live-network" "live-me"))
+           (text (propertize "retained parent" 'clatter-msgid "shared")))
+      (dolist (buffer (list history query decoy))
+        (clatter-ui-setup-buffer buffer))
+      (clatter-insert-privmsg history "alice" text replay)
+      (clatter-insert-privmsg query "bob" text live)
+      (clatter-insert-privmsg decoy "live-me" text live)
+      (clatter-feed--on-privmsg replay '("alice" "u" "h") "testnick" text nil)
+      (clatter-feed--on-privmsg live '("bob" "u" "h") "live-me" text nil)
+      (clatter-feed--on-privmsg live '("live-me" "u" "h") "live-me" text nil)
+      (let ((clatter-react-hook
+             (list
+              (lambda (conn _sender target _emoji msgid)
+                (should (equal msgid "shared"))
+                (when (eq conn replay)
+                  (should (equal target "alice"))
+                  (clatter-dispatch-message
+                   live (clatter-test-parse
+                         "@+draft/react=👍;+reply=shared :bob!u@h TAGMSG LIVE-ME"))))
+              #'clatter-ui--on-react))
+            (feed (clatter-test-feed--buffer)))
+        (save-window-excursion
+          (set-window-buffer (selected-window) feed)
+          (clatter-ui--on-batch-complete
+           replay "chathistory" "alice"
+           '((:type react :sender "alice" :emoji "❤" :parent-msgid "shared"
+              :target "oldnick" :time nil)))
+          (dolist (entry (list (cons history "❤ 1") (cons query "👍 1")))
+            (with-current-buffer (car entry)
+              (let ((overlays (seq-filter
+                               (lambda (ov) (overlay-get ov 'clatter-reaction))
+                               (overlays-in (point-min) (point-max)))))
+                (should (= 1 (length overlays)))
+                (should (string-match-p (cdr entry)
+                                        (overlay-get (car overlays) 'after-string))))))
+          (with-current-buffer decoy
+            (should-not (seq-some (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                  (overlays-in (point-min) (point-max)))))
+          (with-current-buffer feed
+            (let ((overlays (seq-filter
+                             (lambda (ov) (overlay-get ov 'clatter-reaction))
+                             (overlays-in (point-min) (point-max)))))
+              (should (= 2 (length overlays)))
+              (dolist (overlay overlays)
+                (let* ((position (overlay-start overlay))
+                       (network (get-text-property position 'clatter-feed-network))
+                       (target (get-text-property position 'clatter-feed-target))
+                       (badge (overlay-get overlay 'after-string)))
+                  (if (equal network "testnet")
+                      (progn
+                        (should (equal target "alice"))
+                        (should (string-match-p "❤ 1" badge)))
+                    (should (equal network "live-network"))
+                    (should (equal target "bob"))
+                    (should (string-match-p "👍 1" badge)))))
+              (should (= 0 clatter--unread-count)))))))))
+
+(ert-deftest clatter-test-feed-modeless-channel-reaction-statusmsg ()
+  "A channel's own + stays intact; @+channel reactions reach source and feed."
+  (dolist (order '(oldest-first newest-first))
+    (let ((clatter-message-order order)
+          (clatter-react-hook (list #'clatter-ui--on-react))
+          (clatter-privmsg-hook (list #'clatter-ui--on-privmsg))
+          (clatter-notice-hook (list #'clatter-ui--on-notice)))
+      (clatter-test-feed--with-capture conn
+        (puthash "STATUSMSG" "@+" (clatter-connection-isupport conn))
+        (let ((parent (propertize "modeless parent" 'clatter-msgid "p")))
+          (clatter-ui--on-privmsg conn '("alice" "u" "h") "+channel" parent nil)
+          (clatter-feed--on-privmsg conn '("alice" "u" "h") "+channel" parent nil))
+        (let ((source (clatter-get-buffer "testnet" "+channel"))
+              (feed (clatter-test-feed--buffer)))
+          (save-window-excursion
+            (set-window-buffer (selected-window) source)
+            (dolist (line
+                     '("@+draft/react=👍;+reply=p :bob!u@h TAGMSG +channel"
+                       "@+draft/react=❤;+reply=p :carol!u@h TAGMSG @+channel"
+                       "@msgid=plain :bob!u@h PRIVMSG +channel :ordinary body"
+                       "@msgid=status :bob!u@h PRIVMSG @+channel :status body"
+                       "@msgid=notice :bob!u@h NOTICE +channel :ordinary notice"
+                       "@msgid=status-notice :bob!u@h NOTICE @+channel :status notice"))
+              (clatter-dispatch-message conn (clatter-test-parse line)))
+            (should-not (clatter-get-buffer "testnet" "channel"))
+            (should-not (clatter-get-server-buffer "testnet"))
+            (with-current-buffer source
+              (dolist (entry '(("plain" . "ordinary body")
+                               ("status" . "[ops] status body")
+                               ("notice" . "ordinary notice")
+                               ("status-notice" . "[ops] status notice")))
+                (let ((position (clatter--find-message-position-by-msgid source (car entry))))
+                  (should position)
+                  (should (equal (cdr entry) (get-text-property position 'clatter-text))))))
+            (dolist (buffer (list source feed))
+              (set-window-buffer (selected-window) buffer)
+              (with-current-buffer buffer
+                (let ((overlays (seq-filter
+                                 (lambda (ov) (overlay-get ov 'clatter-reaction))
+                                 (overlays-in (point-min) (point-max)))))
+                  (should (= 1 (length overlays)))
+                  (should (string-match-p "👍 1 ❤ 1"
+                                          (overlay-get (car overlays) 'after-string))))))))))))
+
 (provide 'test-feed)
 
 ;;; test-feed.el ends here

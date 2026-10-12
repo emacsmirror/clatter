@@ -879,20 +879,75 @@
 ;; --- TAGMSG: Reactions ---
 
 (ert-deftest clatter-test-dispatch-reaction ()
-  "TAGMSG with draft/react dispatches to clatter-react-hook."
+  "Standard and legacy reply tags preserve literal UTF-8 reaction values."
   (let ((conn (clatter-test-make-connection)))
     (unwind-protect
-        (let ((calls (clatter-test-capture-hook clatter-react-hook
-                       (clatter-dispatch-message
-                        conn (clatter-test-parse
-                              (concat "@+draft/react=%F0%9F%91%8D"
-                                      ";+draft/reply=abc123"
-                                      " :alice!~a@host TAGMSG #emacs"))))))
-          (should (= (length calls) 1))
-          (let ((args (car calls)))
-            (should (equal (nth 1 args) '("alice" "~a" "host")))
-            (should (equal (nth 4 args) "abc123"))))
+        (dolist (reply-tag '("+reply" "+draft/reply" "draft/reply"))
+          (let ((calls (clatter-test-capture-hook clatter-react-hook
+                         (clatter-dispatch-message
+                          conn (clatter-test-parse
+                                (format "@+draft/react=👍;%s=abc123 :alice!~a@host TAGMSG #emacs"
+                                        reply-tag))))))
+            (should (= (length calls) 1))
+            (let ((args (car calls)))
+              (should (equal (nth 1 args) '("alice" "~a" "host")))
+              (should (equal (nth 3 args) "👍"))
+              (should (equal (nth 4 args) "abc123")))))
       (clatter-test-cleanup))))
+
+(ert-deftest clatter-test-batch-reaction-byte-boundary-and-cap-deferral ()
+  "Reaction string fields count against the shared ceiling through CAP deferral."
+  (dolist (overflow-p '(nil t))
+    (clatter-test--with-batch-session conn proc
+      ;; Batch: a + h + #x = 4 bytes; reaction: é + 👍 + parent + #x = 14.
+      (let ((clatter-max-batch-bytes 18)
+            (clatter-max-batch-messages 1)
+            (live-calls 0)
+            delivered reason)
+        (let ((clatter-react-hook (list (lambda (&rest _) (cl-incf live-calls))))
+              (clatter-batch-complete-hook
+               (list (lambda (&rest args) (setq delivered args))))
+              (clatter-disconnect-hook
+               (list (lambda (_network why) (setq reason why)))))
+          (setf (clatter-connection-cap-negotiating conn) t)
+          (clatter-test--batch-input
+           conn ":server BATCH +a h #x"
+           (format "@batch=a;+draft/react=%s;+reply=parent :é!longuser@longhost TAGMSG #x"
+                   (if overflow-p "👍x" "👍")))
+          (should (zerop live-calls))
+          (should-not delivered)
+          (if overflow-p
+              (progn
+                (should (string-match-p "retained batch string bytes.*limit 18" reason))
+                (should-not (process-live-p proc))
+                (clatter-test--batch-resources-empty conn))
+            (should (= 18 (clatter-connection-batch-bytes conn)))
+            (should (= 1 (clatter-connection-batch-message-count conn)))
+            (clatter-test--batch-input conn ":server BATCH -a")
+            (should-not delivered)
+            (should (= 18 (clatter-connection-batch-bytes conn)))
+            (clatter-cap--finish-negotiation conn)
+            (should (equal (nth 3 delivered)
+                           '((:type react :sender "é" :emoji "👍"
+                              :parent-msgid "parent" :target "#x" :time nil))))
+            (clatter-test--batch-resources-empty conn)))))))
+
+(ert-deftest clatter-test-batch-reaction-message-ceiling ()
+  "A reaction-only batch cannot bypass the retained event count ceiling."
+  (clatter-test--with-batch-session conn proc
+    (let ((clatter-max-batch-messages 1)
+          reason)
+      (let ((clatter-disconnect-hook
+             (list (lambda (_network why) (setq reason why)))))
+        (clatter-test--batch-input
+         conn ":server BATCH +a chathistory #x"
+         "@batch=a;+draft/react=👍;+reply=p :alice!u@host TAGMSG #x")
+        (should (= 1 (clatter-connection-batch-message-count conn)))
+        (clatter-test--batch-input
+         conn "@batch=a;+draft/react=❤;+reply=p :bob!u@host TAGMSG #x")
+        (should (string-match-p "retained batch messages.*limit 1" reason))
+        (should-not (process-live-p proc))
+        (clatter-test--batch-resources-empty conn)))))
 
 ;; --- BOT tag ---
 

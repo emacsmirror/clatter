@@ -348,9 +348,22 @@ input area:
   from the message action menu, =C-c C-a=), which copies that message into the
   secondary selection.
 
-The selection is "sticky": it persists until you replace it, so you can fire
-several reactions at the same message. Clatter clears it automatically after a
-=/reply=. If nothing is selected, clatter prompts you to select a message first.
+Clatter clears the secondary selection after =/reply= or =/react=. If nothing
+is selected, or the selected message has no server-provided message ID, select
+a message with an ID first.
+
+Reactions appear as emoji/count badges below retained messages in channels and
+private queries, including history playback. Repeated reactions from the same
+sender do not increase the count. The optional feed updates existing copies
+only; it does not import historical parents or add reaction-only inbox rows.
+Reactions for messages no longer in the buffer are discarded.
+
+Sending =/react= requires a connected server with =message-tags= support and a
+selected message carrying a =msgid=. Clatter sends =+draft/react= with =+reply=
+via =TAGMSG=; the server and other clients must support this convention.
+With =echo-message=, the badge appears when the server echoes the reaction;
+without it, Clatter displays the reaction locally after sending. A local badge
+is not a server delivery acknowledgement. There is no reaction removal command.
 
 ** Channel Management
 
@@ -699,10 +712,11 @@ tails, not per process chunk.  The 64 KiB default permits the IRCv3 maximum
 it is independent of the outgoing =clatter-max-line-length=.
 
 Batch limits apply per connection across both unfinished and CAP-deferred
-batches.  String accounting includes batch IDs/types/targets, message string
-fields (sender, text, TARGETS target), and retained =msgid=/reply-to properties;
-shared strings count per entry.  Non-string fields are bounded by the message
-count.  Delivery releases accounting before hooks run.  Exceeding any ceiling
+batches. String accounting includes batch IDs/types/targets, message strings,
+reaction emoji/parent IDs/targets, and retained =msgid=/reply-to properties;
+shared strings count per entry. The message limit counts retained conversation
+messages and reaction events. Delivery releases accounting before hooks run.
+Exceeding any ceiling
 aborts the connection with a visible reason and discards its unfinished/deferred
 batches, never delivering truncated history.  Normal reconnect policy still
 applies.  Raise these limits when intentionally requesting larger history.

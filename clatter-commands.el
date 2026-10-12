@@ -930,21 +930,24 @@ Uses the IRCv3 +reply tag to thread the response."
 (defun clatter-cmd-react (args)
   "React to the selected message with the emoji in ARGS.
 Usage: /react EMOJI.
-Uses +draft/react tag via TAGMSG."
+Uses +draft/react and +reply tags via TAGMSG."
   (let* ((emoji (string-trim args))
          (msgid (and mouse-secondary-overlay
                      (eq (current-buffer) (overlay-buffer mouse-secondary-overlay))
                      (get-text-property (overlay-start mouse-secondary-overlay) 'clatter-msgid)))
          (tags `(("+draft/react" . ,emoji)
-                 ("+draft/reply" . ,msgid)))
+                 ("+reply" . ,msgid)))
          (target clatter--target)
-         (conn (clatter--current-conn)))
+         (conn (clatter--current-conn))
+         (proc (and conn (clatter-connection-process conn))))
     (cond
      ((string-empty-p emoji)
       (message "Usage: /react <emoji>"))
      ((null msgid)
       (message "No message to react to (select a message using the secondary selection i.e. M-<mouse-1>)"))
-     ((null conn)
+     ((not (and conn (eq (clatter-connection-state conn) :connected)
+                proc (process-live-p proc)
+                (memq (process-status proc) '(open run))))
       (message "Not connected"))
      ((not (member "message-tags" (clatter-connection-cap-enabled conn)))
       (message "Server does not support the message-tags capability; reactions unavailable"))
@@ -952,6 +955,17 @@ Uses +draft/react tag via TAGMSG."
       (message "Server rejected TAGMSG; reactions unavailable on this network"))
      (t
       (clatter-send conn (clatter-irc-tagmsg target tags))
+      ;; `clatter-send' can refuse a stale socket or synchronously kill it
+      ;; on write failure.  Neither case is a successful local reaction.
+      (when (and (eq proc (clatter-connection-process conn))
+                 (eq (clatter-connection-state conn) :connected)
+                 (process-live-p proc)
+                 (memq (process-status proc) '(open run))
+                 (not (member "echo-message"
+                              (clatter-connection-cap-enabled conn))))
+        (run-hook-with-args 'clatter-react-hook
+                            conn (list (clatter-connection-nick conn) nil nil)
+                            target emoji msgid))
       ; Clear secondary selection
       (save-mark-and-excursion (secondary-selection-to-region))))))
 

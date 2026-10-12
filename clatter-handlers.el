@@ -156,14 +156,18 @@ so sent-message tracking still has a bounded ring size.")
 
 ;; --- Main Dispatch ---
 
-(defmacro clatter--set-unprefixed (target prefixes)
-  "Trim TARGET's prefix character if within PREFIXES.
-Return the trimmed character."
+(defmacro clatter--set-unprefixed (target prefixes &optional discard)
+  "Trim a status prefix from TARGET when a channel name follows it.
+PREFIXES lists advertised status characters.  Return the trimmed character
+unless DISCARD omits its construction."
   `(when (and ,prefixes
-              (> (length ,target) 1)
-              (seq-contains-p ,prefixes (aref ,target 0)))
-     (prog1 (string (aref ,target 0))
-       (setq ,target (substring ,target 1)))))
+              (> (length ,target) 2)
+              (seq-contains-p ,prefixes (aref ,target 0))
+              (clatter-channel-prefix-p (aref ,target 1)))
+     ,(if discard
+          `(setq ,target (substring ,target 1))
+        `(prog1 (string (aref ,target 0))
+           (setq ,target (substring ,target 1))))))
 
 (defun clatter--prepend-status-prefix (status-prefix text)
   "Prepend a human-readable description of STATUS-PREFIX to TEXT."
@@ -173,6 +177,23 @@ Return the trimmed character."
                          (t (format "[%s]" status-prefix)))))
         (concat (propertize label 'face 'clatter-notice) " " text))
     text))
+
+(defun clatter--handle-reaction (conn sender target parsed-tags)
+  "Deliver or retain SENDER's reaction to TARGET on CONN from PARSED-TAGS."
+  (let ((emoji (or (clatter-get-parsed-tag parsed-tags "+draft/react")
+                   (clatter-get-parsed-tag parsed-tags "draft/react")))
+        (msgid (or (clatter-get-parsed-tag parsed-tags "+reply")
+                   (clatter-get-parsed-tag parsed-tags "+draft/reply")
+                   (clatter-get-parsed-tag parsed-tags "draft/reply")))
+        (batch-id (clatter-get-parsed-tag parsed-tags "batch")))
+    (when (and emoji msgid)
+      (if batch-id
+          (clatter--retain-batch-message
+           conn batch-id
+           (list :type 'react :sender (clatter-prefix-nick sender)
+                 :emoji emoji :parent-msgid msgid :target target
+                 :time (clatter-get-parsed-server-time parsed-tags)))
+        (run-hook-with-args 'clatter-react-hook conn sender target emoji msgid)))))
 
 (defun clatter-dispatch-message (conn msg)
   "Dispatch parsed MSG on CONN to the appropriate handler."
@@ -378,6 +399,8 @@ Return the trimmed character."
               (server-time (clatter-get-parsed-server-time parsed-tags))
               (batch-id (clatter-get-parsed-tag parsed-tags "batch"))
               (msgid (clatter-get-parsed-tag parsed-tags "msgid"))
+              (react-emoji (or (clatter-get-parsed-tag parsed-tags "+draft/react")
+                               (clatter-get-parsed-tag parsed-tags "draft/react")))
               (is-bot (assoc "bot" parsed-tags))
               (reply-to (or (clatter-get-parsed-tag parsed-tags "+draft/reply")
                             (clatter-get-parsed-tag parsed-tags "+reply")
@@ -397,33 +420,35 @@ Return the trimmed character."
          (when (and msgid
                     (string-equal-ignore-case (clatter-connection-nick conn) sender-nick))
            (clatter-sent-add (clatter-connection-network-id conn) msgid))
+         (clatter--handle-reaction conn parsed-prefix target parsed-tags)
          ;; CTCP
-         (if (and (> (length raw-text) 1)
-                  (= (aref raw-text 0) 1)
-                  (= (aref raw-text (1- (length raw-text))) 1))
-             (clatter--handle-ctcp conn parsed-prefix target raw-text status-prefix
-                                  msgid server-time is-bot reply-to is-reply-to-me
-                                  batch-id)
-           (let ((text (clatter--prepend-status-prefix status-prefix raw-text)))
-             ;; Mark sender as bot if draft/bot tag present
-             (when is-bot
-               (setq sender-nick (propertize sender-nick 'clatter-bot t))
-               (setf (car parsed-prefix) sender-nick))
-             ;; Attach msgid and reply-to as text properties
-             (when msgid
-               (setq text (propertize text 'clatter-msgid msgid)))
-             (when reply-to
-               (setq text (propertize text 'clatter-reply-to reply-to)))
-             (when is-reply-to-me
-               (setq text (propertize text 'clatter-reply-to-me t)))
-             (cond
-              ;; Batched message
-              (batch-id
-               (clatter--accumulate-batch conn batch-id sender-nick text server-time))
-              ;; Normal message
-              (t
-               (run-hook-with-args 'clatter-privmsg-hook
-                                   conn parsed-prefix target text server-time)))))))
+         (unless (and react-emoji reply-to (string-empty-p raw-text))
+           (if (and (> (length raw-text) 1)
+                    (= (aref raw-text 0) 1)
+                    (= (aref raw-text (1- (length raw-text))) 1))
+               (clatter--handle-ctcp conn parsed-prefix target raw-text status-prefix
+                                    msgid server-time is-bot reply-to is-reply-to-me
+                                    batch-id)
+             (let ((text (clatter--prepend-status-prefix status-prefix raw-text)))
+               ;; Mark sender as bot if draft/bot tag present
+               (when is-bot
+                 (setq sender-nick (propertize sender-nick 'clatter-bot t))
+                 (setf (car parsed-prefix) sender-nick))
+               ;; Attach msgid and reply-to as text properties
+               (when msgid
+                 (setq text (propertize text 'clatter-msgid msgid)))
+               (when reply-to
+                 (setq text (propertize text 'clatter-reply-to reply-to)))
+               (when is-reply-to-me
+                 (setq text (propertize text 'clatter-reply-to-me t)))
+               (cond
+                ;; Batched message
+                (batch-id
+                 (clatter--accumulate-batch conn batch-id sender-nick text server-time))
+                ;; Normal message
+                (t
+                 (run-hook-with-args 'clatter-privmsg-hook
+                                     conn parsed-prefix target text server-time))))))))
 
       ;; --- NOTICE ---
       ("NOTICE"
@@ -585,20 +610,17 @@ Return the trimmed character."
               (nick (clatter-prefix-nick parsed-prefix))
               (target (nth 0 params))
               (parsed-tags (clatter-parse-tags tags))
+              (batch-id (clatter-get-parsed-tag parsed-tags "batch"))
               (typing-state (cdr (assoc "+typing" parsed-tags)))
-              (react-emoji (or (cdr (assoc "+draft/react" parsed-tags))
-                               (cdr (assoc "draft/react" parsed-tags))))
-              (react-msgid (or (cdr (assoc "+draft/reply" parsed-tags))
-                               (cdr (assoc "+reply" parsed-tags))
-                               (cdr (assoc "draft/reply" parsed-tags)))))
+              (statusmsg-chars (let ((isup (clatter-connection-isupport conn)))
+                                 (when isup (gethash "STATUSMSG" isup)))))
+         (clatter--set-unprefixed target statusmsg-chars t)
          ;; Typing indicator
-         (when (and typing-state
+         (when (and (not batch-id) typing-state
                     (not (string-equal nick (clatter-connection-nick conn))))
            (run-hook-with-args 'clatter-typing-hook conn parsed-prefix target typing-state))
          ;; Reaction
-         (when (and react-emoji react-msgid)
-           (run-hook-with-args 'clatter-react-hook
-                               conn parsed-prefix target react-emoji react-msgid))))
+         (clatter--handle-reaction conn parsed-prefix target parsed-tags)))
 
       ;; --- CHATHISTORY (IRCv3 - TARGETS response entries) ---
       ;; Format: CHATHISTORY TARGETS <target> <timestamp>.  The timestamp is
