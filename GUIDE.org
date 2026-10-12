@@ -1274,6 +1274,10 @@ Open the debug buffer with =M-x clatter-rawlog-open=. Incoming lines are green
 (=<<=), outgoing are blue (=>>=). Press =C= in that buffer to see the negotiated
 capabilities, =t= to toggle the parsed breakdown.
 
+Incoming bursts are scanned without copying the remaining chunk for every
+line; only the final incomplete line is retained. Input received while a
+message handler is running stays ordered after already queued complete lines.
+
 ** Connection Issues
 
 - =M-x clatter-status= shows state, nick and capability count per connection.

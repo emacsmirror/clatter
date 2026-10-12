@@ -196,32 +196,51 @@ Accumulates partial lines and dispatches complete ones."
       (setf (clatter-connection-recv-buffer conn)
             (concat (string-to-multibyte (or (clatter-connection-recv-buffer conn) ""))
                     (string-to-multibyte string)))
-      ;; Guard against process filter re-entrancy using a busy flag
+      ;; While busy, recv-buffer holds only reentrant input.  Scan the captured
+      ;; chunk by offset so each line does not copy its entire remaining tail.
       (unless (process-get proc :clatter-filter-busy)
-        (process-put proc :clatter-filter-busy t)
-        (unwind-protect
-            ;; Process complete lines (terminated by CRLF or LF).  Strip any
-            ;; number of trailing CRs: the builtin network transport auto
-            ;; converts CRLF to LF, but the external subprocess pipe does not,
-            ;; so the raw CR must be removed here to avoid trailing ^M.
-            (while (string-match "\r*\n" (or (clatter-connection-recv-buffer conn) ""))
-              (let* ((data (clatter-connection-recv-buffer conn))
-                     (line (substring data 0 (match-beginning 0))))
-                ;; Slice the buffer *before* handling the line.
-                ;; If a re-entrant call happens during `clatter--handle-line`,
-                ;; it will safely append to this remainder.
-                (setf (clatter-connection-recv-buffer conn) (substring data (match-end 0)))
-                (when (> (length line) 0)
-                  ;; Log raw lines to watchdog during registration
-                  (unless (eq (clatter-connection-state conn) :connected)
-                    (clatter--watchdog "RECV %s %s" network-id
-                                       (substring line 0 (min (length line) 200))))
-                  (clatter--debug "<< %s" line)
-                  (run-hook-with-args 'clatter-rawlog-incoming-hook
-                                      network-id line)
-                  (clatter--handle-line conn line))))
-          ;; Always release the lock, even if an error is thrown during parsing
-          (process-put proc :clatter-filter-busy nil))))))
+        (let ((data (clatter-connection-recv-buffer conn))
+              (start 0))
+          (process-put proc :clatter-filter-busy t)
+          (setf (clatter-connection-recv-buffer conn) nil)
+          (unwind-protect
+              (while (and data (eq proc (clatter-connection-process conn)))
+                ;; Strip trailing CRs for both the builtin transport's LF and
+                ;; the external TLS subprocess's unconverted CRLF.
+                (while (and (eq proc (clatter-connection-process conn))
+                            (string-match "\r*\n" data start))
+                  (let ((line (substring data start (match-beginning 0))))
+                    ;; Mark this line consumed before any callback can reenter.
+                    (setq start (match-end 0))
+                    (when (> (length line) 0)
+                      ;; Log raw lines to watchdog during registration
+                      (unless (eq (clatter-connection-state conn) :connected)
+                        (clatter--watchdog "RECV %s %s" network-id
+                                           (substring line 0 (min (length line) 200))))
+                      (clatter--debug "<< %s" line)
+                      (run-hook-with-args 'clatter-rawlog-incoming-hook
+                                          network-id line)
+                      (when (eq proc (clatter-connection-process conn))
+                        (clatter--handle-line conn line)))))
+                (when (eq proc (clatter-connection-process conn))
+                  (if (clatter-connection-recv-buffer conn)
+                      ;; Older complete lines precede reentrant input; only
+                      ;; their final partial line needs joining to that input.
+                      (setq data (concat (substring data start)
+                                         (clatter-connection-recv-buffer conn))
+                            start 0)
+                    (setf (clatter-connection-recv-buffer conn)
+                          (substring data start))
+                    (setq data nil))
+                  (when data
+                    (setf (clatter-connection-recv-buffer conn) nil))))
+            ;; Preserve undispatched bytes on error, but never restore data
+            ;; after a callback disconnects or installs a replacement process.
+            (when (and data (eq proc (clatter-connection-process conn)))
+              (setf (clatter-connection-recv-buffer conn)
+                    (concat (substring data start)
+                            (or (clatter-connection-recv-buffer conn) ""))))
+            (process-put proc :clatter-filter-busy nil)))))))
 
 (defun clatter--handle-line (conn line)
   "Parse and handle a single IRC LINE on CONN.
