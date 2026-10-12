@@ -2717,12 +2717,15 @@ the buffer margin-width variables."
   (let* ((network (clatter-connection-network-id conn))
          (my-nick (clatter-connection-nick conn))
          (sender-nick (clatter-prefix-nick sender))
+         (own-join (string-equal-ignore-case sender-nick my-nick))
          (buf (clatter-get-or-create-buffer network channel))
          (is-muted (clatter-muted-p sender network))
          (invisible (clatter-sender-invisibility sender network)))
     (clatter-ui-setup-buffer-if-needed buf)
+    (when own-join
+      (clatter-nick-clear buf))
     (clatter-nick-add buf sender-nick)
-    (when (string-equal sender-nick my-nick)
+    (when own-join
       (clatter-send conn (clatter-irc-names channel))
       (when clatter-display-on-join
         (display-buffer buf)))
@@ -3054,8 +3057,10 @@ otherwise (the process filter may run in any buffer, so don't rely on
       (clatter-insert-system buf line))))
 
 (defun clatter-ui--on-disconnect (network-id event)
-  "Handle disconnect EVENT for UI: show message in all NETWORK-ID buffers."
+  "Clear channel state and show disconnect EVENT in NETWORK-ID buffers."
   (clatter-ui--clear-pending-self-echoes network-id)
+  (dolist (buf (clatter-channel-buffers network-id))
+    (clatter-nick-clear buf))
   (dolist (buf (clatter-all-buffers network-id))
     (when (buffer-live-p buf)
       (clatter-insert-error buf

@@ -281,21 +281,40 @@ Return nil when the ring is empty or N is out of range."
         (puthash (downcase nick) (cons (or prefix "") nick) clatter--nick-list)))))
 
 (defun clatter-nick-remove (buffer nick)
-  "Remove NICK from BUFFER's nick list."
+  "Remove NICK and its account state from BUFFER."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (when clatter--nick-list
-        (remhash (downcase nick) clatter--nick-list)))))
+      (let ((key (downcase nick)))
+        (when clatter--nick-list
+          (remhash key clatter--nick-list))
+        (when clatter--nick-accounts
+          (remhash key clatter--nick-accounts))))))
 
 (defun clatter-nick-rename (buffer old-nick new-nick)
-  "Rename OLD-NICK to NEW-NICK in BUFFER's nick list."
+  "Rename OLD-NICK to NEW-NICK in BUFFER, moving its account state."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let ((old-key (downcase old-nick))
+            (new-key (downcase new-nick)))
+        (when clatter--nick-list
+          (let ((prefix (car (gethash old-key clatter--nick-list))))
+            (remhash old-key clatter--nick-list)
+            (puthash new-key (cons (or prefix "") new-nick) clatter--nick-list)))
+        (when clatter--nick-accounts
+          (let ((account (gethash old-key clatter--nick-accounts)))
+            (remhash old-key clatter--nick-accounts)
+            (remhash new-key clatter--nick-accounts)
+            (when account
+              (puthash new-key account clatter--nick-accounts))))))))
+
+(defun clatter-nick-clear (buffer)
+  "Clear membership and account state in BUFFER."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when clatter--nick-list
-        (let* ((prefix-and-nick (gethash (downcase old-nick) clatter--nick-list))
-               (prefix (car prefix-and-nick)))
-          (remhash (downcase old-nick) clatter--nick-list)
-          (puthash (downcase new-nick) (cons (or prefix "") new-nick) clatter--nick-list))))))
+        (clrhash clatter--nick-list))
+      (when clatter--nick-accounts
+        (clrhash clatter--nick-accounts)))))
 
 (defun clatter-nick-list (buffer)
   "Return sorted list of (nick . prefix) pairs for BUFFER."

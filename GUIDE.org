@@ -320,6 +320,10 @@ Killing a clatter buffer the normal way (=C-x k=, ibuffer, etc.) tears it down
 cleanly without needing =/close= or =/quit=: killing a channel buffer parts the
 channel, and killing a server buffer disconnects that network.
 
+Channel nick and account state reflects current membership: departing users are
+removed, and disconnecting or rejoining clears old state before it refreshes on
+reconnect. Existing buffers, message history and drafts are kept.
+
 ** Messaging
 
 | Command            | Aliases | Description                                                       |
