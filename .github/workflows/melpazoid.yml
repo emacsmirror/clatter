@@ -24,6 +24,6 @@ jobs:
         RECIPE: (clatter :fetcher github :repo "parenworks/clatter.el")
         # set this to true if warnings should be treated as errors:
         WARN_IS_ERROR: false
-        # set this to false (or remove it) if the package isn't on MELPA:
-        EXIST_OK: false
+        # clatter is already published on MELPA; check updates, not name availability.
+        EXIST_OK: true
       run: echo $GITHUB_REF && make -C ~/melpazoid
