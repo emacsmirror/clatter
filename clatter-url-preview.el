@@ -101,7 +101,7 @@ cache hit or asynchronous request detaches them."
   "Extract the <title> content from HTML string."
   (when (string-match "<title[^>]*>\\([^<]*\\)</title>" html)
     (let ((raw (match-string 1 html)))
-      (setq raw (replace-regexp-in-string "[\n\r\t]+" " " raw))
+      (setq raw (replace-regexp-in-string "[ \n\r\t]+" " " raw))
       (setq raw (string-trim raw))
       ;; Decode HTML entities
       (setq raw (replace-regexp-in-string "&amp;" "&" raw))
@@ -355,7 +355,11 @@ behind by buffer truncation."
            (pos 0)
            requests)
       (when buf
-        (while (string-match "https?://[^ \t\n\r<>\"']+" text pos)
+        (while (string-match
+                ;; ponytail: (string 34) = double-quote, kept out of the
+                ;; string literal so melpazoid's shlex header parser copes.
+                (concat "https?://[^ \n\r\t<>'" (string 34) "]+")
+                text pos)
           (let ((url (match-string 0 text)))
             (setq pos (match-end 0))
             (when (and (clatter-url-preview--should-fetch-p url)
